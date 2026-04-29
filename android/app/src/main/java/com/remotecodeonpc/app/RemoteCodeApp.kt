@@ -1,0 +1,404 @@
+package com.remotecodeonpc.app
+
+import androidx.compose.animation.*
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.*
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.*
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.lifecycle.viewmodel.compose.viewModel
+import com.remotecodeonpc.app.ui.navigation.Screen
+import com.remotecodeonpc.app.ui.screens.*
+import com.remotecodeonpc.app.ui.theme.*
+import com.remotecodeonpc.app.viewmodel.MainViewModel
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun RemoteCodeApp(viewModel: MainViewModel = viewModel()) {
+    val state by viewModel.uiState.collectAsState()
+    var showConnectionDialog by remember { mutableStateOf(!state.isConnected) }
+
+    // Если потеряли соединение — показываем диалог
+    LaunchedEffect(state.isConnected) {
+        if (!state.isConnected && state.connectionError != null) {
+            showConnectionDialog = true
+        }
+    }
+
+    Scaffold(
+        modifier = Modifier.fillMaxSize(),
+        bottomBar = {
+            if (state.isConnected) {
+                NavigationBar(
+                    containerColor = DarkSurface,
+                    contentColor = TextPrimary,
+                    tonalElevation = 0.dp
+                ) {
+                    Screen.items.forEach { screen ->
+                        NavigationBarItem(
+                            icon = {
+                                Icon(
+                                    screen.icon,
+                                    contentDescription = screen.title
+                                )
+                            },
+                            label = { Text(screen.title, fontSize = 11.sp) },
+                            selected = state.currentScreen == screen.route,
+                            onClick = { viewModel.navigateTo(screen.route) },
+                            colors = NavigationBarItemDefaults.colors(
+                                selectedIconColor = AccentBlue,
+                                selectedTextColor = AccentBlue,
+                                unselectedIconColor = TextSecondary,
+                                unselectedTextColor = TextSecondary,
+                                indicatorColor = AccentBlue.copy(alpha = 0.15f)
+                            )
+                        )
+                    }
+                }
+            }
+        }
+    ) { paddingValues ->
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(DarkBackground)
+                .padding(paddingValues)
+        ) {
+            if (state.isConnected) {
+                // Основные экраны
+                when (state.currentScreen) {
+                    "dashboard" -> DashboardScreen(
+                        status = state.status,
+                        diagnostics = state.diagnostics,
+                        folders = state.folders,
+                        isConnected = state.isConnected,
+                        onNavigateToChat = { viewModel.navigateTo("chat") },
+                        onNavigateToFiles = { viewModel.navigateTo("files") },
+                        onNavigateToDiagnostics = { viewModel.navigateTo("diagnostics") }
+                    )
+                    "chat" -> ChatScreen(
+                        agents = state.chatAgents,
+                        selectedAgent = state.selectedAgent,
+                        chatHistory = state.chatHistory,
+                        conversations = state.conversations,
+                        currentChatId = state.currentChatId,
+                        isChatLoading = state.isChatLoading,
+                        chatError = state.chatError,
+                        isThinking = state.isThinking,
+                        onSendMessage = { viewModel.sendChatMessage(it) },
+                        onSelectAgent = { viewModel.selectAgent(it) },
+                        onNewChat = { viewModel.newChat() },
+                        onSwitchChat = { viewModel.switchToChat(it) }
+                    )
+                    "files" -> FilesScreen(
+                        folders = state.folders,
+                        currentFiles = state.currentFiles,
+                        fileContent = state.fileContent,
+                        isLoading = state.isLoadingFiles,
+                        onNavigateToDir = { viewModel.loadFileTree(it) },
+                        onOpenFile = { viewModel.loadFileContent(it) },
+                        onOpenFolder = { viewModel.openFolder(it); viewModel.loadFileTree(it) },
+                        onGoUp = {
+                            state.currentFiles?.let { tree ->
+                                val parent = tree.path.substringBeforeLast("\\")
+                                    .substringBeforeLast("/")
+                                if (parent.length > 3) viewModel.loadFileTree(parent)
+                            }
+                        },
+                        onBack = { }
+                    )
+                    "diagnostics" -> DiagnosticsScreen(
+                        diagnostics = state.diagnostics,
+                        onRefresh = { viewModel.loadDiagnostics() }
+                    )
+                    "settings" -> SettingsScreen(
+                        serverConfig = state.serverConfig,
+                        status = state.status,
+                        isConnected = state.isConnected,
+                        onUpdateConfig = { viewModel.updateServerConfig(it) },
+                        onReconnect = {
+                            viewModel.disconnect()
+                            showConnectionDialog = true
+                        },
+                        onDisconnect = { viewModel.disconnect() }
+                    )
+                }
+            } else {
+                // Экран подключения
+                ConnectionScreen(
+                    serverConfig = state.serverConfig,
+                    isConnecting = state.isConnecting,
+                    error = state.connectionError,
+                    onUpdateConfig = { viewModel.updateServerConfig(it) },
+                    onConnect = { viewModel.connect() }
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun ConnectionScreen(
+    serverConfig: ServerConfig,
+    isConnecting: Boolean,
+    error: String?,
+    onUpdateConfig: (ServerConfig) -> Unit,
+    onConnect: () -> Unit
+) {
+    var host by remember { mutableStateOf(serverConfig.host) }
+    var port by remember { mutableStateOf(serverConfig.port.toString()) }
+    var authToken by remember { mutableStateOf(serverConfig.authToken) }
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(DarkBackground)
+            .padding(32.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center
+    ) {
+        Icon(
+            Icons.Default.Computer,
+            contentDescription = null,
+            tint = AccentBlue,
+            modifier = Modifier.size(80.dp)
+        )
+        Spacer(modifier = Modifier.height(16.dp))
+        Text(
+            "Remote Code on PC",
+            color = TextBright,
+            fontSize = 24.sp,
+            fontWeight = FontWeight.Bold
+        )
+        Text(
+            "Подключитесь к VS Code на ПК",
+            color = TextSecondary,
+            fontSize = 14.sp,
+            modifier = Modifier.padding(bottom = 32.dp)
+        )
+
+        // IP адрес
+        OutlinedTextField(
+            value = host,
+            onValueChange = {
+                host = it
+                onUpdateConfig(serverConfig.copy(host = it))
+            },
+            label = { Text("IP-адрес ПК", color = TextSecondary) },
+            placeholder = { Text("192.168.1.100", color = TextSecondary.copy(alpha = 0.5f)) },
+            singleLine = true,
+            leadingIcon = { Icon(Icons.Default.Wifi, contentDescription = null, tint = AccentBlue) },
+            modifier = Modifier.fillMaxWidth(),
+            colors = outlinedFieldColors(),
+            shape = androidx.compose.foundation.shape.RoundedCornerShape(12.dp)
+        )
+        Spacer(modifier = Modifier.height(12.dp))
+
+        // Порт
+        OutlinedTextField(
+            value = port,
+            onValueChange = {
+                port = it
+                onUpdateConfig(serverConfig.copy(port = it.toIntOrNull() ?: 8799))
+            },
+            label = { Text("Порт", color = TextSecondary) },
+            placeholder = { Text("8799", color = TextSecondary.copy(alpha = 0.5f)) },
+            singleLine = true,
+            leadingIcon = { Icon(Icons.Default.Tag, contentDescription = null, tint = AccentBlue) },
+            modifier = Modifier.fillMaxWidth(),
+            colors = outlinedFieldColors(),
+            shape = androidx.compose.foundation.shape.RoundedCornerShape(12.dp)
+        )
+        Spacer(modifier = Modifier.height(12.dp))
+
+        // Токен (опционально)
+        OutlinedTextField(
+            value = authToken,
+            onValueChange = {
+                authToken = it
+                onUpdateConfig(serverConfig.copy(authToken = it))
+            },
+            label = { Text("Токен (опционально)", color = TextSecondary) },
+            placeholder = { Text("Оставьте пустым", color = TextSecondary.copy(alpha = 0.5f)) },
+            singleLine = true,
+            leadingIcon = { Icon(Icons.Default.Lock, contentDescription = null, tint = AccentBlue) },
+            modifier = Modifier.fillMaxWidth(),
+            colors = outlinedFieldColors(),
+            shape = androidx.compose.foundation.shape.RoundedCornerShape(12.dp)
+        )
+
+        // Ошибка
+        error?.let {
+            Spacer(modifier = Modifier.height(12.dp))
+            Surface(
+                color = ErrorRed.copy(alpha = 0.15f),
+                shape = androidx.compose.foundation.shape.RoundedCornerShape(8.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(12.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(Icons.Default.Error, contentDescription = null, tint = ErrorRed, modifier = Modifier.size(18.dp))
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(it, color = ErrorRed, fontSize = 13.sp)
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(24.dp))
+
+        // Кнопка подключения
+        Button(
+            onClick = onConnect,
+            enabled = host.isNotBlank() && !isConnecting,
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(52.dp),
+            colors = ButtonDefaults.buttonColors(
+                containerColor = AccentBlue,
+                disabledContainerColor = AccentBlue.copy(alpha = 0.3f)
+            ),
+            shape = androidx.compose.foundation.shape.RoundedCornerShape(12.dp)
+        ) {
+            if (isConnecting) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(20.dp),
+                    strokeWidth = 2.dp,
+                    color = TextBright
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text("Подключение...", fontSize = 16.sp)
+            } else {
+                Icon(Icons.Default.PlayArrow, contentDescription = null)
+                Spacer(modifier = Modifier.width(8.dp))
+                Text("Подключиться", fontSize = 16.sp)
+            }
+        }
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        Text(
+            "Убедитесь, что расширение Remote Code on PC\nзапущено в VS Code на вашем ПК",
+            color = TextSecondary.copy(alpha = 0.6f),
+            fontSize = 12.sp,
+            textAlign = TextAlign.Center
+        )
+    }
+}
+
+@Composable
+private fun SettingsScreen(
+    serverConfig: ServerConfig,
+    status: WorkspaceStatus?,
+    isConnected: Boolean,
+    onUpdateConfig: (ServerConfig) -> Unit,
+    onReconnect: () -> Unit,
+    onDisconnect: () -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(DarkBackground)
+            .padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        Text("Настройки", color = TextBright, fontSize = 20.sp, fontWeight = FontWeight.Bold)
+
+        // Информация о подключении
+        Card(
+            colors = CardDefaults.cardColors(containerColor = CardBg),
+            shape = androidx.compose.foundation.shape.RoundedCornerShape(12.dp)
+        ) {
+            Column(modifier = Modifier.padding(16.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Default.Info, contentDescription = null, tint = AccentBlue)
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Подключение", color = TextBright, fontWeight = FontWeight.SemiBold)
+                }
+                Spacer(modifier = Modifier.height(12.dp))
+                InfoSettingRow("Статус", if (isConnected) "🟢 Подключено" else "🔴 Отключено")
+                InfoSettingRow("Сервер", "${serverConfig.host}:${serverConfig.port}")
+                InfoSettingRow("Версия VS Code", status?.version ?: "—")
+                InfoSettingRow("Платформа", status?.platform ?: "—")
+            }
+        }
+
+        // VS Code информация
+        status?.let { s ->
+            Card(
+                colors = CardDefaults.cardColors(containerColor = CardBg),
+                shape = androidx.compose.foundation.shape.RoundedCornerShape(12.dp)
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Default.Computer, contentDescription = null, tint = AccentGreen)
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("VS Code", color = TextBright, fontWeight = FontWeight.SemiBold)
+                    }
+                    Spacer(modifier = Modifier.height(12.dp))
+                    InfoSettingRow("Приложение", s.appName)
+                    InfoSettingRow("Uptime", "${s.uptime.toInt()} сек")
+                    InfoSettingRow("Память", "${s.memoryUsage / 1024 / 1024} MB")
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.weight(1f))
+
+        // Кнопки управления
+        Button(
+            onClick = onReconnect,
+            modifier = Modifier.fillMaxWidth().height(48.dp),
+            colors = ButtonDefaults.buttonColors(containerColor = AccentBlue),
+            shape = androidx.compose.foundation.shape.RoundedCornerShape(12.dp)
+        ) {
+            Icon(Icons.Default.Refresh, contentDescription = null)
+            Spacer(modifier = Modifier.width(8.dp))
+            Text("Переподключиться")
+        }
+
+        OutlinedButton(
+            onClick = onDisconnect,
+            modifier = Modifier.fillMaxWidth().height(48.dp),
+            colors = ButtonDefaults.outlinedButtonColors(contentColor = ErrorRed),
+            shape = androidx.compose.foundation.shape.RoundedCornerShape(12.dp)
+        ) {
+            Icon(Icons.Default.PowerSettingsNew, contentDescription = null)
+            Spacer(modifier = Modifier.width(8.dp))
+            Text("Отключиться")
+        }
+    }
+}
+
+@Composable
+private fun InfoSettingRow(label: String, value: String) {
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp),
+        horizontalArrangement = Arrangement.SpaceBetween
+    ) {
+        Text(label, color = TextSecondary, fontSize = 14.sp)
+        Text(value, color = TextPrimary, fontSize = 14.sp, fontWeight = FontWeight.Medium)
+    }
+}
+
+@Composable
+private fun outlinedFieldColors() = OutlinedTextFieldDefaults.colors(
+    focusedTextColor = TextPrimary,
+    unfocusedTextColor = TextPrimary,
+    focusedBorderColor = AccentBlue,
+    unfocusedBorderColor = DividerColor,
+    cursorColor = AccentBlue,
+    focusedContainerColor = DarkSurfaceVariant,
+    unfocusedContainerColor = DarkSurfaceVariant,
+    focusedLabelColor = AccentBlue,
+    unfocusedLabelColor = TextSecondary,
+    focusedLeadingIconColor = AccentBlue,
+    unfocusedLeadingIconColor = TextSecondary
+)

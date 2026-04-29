@@ -1,0 +1,67 @@
+{
+  "name": "remote-code-on-pc",
+  "displayName": "Remote Code on PC",
+  "description": "HTTP/WebSocket сервер для удаленного управления VS Code с Android-приложения",
+  "version": "1.0.0",
+  "publisher": "remote-code-on-pc",
+  "license": "MIT",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [
+    "onCommand:remoteCodeOnPC.start"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "remoteCodeOnPC.start",
+        "title": "Remote Code on PC: Запустить сервер"
+      },
+      {
+        "command": "remoteCodeOnPC.stop",
+        "title": "Remote Code on PC: Остановить сервер"
+      },
+      {
+        "command": "remoteCodeOnPC.status",
+        "title": "Remote Code on PC: Показать статус"
+      }
+    ],
+    "configuration": {
+      "title": "Remote Code on PC",
+      "properties": {
+        "remoteCodeOnPC.port": {
+          "type": "number",
+          "default": 8799,
+          "description": "Порт HTTP/WebSocket сервера"
+        },
+        "remoteCodeOnPC.host": {
+          "type": "string",
+          "default": "0.0.0.0",
+          "description": "Хост для сервера (0.0.0.0 для всех интерфейсов)"
+        },
+        "remoteCodeOnPC.authToken": {
+          "type": "string",
+          "default": "",
+          "description": "Токен авторизации (пусто — без пароля)"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "@types/vscode": "^1.85.0",
+    "typescript": "^5.3.0"
+  },
+  "dependencies": {
+    "ws": "^8.16.0"
+  }
+}

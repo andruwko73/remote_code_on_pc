@@ -1,0 +1,37 @@
+# ========== VS Code Extension ==========
+extension/node_modules/
+extension/out/
+extension/dist/
+extension/*.vsix
+extension/yarn.lock
+extension/package-lock.json
+
+# ========== Android ==========
+android/.gradle/
+android/build/
+android/app/build/
+android/app/release/
+android/local.properties
+android/.idea/
+android/*.iml
+android/app/*.iml
+android/captures/
+android/.externalNativeBuild/
+android/.cxx/
+*.apk
+*.aab
+*.ap_
+*.dex
+
+# ========== IDE ==========
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# ========== Env ==========
+.env
+.env.local
+*.log
