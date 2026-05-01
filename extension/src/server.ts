@@ -1673,7 +1673,13 @@ export class RemoteServer {
                     this.selectedWorkMode = msg.mode;
                     this.saveRemoteCodeState();
                     this.refreshPcChatPanel();
+                    if (msg.mode === 'local') {
+                        await this.showLocalUsageStatus();
+                    }
                 }
+                return;
+            case 'showUsageStatus':
+                await this.showLocalUsageStatus();
                 return;
             case 'showBranch':
                 await vscode.window.showInformationMessage(`Ветка Remote Code: ${this.getGitBranchLabel()}`);
@@ -1681,6 +1687,32 @@ export class RemoteServer {
             default:
                 await vscode.window.showInformationMessage(`Remote Code: ${action}`);
         }
+    }
+
+    private async showLocalUsageStatus(): Promise<void> {
+        let models: readonly vscode.LanguageModelChat[] = [];
+        try {
+            models = await vscode.lm.selectChatModels({});
+        } catch {
+            models = [];
+        }
+        const workspace = vscode.workspace.workspaceFolders?.[0]?.name || '??? ??????? ?????';
+        const modelNames = models
+            .map((model: any) => model.name || model.id || model.family || '')
+            .filter(Boolean)
+            .slice(0, 6)
+            .join(', ') || '??? ????????? ??????? VS Code LM';
+        await vscode.window.showInformationMessage(
+            [
+                '?????: ???????? ????????',
+                `Workspace: ${workspace}`,
+                `?????: ${this.getGitBranchLabel()}`,
+                `??????? ??????: ${this.selectedAgent}`,
+                `????????? ??????: ${modelNames}`,
+                '??????: VS Code API ?? ????????????? ?????? ??????? ???????; ???????? ??????????? ??????? ? ?????? ????????.'
+            ].join('\n'),
+            { modal: true }
+        );
     }
 
     private getCurrentThreadTitle(): string {
@@ -1733,15 +1765,15 @@ export class RemoteServer {
             ? this.selectedReasoningEffort
             : 'medium';
         const rows = messages.map(message => {
-            const role = message.role === 'user' ? 'Вы' : message.role === 'assistant' ? 'Remote Code' : 'Система';
+            const role = message.role === 'user' ? '??' : message.role === 'assistant' ? '' : '???????';
             const cls = message.role === 'user' ? 'user' : message.role === 'assistant' ? 'assistant' : 'system';
             const meta = [message.model, message.reasoningEffort ? this.reasoningEffortLabel(message.reasoningEffort) : '']
                 .filter(Boolean)
                 .join(' - ');
             return `<section class="msg ${cls}">
-                <div class="role">${this.escapeHtml(role)}</div>
-                ${meta ? `<div class="meta">${this.escapeHtml(meta)}</div>` : ''}
+                ${role ? `<div class="role">${this.escapeHtml(role)}</div>` : ''}
                 <pre>${this.escapeHtml(message.content)}</pre>
+                ${message.role === 'assistant' && meta ? `<div class="meta meta-bottom">${this.escapeHtml(meta)}</div>` : ''}
             </section>`;
         }).join('');
         return `<!doctype html>
@@ -1750,7 +1782,7 @@ export class RemoteServer {
 <meta charset="UTF-8">
 <style>
 html,body{height:100%}
-body{margin:0;background:#101112;color:#d7d7d7;font:15px/1.55 var(--vscode-font-family);display:flex;flex-direction:column}
+body{margin:0;background:#101112;color:#d7d7d7;font:14px/1.48 var(--vscode-font-family);display:flex;flex-direction:column}
 .top{height:44px;border-bottom:1px solid #202224;background:#101112;display:flex;align-items:center;gap:10px;padding:0 16px}
 .edit-icon{color:#9a9a9a;font-size:18px}
 .thread-title{font-size:16px;color:#f0f0f0;font-weight:700;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -1759,22 +1791,23 @@ body{margin:0;background:#101112;color:#d7d7d7;font:15px/1.55 var(--vscode-font-
 .icon-btn:hover{background:#1f2123;color:#e7e7e7}
 .pill-btn{height:30px;border:1px solid #2b2d30;border-radius:9px;background:#17191b;color:#bdbdbd;padding:0 10px;font:inherit;cursor:pointer}
 .pill-btn:hover{background:#222426;color:#e5e5e5}
-.messages{flex:1;overflow:auto;padding:26px min(4.5vw,54px) 18px}
-.msg{padding:6px 0 20px;margin:0;background:transparent;border:0;max-width:980px}
+.messages{flex:1;overflow:auto;padding:18px min(3.8vw,42px) 12px}
+.msg{padding:4px 0 16px;margin:0;background:transparent;border:0;max-width:1040px}
 .msg.user{max-width:620px;margin-left:auto;color:#f0f0f0}
 .msg.user .role,.msg.user .meta{display:none}
 .msg.user pre{background:#2a2b2d;border:1px solid #303235;border-radius:18px;padding:12px 16px}
 .msg.system pre{color:#aeb0b3}
-.role{font-weight:600;color:#dcdcdc;margin-bottom:7px}
-.meta{font-size:12px;color:#8e8e8e;margin:-2px 0 8px}
+.role{font-weight:600;color:#dcdcdc;margin-bottom:5px}
+.meta{font-size:12px;color:#8e8e8e;margin:-1px 0 6px}
+.meta-bottom{margin:8px 0 0;color:#858585}
 .assistant .role{color:#dcdcdc}.system .role{color:#e8b66b}
 pre{margin:0;white-space:pre-wrap;word-wrap:break-word;font:inherit}
-.composer-wrap{padding:10px min(4.5vw,54px) 16px;background:#101112}
-.composer{max-width:980px;margin:0 auto;border:1px solid #282a2d;background:#2b2b2d;border-radius:22px;padding:14px 16px 10px;display:flex;flex-direction:column;gap:10px;box-shadow:none}
+.composer-wrap{padding:8px min(3.8vw,42px) 14px;background:#101112}
+.composer{max-width:1040px;margin:0 auto;border:1px solid #282a2d;background:#2b2b2d;border-radius:22px;padding:12px 14px 9px;display:flex;flex-direction:column;gap:8px;box-shadow:none}
 .controls{display:flex;gap:8px;align-items:center;min-width:0}
-.subcontrols{display:flex;gap:14px;align-items:center;margin:5px auto 0;max-width:980px;color:#8e8e8e;font-size:13px}
+.subcontrols{display:flex;gap:14px;align-items:center;margin:4px auto 0;max-width:1040px;color:#8e8e8e;font-size:13px}
 .plus{font-size:25px;line-height:1;color:#b8b8b8;background:transparent;border:0;width:34px;padding:0;cursor:pointer}
-textarea{width:100%;box-sizing:border-box;resize:none;min-height:68px;max-height:180px;border:0;background:transparent;color:#e8e8e8;padding:2px 0;font:inherit;font-size:15px;outline:none}
+textarea{width:100%;box-sizing:border-box;resize:none;min-height:58px;max-height:170px;border:0;background:transparent;color:#e8e8e8;padding:2px 0;font:inherit;font-size:14px;outline:none}
 textarea::placeholder{color:#707070}
 .dropdown{position:relative;flex:0 1 142px;min-width:0}
 .dropdown.effort{flex-basis:112px}
@@ -1805,7 +1838,7 @@ button.send{border:0;border-radius:50%;background:#b7b7b7;color:#111;width:44px;
   <button class="icon-btn" type="button" data-action="clearChat" title="Очистить чат">...</button>
   <div class="toolbar-spacer"></div>
   <button class="icon-btn" type="button" id="topRun" title="Отправить">&triangleright;</button>
-  <button class="pill-btn" type="button" title="Контекст VS Code">VS Code</button>
+  <button class="pill-btn" type="button" data-action="showUsageStatus" title="?????? ????????? ??????">VS Code</button>
   <button class="icon-btn" type="button" data-action="openTerminal" title="Терминал">&#9633;</button>
   <button class="icon-btn" type="button" data-action="openSettings" title="Настройки">&#9881;</button>
 </div>

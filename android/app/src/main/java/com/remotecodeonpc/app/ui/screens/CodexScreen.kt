@@ -298,7 +298,6 @@ fun CodexChatTab(
         if (error != null) Text(error, color = ErrorRed, fontSize = 13.sp, modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp))
 
         LazyColumn(state = listState, modifier = Modifier.fillMaxWidth().weight(1f).padding(horizontal = 12.dp), verticalArrangement = Arrangement.spacedBy(12.dp), contentPadding = PaddingValues(top = 16.dp, bottom = 12.dp)) {
-            item { Text(currentThread?.title ?: "Codex \u0440\u0430\u0431\u043E\u0442\u0430\u0435\u0442 \u0443\u0434\u0430\u043B\u0435\u043D\u043D\u044B\u0439 \u0434\u043E\u0441\u0442\u0443\u043F", color = TextPrimary, fontSize = 15.sp, maxLines = 2, overflow = TextOverflow.Ellipsis) }
             if (sendResult?.success == true) item { DesktopStatusLine("\u041E\u0442\u043F\u0440\u0430\u0432\u043B\u0435\u043D\u043E", AccentGreen) }
             items(actionEvents.takeLast(8)) { event -> DesktopToolBlock(event, onRespondToAction) }
             items(chatHistory) { msg -> CodexMessageBubble(msg) }
