@@ -29,7 +29,7 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
 
         CrashLogger.init(applicationContext)
-        CrashLogger.i("MainActivity", "App started, version=1.0.7")
+        CrashLogger.i("MainActivity", "App started, version=1.0.8")
 
         val defaultCrashHandler = Thread.getDefaultUncaughtExceptionHandler()
         Thread.setDefaultUncaughtExceptionHandler { thread, throwable ->
@@ -46,6 +46,7 @@ class MainActivity : ComponentActivity() {
                 ) {
                     RemoteCodeApp(
                         onShareLogs = { shareLogs() },
+                        onClearLogs = { clearLogs() },
                         onUpdateApp = { config -> downloadAndInstallUpdate(config) }
                     )
                 }
@@ -75,6 +76,11 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    private fun clearLogs() {
+        CrashLogger.clear()
+        Toast.makeText(this, "Logs cleared", Toast.LENGTH_SHORT).show()
+    }
+
     private fun downloadAndInstallUpdate(config: ServerConfig) {
         val updateUrl = buildUpdateUrl(config)
         if (updateUrl == null) {
@@ -93,7 +99,7 @@ class MainActivity : ComponentActivity() {
                     .url(updateUrl)
                     .header("Cache-Control", "no-cache")
                     .apply {
-                        if (config.authToken.isNotBlank() && updateUrl != publicUpdateUrl) {
+                        if (config.authToken.isNotBlank() && !updateUrl.startsWith(publicUpdateUrl)) {
                             header("Authorization", "Bearer ${config.authToken}")
                         }
                     }
@@ -121,14 +127,8 @@ class MainActivity : ComponentActivity() {
         }.start()
     }
 
-    private fun buildUpdateUrl(config: ServerConfig): String? {
-        if (config.useTunnel && config.tunnelUrl.isNotBlank()) {
-            return "${config.tunnelUrl.trimEnd('/')}/api/app/apk"
-        }
-        if (config.host.isNotBlank()) {
-            return "http://${config.host}:${config.port}/api/app/apk"
-        }
-        return null
+    private fun buildUpdateUrl(@Suppress("UNUSED_PARAMETER") config: ServerConfig): String? {
+        return "$publicUpdateUrl?ts=${System.currentTimeMillis()}"
     }
 
     private fun installApk(apkFile: File) {

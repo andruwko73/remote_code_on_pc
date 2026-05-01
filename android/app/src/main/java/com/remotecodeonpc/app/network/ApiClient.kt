@@ -3,6 +3,8 @@ package com.remotecodeonpc.app.network
 import com.remotecodeonpc.app.CrashLogger
 import com.remotecodeonpc.app.*
 import okhttp3.OkHttpClient
+import okhttp3.ConnectionPool
+import okhttp3.Protocol
 import okhttp3.logging.HttpLoggingInterceptor
 import retrofit2.Response
 import retrofit2.Retrofit
@@ -119,16 +121,25 @@ object ApiClient {
         val logging = HttpLoggingInterceptor { message ->
             CrashLogger.d("HTTP", message)
         }.apply {
-            level = HttpLoggingInterceptor.Level.HEADERS
+            level = HttpLoggingInterceptor.Level.BASIC
         }
 
         val client = OkHttpClient.Builder()
+            .protocols(listOf(Protocol.HTTP_1_1))
+            .connectionPool(ConnectionPool(0, 1, TimeUnit.NANOSECONDS))
             .addInterceptor(logging)
-            .connectTimeout(30, TimeUnit.SECONDS)
-            .readTimeout(30, TimeUnit.SECONDS)
-            .writeTimeout(30, TimeUnit.SECONDS)
-            .callTimeout(60, TimeUnit.SECONDS)
-            .retryOnConnectionFailure(true)
+            .addInterceptor { chain ->
+                val request = chain.request().newBuilder()
+                    .header("Connection", "close")
+                    .header("Cache-Control", "no-cache")
+                    .build()
+                chain.proceed(request)
+            }
+            .connectTimeout(8, TimeUnit.SECONDS)
+            .readTimeout(12, TimeUnit.SECONDS)
+            .writeTimeout(12, TimeUnit.SECONDS)
+            .callTimeout(15, TimeUnit.SECONDS)
+            .retryOnConnectionFailure(false)
             .apply {
                 if (config.authToken.isNotBlank()) {
                     addInterceptor { chain ->

@@ -26,6 +26,7 @@ import com.remotecodeonpc.app.viewmodel.MainViewModel
 fun RemoteCodeApp(
     viewModel: MainViewModel = viewModel(),
     onShareLogs: () -> Unit = {},
+    onClearLogs: () -> Unit = {},
     onUpdateApp: (ServerConfig) -> Unit = {}
 ) {
     val state by viewModel.uiState.collectAsState()
@@ -199,6 +200,7 @@ fun RemoteCodeApp(
                         onStopTunnel = { viewModel.stopTunnel() },
                         onToggleTunnelMode = { viewModel.toggleTunnelMode(it) },
                         onBack = { viewModel.navigateTo("vscode") },
+                        onClearLogs = onClearLogs,
                         onUpdateApp = { onUpdateApp(state.serverConfig) }
                     )
                 }
@@ -211,6 +213,7 @@ fun RemoteCodeApp(
                     onUpdateConfig = { viewModel.updateServerConfig(it) },
                     onConnect = { viewModel.connect() },
                     onShareLogs = onShareLogs,
+                    onClearLogs = onClearLogs,
                     onUpdateApp = onUpdateApp
                 )
             }
@@ -225,6 +228,7 @@ private fun ConnectionScreen(
     onUpdateConfig: (ServerConfig) -> Unit,
     onConnect: () -> Unit,
     onShareLogs: () -> Unit = {},
+    onClearLogs: () -> Unit = {},
     onUpdateApp: (ServerConfig) -> Unit = {}
 ) {
     var host by remember { mutableStateOf(serverConfig.host) }
@@ -370,6 +374,18 @@ private fun ConnectionScreen(
 
         Spacer(modifier = Modifier.height(8.dp))
         OutlinedButton(
+            onClick = onClearLogs,
+            modifier = Modifier.fillMaxWidth(),
+            colors = ButtonDefaults.outlinedButtonColors(contentColor = TextSecondary),
+            shape = androidx.compose.foundation.shape.RoundedCornerShape(12.dp)
+        ) {
+            Icon(Icons.Default.Delete, contentDescription = null, modifier = Modifier.size(18.dp))
+            Spacer(modifier = Modifier.width(8.dp))
+            Text("Очистить логи", fontSize = 14.sp)
+        }
+
+        Spacer(modifier = Modifier.height(8.dp))
+        OutlinedButton(
             onClick = {
                 onUpdateApp(
                     serverConfig.copy(
@@ -416,6 +432,7 @@ private fun SettingsScreen(
     onStopTunnel: () -> Unit,
     onToggleTunnelMode: (Boolean) -> Unit,
     onBack: () -> Unit,
+    onClearLogs: () -> Unit,
     onUpdateApp: () -> Unit
 ) {
     val scrollState = rememberScrollState()
@@ -628,6 +645,17 @@ private fun SettingsScreen(
             Icon(Icons.Default.SystemUpdate, contentDescription = null)
             Spacer(modifier = Modifier.width(8.dp))
             Text("Обновить из GitHub")
+        }
+
+        OutlinedButton(
+            onClick = onClearLogs,
+            modifier = Modifier.fillMaxWidth().height(48.dp),
+            colors = ButtonDefaults.outlinedButtonColors(contentColor = TextSecondary),
+            shape = RoundedCornerShape(12.dp)
+        ) {
+            Icon(Icons.Default.Delete, contentDescription = null)
+            Spacer(modifier = Modifier.width(8.dp))
+            Text("Очистить логи")
         }
 
         OutlinedButton(

@@ -340,17 +340,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             }
 
             override fun onConnectionLost() {
-                // Исчерпаны все попытки переподключения — возвращаем на экран коннекта
-                CrashLogger.w("ViewModel", "WS connection lost — returning to connection screen")
-                healthCheckJob?.cancel()
-                healthCheckJob = null
-                val savedConfig = _uiState.value.serverConfig
+                CrashLogger.w("ViewModel", "WS connection lost; keeping HTTP session active")
                 wsClient = null
-                ApiClient.reset()
-                _uiState.value = AppUiState().copy(
-                    serverConfig = savedConfig,
-                    connectionError = "Соединение потеряно. Проверьте, включён ли ПК."
-                )
+                _uiState.value = _uiState.value.copy(isWebSocketConnected = false)
             }
         })
     }
