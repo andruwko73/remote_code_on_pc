@@ -327,8 +327,17 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         }
                     }
                     "codex:threads-update" -> {
+                        val currentThreadId = data["currentThreadId"] as? String
+                        if (!currentThreadId.isNullOrBlank()) {
+                            _uiState.value = _uiState.value.copy(
+                                currentCodexThreadId = currentThreadId,
+                                codexChatHistory = emptyList(),
+                                codexActionEvents = emptyList(),
+                                codexSendResult = null
+                            )
+                        }
                         viewModelScope.launch {
-                            loadCodexThreads(loadCurrent = false)
+                            loadCodexThreads(loadCurrent = !currentThreadId.isNullOrBlank())
                         }
                     }
                     "codex:approval-request", "codex:action-update" -> {

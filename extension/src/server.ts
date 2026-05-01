@@ -1376,7 +1376,7 @@ export class RemoteServer {
 
     private getRemoteCodeThreads(): RemoteCodeThreadSummary[] {
         const byThread = new Map<string, RemoteCodeThreadSummary>();
-        for (const message of this.codexHistory) {
+        for (const message of this.codexHistory.filter(item => item.role !== 'system')) {
             const id = message.threadId || this.currentRemoteThreadId || 'remote-code-default';
             const existing = byThread.get(id);
             const titleSource = message.role === 'user' && message.content.trim()
@@ -1389,7 +1389,7 @@ export class RemoteServer {
         if (!byThread.has(this.currentRemoteThreadId)) {
             byThread.set(this.currentRemoteThreadId, {
                 id: this.currentRemoteThreadId,
-                title: 'Remote Code',
+                title: 'Новый чат',
                 timestamp: Date.now()
             });
         }
@@ -1399,19 +1399,10 @@ export class RemoteServer {
     private createRemoteCodeThread(): string {
         const threadId = `remote-code-${Date.now()}`;
         this.currentRemoteThreadId = threadId;
-        this.codexHistory.push({
-            id: `remote_system_${Date.now()}`,
-            role: 'system',
-            content: 'Запросите изменения, проверку или работу с файлами.',
-            timestamp: Date.now(),
-            threadId
-        });
-        this.codexHistory = this.codexHistory.slice(-200);
         this.codexActionEvents = this.codexActionEvents.filter(event => event.threadId !== threadId);
         this.saveRemoteCodeState();
         this.refreshPcChatPanel();
-        this.broadcast({ type: 'codex:threads-update', threads: this.getRemoteCodeThreads(), timestamp: Date.now() });
-        this.broadcast({ type: 'codex:message', message: this.codexHistory[this.codexHistory.length - 1], threadId, timestamp: Date.now() });
+        this.broadcast({ type: 'codex:threads-update', threads: this.getRemoteCodeThreads(), currentThreadId: threadId, timestamp: Date.now() });
         return threadId;
     }
 
@@ -1677,6 +1668,7 @@ export class RemoteServer {
         if (!this.pcChatPanel) return;
         const messages = this.codexHistory
             .filter(m => (m.threadId || this.currentRemoteThreadId) === this.currentRemoteThreadId)
+            .filter(m => m.role !== 'system')
             .slice(-80);
         const actions = this.getActionEventsForThread(this.currentRemoteThreadId);
         this.pcChatPanel.webview.html = this.renderPcChatHtml(messages, actions);
@@ -1698,6 +1690,14 @@ export class RemoteServer {
             }
             case 'newChat':
                 this.createRemoteCodeThread();
+                return;
+            case 'switchThread':
+                if (typeof msg.threadId === 'string' && msg.threadId.trim()) {
+                    this.currentRemoteThreadId = msg.threadId.trim();
+                    this.saveRemoteCodeState();
+                    this.refreshPcChatPanel();
+                    this.broadcast({ type: 'codex:threads-update', threads: this.getRemoteCodeThreads(), currentThreadId: this.currentRemoteThreadId, timestamp: Date.now() });
+                }
                 return;
             case 'clearChat':
                 this.codexHistory = this.codexHistory.filter(message => message.threadId !== this.currentRemoteThreadId);
@@ -1959,7 +1959,7 @@ export class RemoteServer {
             message.role === 'user' &&
             message.content.trim()
         );
-        return firstUserMessage?.content.replace(/\s+/g, ' ').slice(0, 80) || 'Remote Code';
+        return firstUserMessage?.content.replace(/\s+/g, ' ').slice(0, 80) || 'Новый чат';
     }
 
     private getGitBranchLabel(): string {
@@ -1984,6 +1984,7 @@ export class RemoteServer {
         const workspaceName = vscode.workspace.workspaceFolders?.[0]?.name || 'Нет рабочей папки';
         const branchLabel = this.getGitBranchLabel();
         const title = this.getCurrentThreadTitle();
+        const threadOptions = this.getRemoteCodeThreads();
         const effortOptions = [
             { id: 'medium', name: 'Средний' },
             { id: 'low', name: 'Низкий' },
@@ -2037,6 +2038,15 @@ body{margin:0;background:#111213;color:#d8d8d8;font:15px/1.55 var(--vscode-font-
 .icon-btn:hover{background:#1f2123;color:#e7e7e7}
 .pill-btn{height:30px;border:1px solid #2b2d30;border-radius:9px;background:#17191b;color:#bdbdbd;padding:0 10px;font:inherit;cursor:pointer}
 .pill-btn:hover{background:#222426;color:#e5e5e5}
+.thread-menu-wrap{position:relative;min-width:0;display:flex;align-items:center;gap:7px}
+.thread-menu-btn{border:0;background:transparent;color:#f0f0f0;display:flex;align-items:center;gap:8px;min-width:0;max-width:620px;cursor:pointer;border-radius:8px;padding:5px 7px;font:inherit}
+.thread-menu-btn:hover,.thread-menu-wrap.open .thread-menu-btn{background:#1f2123}
+.thread-menu{display:none;position:absolute;left:0;top:36px;width:min(420px,70vw);max-height:360px;overflow:auto;background:#202123;border:1px solid #33363a;border-radius:10px;padding:6px;z-index:10;box-shadow:0 14px 40px rgba(0,0,0,.45)}
+.thread-menu-wrap.open .thread-menu{display:block}
+.thread-item{width:100%;border:0;background:transparent;color:#d8d8d8;text-align:left;border-radius:7px;padding:9px 10px;cursor:pointer;font:inherit}
+.thread-item:hover{background:#2b2d30}
+.thread-item.selected{background:#303337;color:#f2f2f2}
+.thread-item small{display:block;color:#8d8d8d;margin-top:2px;font-size:11px}
 .messages{flex:1;overflow:auto;padding:20px min(3.8vw,42px) 14px}
 .msg{padding:3px 0 18px;margin:0 auto;background:transparent;border:0;max-width:920px}
 .msg.user{max-width:620px;margin-left:auto;margin-right:min(3vw,28px);color:#f0f0f0}
@@ -2087,7 +2097,15 @@ button.send{border:0;border-radius:50%;background:#b7b7b7;color:#111;width:44px;
 <body>
 <div class="top">
   <button class="icon-btn edit-icon" type="button" data-action="newChat" title="Новый чат">&#9998;</button>
-  <div class="thread-title">${this.escapeHtml(title)}</div>
+  <div class="thread-menu-wrap" id="threadDrop">
+    <button class="thread-menu-btn" type="button" title="История чатов">
+      <span class="thread-title">${this.escapeHtml(title)}</span>
+      <span class="chev">&#8964;</span>
+    </button>
+    <div class="thread-menu" id="threadMenu">
+      ${threadOptions.map(thread => `<button class="thread-item ${thread.id === this.currentRemoteThreadId ? 'selected' : ''}" type="button" data-thread-id="${this.escapeHtml(thread.id)}">${this.escapeHtml(thread.title)}<small>${this.escapeHtml(new Date(thread.timestamp || Date.now()).toLocaleString())}</small></button>`).join('')}
+    </div>
+  </div>
   <button class="icon-btn" type="button" data-action="clearChat" title="Очистить чат">...</button>
   <div class="toolbar-spacer"></div>
   <button class="icon-btn" type="button" id="topRun" title="Отправить">&triangleright;</button>
@@ -2190,9 +2208,21 @@ document.querySelectorAll('.dropdown-btn').forEach(button => {
     if (!isOpen) root.classList.add('open');
   });
 });
+document.querySelector('#threadDrop .thread-menu-btn').addEventListener('click', event => {
+  event.stopPropagation();
+  document.getElementById('threadDrop').classList.toggle('open');
+});
+document.querySelectorAll('[data-thread-id]').forEach(button => {
+  button.addEventListener('click', () => {
+    vscode.postMessage({ type: 'action', action: 'switchThread', threadId: button.dataset.threadId });
+  });
+});
 document.addEventListener('click', event => {
   if (!event.target.closest('.dropdown')) {
     document.querySelectorAll('.dropdown.open').forEach(drop => drop.classList.remove('open'));
+  }
+  if (!event.target.closest('#threadDrop')) {
+    document.getElementById('threadDrop').classList.remove('open');
   }
 });
 document.getElementById('contextToggle').addEventListener('click', () => {
@@ -2530,8 +2560,11 @@ prompt.addEventListener('keydown', event => {
             ? params.threadId.trim()
             : this.currentRemoteThreadId;
         this.currentRemoteThreadId = requestedThreadId || 'remote-code-default';
+        this.saveRemoteCodeState();
+        this.refreshPcChatPanel();
         const messages = this.codexHistory
             .filter(m => (m.threadId || this.currentRemoteThreadId) === this.currentRemoteThreadId)
+            .filter(m => m.role !== 'system')
             .slice(-120);
         this.jsonResponse(res, 200, {
             threadId: this.currentRemoteThreadId,
@@ -2780,7 +2813,9 @@ prompt.addEventListener('keydown', event => {
             this.jsonResponse(res, 200, {
                 threadId,
                 title: this.getCurrentThreadTitle(),
-                messages: this.codexHistory.filter(m => (m.threadId || threadId) === threadId)
+                messages: this.codexHistory
+                    .filter(m => (m.threadId || threadId) === threadId)
+                    .filter(m => m.role !== 'system')
             });
         } catch (err: any) {
             this.jsonResponse(res, 500, { error: err.message });
