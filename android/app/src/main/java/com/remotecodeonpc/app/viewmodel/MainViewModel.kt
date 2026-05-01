@@ -164,8 +164,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     )
                     connectWebSocket()
                     loadFolders()
-                    loadChatAgents()
-                    loadChatHistory()
                     // Heavy history scans are loaded on demand to keep first paint fast.
                     loadDiagnostics()
                     loadCodexStatus()
@@ -198,8 +196,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     )
                     connectWebSocket()
                     loadFolders()
-                    loadChatAgents()
-                    loadChatHistory()
                     // Heavy history scans are loaded on demand to keep first paint fast.
                     loadDiagnostics()
                     loadCodexStatus()
@@ -353,9 +349,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                                 )
                             }
                             viewModelScope.launch {
-                                loadChatAgents()
-                                loadChatHistory()
-                                loadConversations()
                                 loadFolders()
                                 loadCodexStatus()
                                 loadCodexThreads()
@@ -394,7 +387,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         healthCheckJob?.cancel()
         healthCheckJob = viewModelScope.launch {
             while (true) {
-                delay(30000) // каждые 30 секунд
+                delay(60000) // keep the bridge light; UI actions refresh data on demand
                 if (!_uiState.value.isConnected) break
                 try {
                     val api = ApiClient.getApi(_uiState.value.serverConfig)
