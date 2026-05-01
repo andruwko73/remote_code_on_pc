@@ -29,7 +29,7 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
 
         CrashLogger.init(applicationContext)
-        CrashLogger.i("MainActivity", "App started, version=1.0.9")
+        CrashLogger.i("MainActivity", "App started, version=1.0.10")
 
         val defaultCrashHandler = Thread.getDefaultUncaughtExceptionHandler()
         Thread.setDefaultUncaughtExceptionHandler { thread, throwable ->
@@ -82,8 +82,8 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun downloadAndInstallUpdate(config: ServerConfig) {
-        val updateUrl = buildUpdateUrl(config)
-        if (updateUrl == null) {
+        val updateUrls = buildUpdateUrls(config)
+        if (updateUrls.isEmpty()) {
             Toast.makeText(this, "Enter PC IP first", Toast.LENGTH_LONG).show()
             return
         }
@@ -95,29 +95,40 @@ class MainActivity : ComponentActivity() {
                     .connectTimeout(30, TimeUnit.SECONDS)
                     .readTimeout(120, TimeUnit.SECONDS)
                     .build()
-                val request = Request.Builder()
-                    .url(updateUrl)
-                    .header("Cache-Control", "no-cache")
-                    .apply {
-                        if (config.authToken.isNotBlank() && !updateUrl.startsWith(publicUpdateUrl)) {
-                            header("Authorization", "Bearer ${config.authToken}")
+                var lastError: Exception? = null
+                for (updateUrl in updateUrls) {
+                    try {
+                        CrashLogger.i("MainActivity", "Downloading update from $updateUrl")
+                        val request = Request.Builder()
+                            .url(updateUrl)
+                            .header("Cache-Control", "no-cache")
+                            .apply {
+                                if (config.authToken.isNotBlank() && !updateUrl.startsWith(publicUpdateUrl)) {
+                                    header("Authorization", "Bearer ${config.authToken}")
+                                }
+                            }
+                            .build()
+                        client.newCall(request).execute().use { response ->
+                            if (!response.isSuccessful) {
+                                throw IllegalStateException("HTTP ${response.code}")
+                            }
+                            val body = response.body ?: throw IllegalStateException("Empty update body")
+                            val apkFile = File(cacheDir, "remote-code-update.apk")
+                            apkFile.outputStream().use { output ->
+                                body.byteStream().copyTo(output)
+                            }
+                            if (apkFile.length() < 1024 * 1024) {
+                                throw IllegalStateException("Downloaded file is too small")
+                            }
+                            runOnUiThread { installApk(apkFile) }
+                            return@Thread
                         }
+                    } catch (e: Exception) {
+                        lastError = e
+                        CrashLogger.w("MainActivity", "Update source failed: $updateUrl -> ${e.message}")
                     }
-                    .build()
-                client.newCall(request).execute().use { response ->
-                    if (!response.isSuccessful) {
-                        throw IllegalStateException("HTTP ${response.code}")
-                    }
-                    val body = response.body ?: throw IllegalStateException("Empty update body")
-                    val apkFile = File(cacheDir, "remote-code-update.apk")
-                    apkFile.outputStream().use { output ->
-                        body.byteStream().copyTo(output)
-                    }
-                    if (apkFile.length() < 1024 * 1024) {
-                        throw IllegalStateException("Downloaded file is too small")
-                    }
-                    runOnUiThread { installApk(apkFile) }
                 }
+                throw lastError ?: IllegalStateException("No update source succeeded")
             } catch (e: Exception) {
                 CrashLogger.e("MainActivity", "Update failed", e)
                 runOnUiThread {
@@ -127,8 +138,16 @@ class MainActivity : ComponentActivity() {
         }.start()
     }
 
-    private fun buildUpdateUrl(@Suppress("UNUSED_PARAMETER") config: ServerConfig): String? {
-        return "$publicUpdateUrl?ts=${System.currentTimeMillis()}"
+    private fun buildUpdateUrls(config: ServerConfig): List<String> {
+        val ts = System.currentTimeMillis()
+        val urls = mutableListOf("$publicUpdateUrl?ts=$ts")
+        if (config.useTunnel && config.tunnelUrl.isNotBlank()) {
+            urls += "${config.tunnelUrl.trimEnd('/')}/api/app/apk?ts=$ts"
+        }
+        if (config.host.isNotBlank()) {
+            urls += "http://${config.host}:${config.port}/api/app/apk?ts=$ts"
+        }
+        return urls.distinct()
     }
 
     private fun installApk(apkFile: File) {
