@@ -48,6 +48,14 @@ interface ManagedApproval {
     requestId: string | number;
     method: string;
     eventId: string;
+    threadId: string;
+}
+
+interface ManagedThreadState {
+    id: string;
+    title: string;
+    history: CodexChatMessage[];
+    events: CodexActionEvent[];
 }
 
 interface FileTreeItem {
@@ -86,9 +94,7 @@ export class StandaloneRemoteServer {
     private readonly codexAppRpcPending = new Map<number, { resolve: (value: any) => void; reject: (error: Error) => void }>();
     private readonly managedApprovals = new Map<string, ManagedApproval>();
     private managedThreadId = '';
-    private managedThreadTitle = 'Managed Codex';
-    private managedHistory: CodexChatMessage[] = [];
-    private managedEvents: CodexActionEvent[] = [];
+    private readonly managedThreads = new Map<string, ManagedThreadState>();
 
     constructor(workspaceRoot: string = process.cwd()) {
         this.port = Number(process.env.REMOTE_CODE_PORT || process.env.PORT || 8799);
@@ -509,35 +515,55 @@ export class StandaloneRemoteServer {
             .slice(0, 100);
     }
 
+    private getManagedState(threadId = this.managedThreadId): ManagedThreadState | undefined {
+        return threadId ? this.managedThreads.get(threadId) : undefined;
+    }
+
+    private ensureManagedState(threadId: string, title = 'Managed Codex'): ManagedThreadState {
+        const existing = this.managedThreads.get(threadId);
+        if (existing) {
+            if (title && title !== 'Managed Codex') {
+                existing.title = title;
+            }
+            return existing;
+        }
+        const state: ManagedThreadState = { id: threadId, title, history: [], events: [] };
+        this.managedThreads.set(threadId, state);
+        return state;
+    }
+
     private getCodexThreadList(): JsonValue[] {
-        const managed = this.managedThreadId ? [{
-            id: this.managedThreadId,
-            title: this.managedThreadTitle,
-            timestamp: Math.max(...this.managedHistory.map(message => message.timestamp), Date.now()),
-            source: 'managed',
-            isManaged: true
-        }] : [];
         const logged = this.getCodexThreads().map(({ path: _path, ...thread }) => ({
             ...thread,
             source: 'session-log',
             isManaged: false
         }));
-        return [...managed, ...logged];
+        const byId = new Map<string, JsonValue>();
+        for (const thread of logged) {
+            byId.set(thread.id, thread);
+        }
+        for (const state of this.managedThreads.values()) {
+            const timestamp = Math.max(...state.history.map(message => message.timestamp), Date.now());
+            const existing = byId.get(state.id);
+            byId.set(state.id, {
+                ...(existing || {}),
+                id: state.id,
+                title: existing?.title || state.title,
+                timestamp: Math.max(Number(existing?.timestamp || 0), timestamp),
+                source: existing ? 'session-log' : 'managed',
+                isManaged: true
+            });
+        }
+        return Array.from(byId.values()).sort((a, b) => Number(b.timestamp || 0) - Number(a.timestamp || 0));
     }
 
     private getCodexHistory(threadId?: string): JsonValue {
-        if (threadId && threadId === this.managedThreadId) {
+        const managedState = threadId ? this.getManagedState(threadId) : undefined;
+        if (managedState) {
             return {
-                threadId: this.managedThreadId,
-                title: this.managedThreadTitle,
-                messages: this.managedHistory.map(message => this.normalizeCodexMessage(message))
-            };
-        }
-        if (!threadId && this.managedThreadId) {
-            return {
-                threadId: this.managedThreadId,
-                title: this.managedThreadTitle,
-                messages: this.managedHistory.map(message => this.normalizeCodexMessage(message))
+                threadId: managedState.id,
+                title: managedState.title,
+                messages: managedState.history.map(message => this.normalizeCodexMessage(message))
             };
         }
         const threads = this.getCodexThreads();
@@ -555,11 +581,9 @@ export class StandaloneRemoteServer {
     }
 
     private getCodexEvents(threadId?: string): JsonValue {
-        if (threadId && threadId === this.managedThreadId) {
-            return { threadId: this.managedThreadId, events: this.managedEvents.slice(-250) };
-        }
-        if (!threadId && this.managedThreadId) {
-            return { threadId: this.managedThreadId, events: this.managedEvents.slice(-250) };
+        const managedState = threadId ? this.getManagedState(threadId) : undefined;
+        if (managedState) {
+            return { threadId: managedState.id, events: managedState.events.slice(-250) };
         }
         const threads = this.getCodexThreads();
         const selected = threadId ? threads.find(thread => thread.id === threadId || thread.path === threadId) : threads[0];
@@ -589,8 +613,9 @@ export class StandaloneRemoteServer {
             this.updateManagedEvent(actionId, {
                 status: decision === 'approve' ? 'approved' : 'declined',
                 actionable: false
-            });
-            this.broadcast('codex:action-update', { actionId, decision, events: this.managedEvents.slice(-250) });
+            }, approval.threadId);
+            const state = this.getManagedState(approval.threadId);
+            this.broadcast('codex:action-update', { threadId: approval.threadId, actionId, decision, events: state?.events.slice(-250) || [] });
             return { success: true, actionId, decision, source: 'managed' };
         }
 
@@ -627,6 +652,7 @@ export class StandaloneRemoteServer {
             return;
         } catch (error) {
             const detail = error instanceof Error ? error.message : String(error);
+            const state = this.ensureManagedState(this.managedThreadId || this.normalizeRequestedCodexThreadId(threadId) || `managed-error-${Date.now()}`);
             this.addManagedEvent({
                 id: `managed-error-${Date.now()}`,
                 type: 'error',
@@ -636,8 +662,8 @@ export class StandaloneRemoteServer {
                 timestamp: Date.now(),
                 source: 'managed',
                 actionable: false
-            });
-            this.broadcast('codex:error', { error: detail, fallback: 'cli' });
+            }, state.id);
+            this.broadcast('codex:error', { threadId: state.id, error: detail, fallback: 'cli' });
             this.sendJson(res, 503, {
                 success: false,
                 mode: 'managed',
@@ -662,9 +688,9 @@ export class StandaloneRemoteServer {
                 excludeTurns: false
             });
             this.managedThreadId = String(resumeResponse?.thread?.id || targetThreadId);
-            this.managedThreadTitle = resumeResponse?.thread?.title || this.managedThreadTitle || 'Managed Codex';
-            this.managedHistory = this.threadResponseToMessages(resumeResponse?.thread);
-            this.managedEvents = [];
+            const state = this.ensureManagedState(this.managedThreadId, resumeResponse?.thread?.title || 'Managed Codex');
+            state.history = this.threadResponseToMessages(resumeResponse?.thread);
+            state.events = [];
             this.broadcast('codex:threads-update', { threads: this.getCodexThreadList() });
         }
 
@@ -679,13 +705,14 @@ export class StandaloneRemoteServer {
                 serviceName: 'Remote Code on PC'
             });
             this.managedThreadId = String(threadResponse?.thread?.id || '');
-            this.managedThreadTitle = threadResponse?.thread?.title || 'Managed Codex';
             if (!this.managedThreadId) {
                 throw new Error('Codex app-server did not return a thread id');
             }
+            this.ensureManagedState(this.managedThreadId, threadResponse?.thread?.title || 'Managed Codex');
             this.broadcast('codex:threads-update', { threads: this.getCodexThreadList() });
         }
 
+        const state = this.ensureManagedState(this.managedThreadId);
         const now = Date.now();
         const userMessage: CodexChatMessage = {
             id: `managed-user-${now}`,
@@ -694,7 +721,7 @@ export class StandaloneRemoteServer {
             timestamp: now,
             model
         };
-        this.managedHistory.push(userMessage);
+        state.history.push(userMessage);
         this.broadcast('codex:message', { threadId: this.managedThreadId, message: userMessage });
         this.broadcast('codex:sent', { threadId: this.managedThreadId, message: userMessage });
 
@@ -720,6 +747,18 @@ export class StandaloneRemoteServer {
         }
         const fromRollout = trimmed.match(/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/i);
         return fromRollout?.[1] || trimmed;
+    }
+
+    private threadIdFromParams(params: any): string {
+        const raw = params?.threadId || params?.thread_id || params?.thread?.id || params?.turn?.threadId || this.managedThreadId;
+        const normalized = this.normalizeRequestedCodexThreadId(String(raw || ''));
+        if (normalized) {
+            return normalized;
+        }
+        if (!this.managedThreadId) {
+            this.managedThreadId = `managed-${Date.now()}`;
+        }
+        return this.managedThreadId;
     }
 
     private threadResponseToMessages(thread: any): CodexChatMessage[] {
@@ -929,9 +968,10 @@ export class StandaloneRemoteServer {
             method === 'applyPatchApproval'
         ) {
             const event = this.approvalRequestToEvent(method, params, message.id);
-            this.managedApprovals.set(event.id, { requestId: message.id, method, eventId: event.id });
-            this.addManagedEvent(event);
-            this.broadcast('codex:approval-request', { event, threadId: this.managedThreadId });
+            const threadId = this.threadIdFromParams(params);
+            this.managedApprovals.set(event.id, { requestId: message.id, method, eventId: event.id, threadId });
+            this.addManagedEvent(event, threadId);
+            this.broadcast('codex:approval-request', { event, threadId });
             return;
         }
 
@@ -945,6 +985,7 @@ export class StandaloneRemoteServer {
     private handleCodexAppNotification(method: string, params: any): void {
         if (method === 'thread/started' && params.threadId) {
             this.managedThreadId = String(params.threadId);
+            this.ensureManagedState(this.managedThreadId);
             this.broadcast('codex:threads-update', { threads: this.getCodexThreadList() });
             return;
         }
@@ -955,8 +996,9 @@ export class StandaloneRemoteServer {
         }
 
         if (method === 'agent/message/delta') {
+            const state = this.ensureManagedState(this.threadIdFromParams(params));
             const itemId = String(params.itemId || `managed-assistant-${Date.now()}`);
-            let message = this.managedHistory.find(entry => entry.id === itemId);
+            let message = state.history.find(entry => entry.id === itemId);
             if (!message) {
                 message = {
                     id: itemId,
@@ -965,12 +1007,12 @@ export class StandaloneRemoteServer {
                     timestamp: Date.now(),
                     isStreaming: true
                 };
-                this.managedHistory.push(message);
+                state.history.push(message);
             }
             message.content += String(params.delta || '');
             message.timestamp = Date.now();
             this.broadcast('codex:chunk', {
-                threadId: this.managedThreadId,
+                threadId: state.id,
                 messageId: message.id,
                 content: message.content,
                 chunk: String(params.delta || ''),
@@ -980,12 +1022,13 @@ export class StandaloneRemoteServer {
         }
 
         if (method === 'turn/completed') {
-            for (const message of this.managedHistory) {
+            const state = this.ensureManagedState(this.threadIdFromParams(params));
+            for (const message of state.history) {
                 message.isStreaming = false;
             }
             this.broadcast('codex:response', {
-                threadId: this.managedThreadId,
-                messages: this.managedHistory.map(item => this.normalizeCodexMessage(item)),
+                threadId: state.id,
+                messages: state.history.map(item => this.normalizeCodexMessage(item)),
                 turn: params.turn
             });
             this.broadcast('codex:sessions-update', {});
@@ -993,6 +1036,7 @@ export class StandaloneRemoteServer {
         }
 
         if (method === 'error' || method.endsWith('/error')) {
+            const threadId = this.threadIdFromParams(params);
             this.addManagedEvent({
                 id: `managed-error-${Date.now()}`,
                 type: 'error',
@@ -1002,7 +1046,7 @@ export class StandaloneRemoteServer {
                 timestamp: Date.now(),
                 source: 'managed',
                 actionable: false
-            });
+            }, threadId);
         }
     }
 
@@ -1010,12 +1054,13 @@ export class StandaloneRemoteServer {
         if (!item?.type) {
             return;
         }
+        const state = this.ensureManagedState(this.threadIdFromParams(item));
         if (item.type === 'userMessage') {
             const content = this.extractManagedUserInput(item.content);
-            const last = this.managedHistory[this.managedHistory.length - 1];
+            const last = state.history[state.history.length - 1];
             const isEcho = last?.role === 'user' && last.content === content;
-            if (content && !isEcho && !this.managedHistory.some(message => message.id === item.id)) {
-                this.managedHistory.push({
+            if (content && !isEcho && !state.history.some(message => message.id === item.id)) {
+                state.history.push({
                     id: String(item.id),
                     role: 'user',
                     content,
@@ -1025,13 +1070,13 @@ export class StandaloneRemoteServer {
             return;
         }
         if (item.type === 'agentMessage') {
-            const existing = this.managedHistory.find(message => message.id === item.id);
+            const existing = state.history.find(message => message.id === item.id);
             if (existing) {
                 existing.content = String(item.text || existing.content || '');
                 existing.isStreaming = !completed;
                 existing.timestamp = Date.now();
             } else {
-                this.managedHistory.push({
+                state.history.push({
                     id: String(item.id),
                     role: 'assistant',
                     content: String(item.text || ''),
@@ -1039,13 +1084,13 @@ export class StandaloneRemoteServer {
                     isStreaming: !completed
                 });
             }
-            this.broadcast('codex:response', { threadId: this.managedThreadId, message: this.managedHistory.find(message => message.id === item.id) });
+            this.broadcast('codex:response', { threadId: state.id, message: state.history.find(message => message.id === item.id) });
             return;
         }
         if (item.type === 'commandExecution' || item.type === 'fileChange' || item.type === 'mcpToolCall' || item.type === 'dynamicToolCall') {
             const event = this.managedItemToEvent(item);
-            this.addManagedEvent(event);
-            this.broadcast('codex:action-update', { threadId: this.managedThreadId, event, events: this.managedEvents.slice(-250) });
+            this.addManagedEvent(event, state.id);
+            this.broadcast('codex:action-update', { threadId: state.id, event, events: state.events.slice(-250) });
         }
     }
 
@@ -1120,18 +1165,19 @@ export class StandaloneRemoteServer {
         return status || 'completed';
     }
 
-    private addManagedEvent(event: CodexActionEvent): void {
-        const existingIndex = this.managedEvents.findIndex(item => item.id === event.id);
+    private addManagedEvent(event: CodexActionEvent, threadId = this.managedThreadId): void {
+        const state = this.ensureManagedState(threadId || this.managedThreadId || `managed-${Date.now()}`);
+        const existingIndex = state.events.findIndex(item => item.id === event.id);
         if (existingIndex >= 0) {
-            this.managedEvents[existingIndex] = { ...this.managedEvents[existingIndex], ...event };
+            state.events[existingIndex] = { ...state.events[existingIndex], ...event };
         } else {
-            this.managedEvents.push(event);
+            state.events.push(event);
         }
-        this.managedEvents = this.managedEvents.slice(-250);
+        state.events = state.events.slice(-250);
     }
 
-    private updateManagedEvent(eventId: string, patch: Partial<CodexActionEvent>): void {
-        const event = this.managedEvents.find(item => item.id === eventId);
+    private updateManagedEvent(eventId: string, patch: Partial<CodexActionEvent>, threadId = this.managedThreadId): void {
+        const event = this.getManagedState(threadId)?.events.find(item => item.id === eventId);
         if (event) {
             Object.assign(event, patch);
         }
