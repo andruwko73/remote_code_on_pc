@@ -62,6 +62,7 @@ data class AppUiState(
     val codexStatus: CodexStatus? = null,
     val codexModels: List<CodexModel> = emptyList(),
     val codexSelectedModel: String = "",
+    val codexReasoningEffort: String = "medium",
     val codexChatHistory: List<CodexChatMessage> = emptyList(),
     val codexActionEvents: List<CodexActionEvent> = emptyList(),
     val codexSendResult: CodexSendResponse? = null,
@@ -678,6 +679,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 ?: (this["timestamp"] as? Long)
                 ?: 0L,
             model = this["model"] as? String,
+            reasoningEffort = this["reasoningEffort"] as? String,
             isStreaming = this["isStreaming"] as? Boolean ?: false
         )
     }
@@ -799,7 +801,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     val body = response.body()
                     _uiState.value = _uiState.value.copy(
                         codexModels = body?.models ?: emptyList(),
-                        codexSelectedModel = body?.selected ?: ""
+                        codexSelectedModel = body?.selected ?: "",
+                        codexReasoningEffort = body?.reasoningEffort ?: _uiState.value.codexReasoningEffort
                     )
                 }
             } catch (e: Exception) {
@@ -820,6 +823,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    fun selectCodexReasoningEffort(effort: String) {
+        val normalized = when (effort) {
+            "low", "medium", "high", "xhigh" -> effort
+            else -> "medium"
+        }
+        _uiState.value = _uiState.value.copy(codexReasoningEffort = normalized)
+    }
+
     fun sendCodexMessage(text: String, attachments: List<MessageAttachment> = emptyList()) {
         val sentAt = System.currentTimeMillis()
         val optimisticMessage = CodexChatMessage(
@@ -827,7 +838,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             role = "user",
             content = text,
             timestamp = sentAt,
-            model = _uiState.value.codexSelectedModel.takeIf { it.isNotBlank() }
+            model = _uiState.value.codexSelectedModel.takeIf { it.isNotBlank() },
+            reasoningEffort = _uiState.value.codexReasoningEffort
         )
         _uiState.value = _uiState.value.copy(
             isCodexLoading = true,
@@ -844,6 +856,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     mapOf(
                         "message" to text,
                         "model" to _uiState.value.codexSelectedModel,
+                        "reasoningEffort" to _uiState.value.codexReasoningEffort,
                         "threadId" to threadId,
                         "attachments" to attachments
                     )

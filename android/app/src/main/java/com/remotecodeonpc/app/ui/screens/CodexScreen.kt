@@ -57,6 +57,7 @@ fun CodexScreen(
     status: CodexStatus?,
     models: List<CodexModel>,
     selectedModel: String,
+    selectedReasoningEffort: String,
     chatHistory: List<CodexChatMessage>,
     actionEvents: List<CodexActionEvent>,
     sendResult: CodexSendResponse?,
@@ -72,6 +73,7 @@ fun CodexScreen(
     // Callbacks
     onSendMessage: (String, List<MessageAttachment>) -> Unit,
     onSelectModel: (String) -> Unit,
+    onSelectReasoningEffort: (String) -> Unit,
     onLaunchCodex: () -> Unit,
     onLoadThreads: () -> Unit,
     onSwitchThread: (String) -> Unit,
@@ -158,6 +160,7 @@ fun CodexScreen(
                 status = status,
                 models = models,
                 selectedModel = selectedModel,
+                selectedReasoningEffort = selectedReasoningEffort,
                 chatHistory = chatHistory,
                 actionEvents = actionEvents,
                 sendResult = sendResult,
@@ -167,6 +170,7 @@ fun CodexScreen(
                 error = error,
                 onSendMessage = onSendMessage,
                 onSelectModel = onSelectModel,
+                onSelectReasoningEffort = onSelectReasoningEffort,
                 onLaunchCodex = onLaunchCodex,
                 onLoadThreads = onLoadThreads,
                 onSwitchThread = onSwitchThread,
@@ -192,6 +196,7 @@ fun CodexChatTab(
     status: CodexStatus?,
     models: List<CodexModel>,
     selectedModel: String,
+    selectedReasoningEffort: String,
     chatHistory: List<CodexChatMessage>,
     actionEvents: List<CodexActionEvent>,
     sendResult: CodexSendResponse?,
@@ -201,6 +206,7 @@ fun CodexChatTab(
     error: String?,
     onSendMessage: (String, List<MessageAttachment>) -> Unit,
     onSelectModel: (String) -> Unit,
+    onSelectReasoningEffort: (String) -> Unit,
     onLaunchCodex: () -> Unit,
     onLoadThreads: () -> Unit,
     onSwitchThread: (String) -> Unit,
@@ -208,6 +214,7 @@ fun CodexChatTab(
 ) {
     var messageText by remember { mutableStateOf("") }
     var showModelSelector by remember { mutableStateOf(false) }
+    var showReasoningSelector by remember { mutableStateOf(false) }
     var showThreads by remember { mutableStateOf(false) }
     var attachments by remember { mutableStateOf<List<MessageAttachment>>(emptyList()) }
     val listState = rememberLazyListState()
@@ -231,16 +238,23 @@ fun CodexChatTab(
 
     val displayModels = models.ifEmpty {
         listOf(
-            CodexModel("gpt-5.3-codex", "GPT-5.3-Codex"),
-            CodexModel("gpt-5.2-codex", "GPT-5.2-Codex"),
+            CodexModel("gpt-5.5", "GPT-5.5"),
             CodexModel("gpt-5.4", "GPT-5.4"),
-            CodexModel("gpt-5.4-mini", "GPT-5.4 mini"),
-            CodexModel("gpt-4.1", "GPT-4.1"),
-            CodexModel("o4-mini", "o4-mini")
+            CodexModel("gpt-5.4-mini", "GPT-5.4-Mini"),
+            CodexModel("gpt-5.3-codex", "GPT-5.3-Codex"),
+            CodexModel("gpt-5.3-codex-spark", "GPT-5.3-Codex-Spark"),
+            CodexModel("gpt-5.2", "GPT-5.2")
         )
     }
     val currentModel = displayModels.find { it.id == selectedModel }
-    val modelLabel = currentModel?.name ?: selectedModel.ifBlank { "GPT-5.3-Codex" }
+    val modelLabel = currentModel?.name ?: selectedModel.ifBlank { "GPT-5.5" }
+    val reasoningOptions = listOf(
+        "low" to "\u041D\u0438\u0437\u043A\u0438\u0439",
+        "medium" to "\u0421\u0440\u0435\u0434\u043D\u0438\u0439",
+        "high" to "\u0412\u044B\u0441\u043E\u043A\u0438\u0439",
+        "xhigh" to "\u041E\u0447\u0435\u043D\u044C \u0432\u044B\u0441\u043E\u043A\u0438\u0439"
+    )
+    val reasoningLabel = reasoningOptions.firstOrNull { it.first == selectedReasoningEffort }?.second ?: "\u0421\u0440\u0435\u0434\u043D\u0438\u0439"
     val currentThread = threads.find { it.id == currentThreadId }
 
     fun submitMessage() {
@@ -343,6 +357,23 @@ fun CodexChatTab(
                         }
                         DropdownMenu(expanded = showModelSelector, onDismissRequest = { showModelSelector = false }, modifier = Modifier.background(Color(0xFF202123))) {
                             displayModels.forEach { model -> DropdownMenuItem(text = { Text(model.name, color = if (model.id == selectedModel) AccentBlue else TextPrimary) }, onClick = { onSelectModel(model.id); showModelSelector = false }) }
+                        }
+                    }
+                    Box {
+                        TextButton(onClick = { showReasoningSelector = true }, contentPadding = PaddingValues(horizontal = 6.dp)) {
+                            Text(reasoningLabel, color = TextSecondary, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            Icon(Icons.Default.ArrowDropDown, contentDescription = null, tint = TextSecondary, modifier = Modifier.size(18.dp))
+                        }
+                        DropdownMenu(expanded = showReasoningSelector, onDismissRequest = { showReasoningSelector = false }, modifier = Modifier.background(Color(0xFF202123))) {
+                            reasoningOptions.forEach { option ->
+                                DropdownMenuItem(
+                                    text = { Text(option.second, color = if (option.first == selectedReasoningEffort) AccentBlue else TextPrimary) },
+                                    onClick = {
+                                        onSelectReasoningEffort(option.first)
+                                        showReasoningSelector = false
+                                    }
+                                )
+                            }
                         }
                     }
                     Spacer(modifier = Modifier.weight(1f))

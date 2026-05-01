@@ -30,6 +30,7 @@ interface CodexChatMessage {
     content: string;
     timestamp: number;
     model?: string;
+    reasoningEffort?: string;
     isStreaming?: boolean;
     threadId?: string;
 }
@@ -69,6 +70,7 @@ export class RemoteServer {
     private chatHistory: Map<string, ChatMessage[]> = new Map();
     private currentChatId: string = 'default';
     private selectedAgent: string = 'auto';
+    private selectedReasoningEffort: string = 'medium';
     private agentCache?: { timestamp: number; agents: ChatAgent[] };
     private codexHistory: CodexChatMessage[] = [];
     private currentRemoteThreadId: string = 'remote-code-default';
@@ -1285,31 +1287,19 @@ export class RemoteServer {
         );
     }
 
-    private getRemoteCodeModelAgents(agents: ChatAgent[]): ChatAgent[] {
-        const filtered = agents.filter(agent => this.isRemoteCodeModel(agent));
-        const source = filtered.length > 0 ? filtered : this.getDefaultCodexModels().map((model, index) => ({
+    private getRemoteCodeModelAgents(_agents: ChatAgent[]): ChatAgent[] {
+        return this.getDefaultCodexModels().map((model, index) => ({
             name: model.id,
             displayName: model.name,
             vendor: 'openai',
             model: model.name,
             isDefault: index === 0
         }));
-        return source.sort((a, b) => {
-            const score = (agent: ChatAgent) => {
-                const id = `${agent.name} ${agent.displayName}`.toLowerCase();
-                if (id.includes('codex')) return 0;
-                if (agent.name === 'auto') return 1;
-                if (id.includes('gpt-5')) return 2;
-                if (id.includes('gpt')) return 3;
-                return 4;
-            };
-            return score(a) - score(b) || (a.displayName || a.name).localeCompare(b.displayName || b.name);
-        });
     }
 
     private ensureRemoteCodeSelectedAgent(agents: ChatAgent[]): string {
         if (!agents.find(agent => agent.name === this.selectedAgent)) {
-            this.selectedAgent = agents[0]?.name || 'gpt-5.3-codex';
+            this.selectedAgent = agents[0]?.name || 'gpt-5.5';
             this.saveRemoteCodeState();
         }
         return this.selectedAgent;
@@ -1320,9 +1310,11 @@ export class RemoteServer {
             const savedHistory = this._context.globalState.get<CodexChatMessage[]>('remote_code_history', []);
             const savedThreadId = this._context.globalState.get<string>('remote_code_current_thread_id', 'remote-code-default');
             const savedAgent = this._context.globalState.get<string>('remote_code_selected_agent', this.selectedAgent);
+            const savedEffort = this._context.globalState.get<string>('remote_code_reasoning_effort', this.selectedReasoningEffort);
             this.codexHistory = Array.isArray(savedHistory) ? savedHistory.slice(-200) : [];
             this.currentRemoteThreadId = savedThreadId || 'remote-code-default';
             this.selectedAgent = savedAgent || this.selectedAgent;
+            this.selectedReasoningEffort = savedEffort || this.selectedReasoningEffort;
             if (this.codexHistory.length === 0) {
                 this.codexHistory.push({
                     id: `remote_system_${Date.now()}`,
@@ -1342,6 +1334,7 @@ export class RemoteServer {
         void this._context.globalState.update('remote_code_history', this.codexHistory.slice(-200));
         void this._context.globalState.update('remote_code_current_thread_id', this.currentRemoteThreadId);
         void this._context.globalState.update('remote_code_selected_agent', this.selectedAgent);
+        void this._context.globalState.update('remote_code_reasoning_effort', this.selectedReasoningEffort);
     }
 
     private getRemoteCodeThreads(): RemoteCodeThreadSummary[] {
@@ -1405,21 +1398,32 @@ export class RemoteServer {
                 throw new Error('Нет доступных моделей чата. Проверьте подключение Copilot.');
             }
 
-            const allowedAgents = this.getRemoteCodeModelAgents(models.map((m: any) => ({
-                name: m.id || m.name || '',
-                displayName: m.name || m.id || '',
-                vendor: m.vendor || '',
-                model: m.family || m.id || m.name || ''
-            })));
+            const allowedAgents = models
+                .map((m: any) => ({
+                    name: m.id || m.name || '',
+                    displayName: m.name || m.id || '',
+                    vendor: m.vendor || '',
+                    model: m.family || m.id || m.name || ''
+                }))
+                .filter(agent => this.isRemoteCodeModel(agent));
             const allowedNames = new Set(allowedAgents.map(agent => agent.name));
+            const aliases: Record<string, string[]> = {
+                'gpt-5.5': ['gpt-5.5', 'gpt-5.4', 'gpt-5.3-codex', 'gpt-5.2-codex', 'gpt-5.2'],
+                'gpt-5.4': ['gpt-5.4', 'gpt-5.4-mini', 'gpt-5.3-codex', 'gpt-5.2-codex'],
+                'gpt-5.4-mini': ['gpt-5.4-mini', 'gpt-5-mini', 'gpt-4o-mini'],
+                'gpt-5.3-codex': ['gpt-5.3-codex', 'gpt-5.2-codex', 'gpt-5.4'],
+                'gpt-5.3-codex-spark': ['gpt-5.3-codex-spark', 'gpt-5.3-codex', 'gpt-5.2-codex'],
+                'gpt-5.2': ['gpt-5.2', 'gpt-5.2-codex', 'gpt-5.4']
+            };
 
             // Ищем модель, соответствующую выбранному агенту
             let model = models.find((m: any) => allowedNames.has(m.id || m.name || '')) || models[0];
             if (agentName && agentName !== 'auto') {
+                const desired = aliases[agentName] || [agentName];
                 const found = models.find(m => {
                     const mId = (m as any).id || (m as any).name || '';
                     const mVendor = (m as any).vendor || '';
-                    return allowedNames.has(mId) && (mId.includes(agentName) || mVendor.includes(agentName));
+                    return allowedNames.has(mId) && desired.some(name => mId === name || mId.includes(name) || mVendor.includes(name));
                 });
                 if (found) model = found;
             }
@@ -1447,13 +1451,29 @@ export class RemoteServer {
         }
     }
 
-    private async answerInPcMirror(message: string, threadId: string, model?: string): Promise<void> {
+    private normalizeReasoningEffort(value?: string): string {
+        const allowed = new Set(['low', 'medium', 'high', 'xhigh']);
+        return value && allowed.has(value) ? value : 'medium';
+    }
+
+    private reasoningEffortLabel(value?: string): string {
+        switch (this.normalizeReasoningEffort(value)) {
+            case 'low': return 'Низкий';
+            case 'high': return 'Высокий';
+            case 'xhigh': return 'Очень высокий';
+            default: return 'Средний';
+        }
+    }
+
+    private async answerInPcMirror(message: string, threadId: string, model?: string, reasoningEffort?: string): Promise<void> {
+        const effort = this.normalizeReasoningEffort(reasoningEffort || this.selectedReasoningEffort);
         const thinking: CodexChatMessage = {
             id: `codex_assistant_thinking_${Date.now()}`,
             role: 'assistant',
             content: '...',
             timestamp: Date.now(),
             model: typeof model === 'string' && model ? model : undefined,
+            reasoningEffort: effort,
             isStreaming: true,
             threadId
         };
@@ -1463,7 +1483,10 @@ export class RemoteServer {
         this.refreshPcChatPanel();
         this.broadcast({ type: 'codex:message', message: thinking, threadId, timestamp: Date.now() });
 
-        const response = await this.sendToChatStreaming(message, model || this.selectedAgent || 'auto', (content) => {
+        const response = await this.sendToChatStreaming(
+            `${message}\n\nReasoning effort: ${this.reasoningEffortLabel(effort)} (${effort}).`,
+            model || this.selectedAgent || 'auto',
+            (content) => {
             thinking.content = content || '...';
             thinking.timestamp = Date.now();
             this.codexHistory = this.codexHistory.map(m => m.id === thinking.id ? { ...thinking } : m);
@@ -1494,10 +1517,14 @@ export class RemoteServer {
         message: string,
         model: string,
         threadId: string,
-        attachments: MobileAttachment[]
+        attachments: MobileAttachment[],
+        reasoningEffort?: string
     ): Promise<string> {
         const targetThreadId = threadId.trim() || this.currentRemoteThreadId || 'remote-code-default';
         this.currentRemoteThreadId = targetThreadId;
+        const effort = this.normalizeReasoningEffort(reasoningEffort || this.selectedReasoningEffort);
+        this.selectedReasoningEffort = effort;
+        if (model) this.selectedAgent = model;
         const attachmentFiles = this.saveMobileAttachments(attachments);
         const messageForAgent = this.withAttachmentInstructions(message, attachmentFiles);
         const userMessage: CodexChatMessage = {
@@ -1506,6 +1533,7 @@ export class RemoteServer {
             content: messageForAgent,
             timestamp: Date.now(),
             model: model || undefined,
+            reasoningEffort: effort,
             threadId: targetThreadId
         };
         this.codexHistory.push(userMessage);
@@ -1514,10 +1542,10 @@ export class RemoteServer {
         this.openPcChatPanel();
         this.refreshPcChatPanel();
         this.broadcast({ type: 'codex:message', message: userMessage, threadId: targetThreadId, timestamp: Date.now() });
-        this.broadcast({ type: 'codex:sent', message: messageForAgent, model, threadId: targetThreadId, timestamp: Date.now() });
+        this.broadcast({ type: 'codex:sent', message: messageForAgent, model, reasoningEffort: effort, threadId: targetThreadId, timestamp: Date.now() });
         this.broadcast({ type: 'codex:threads-update', threads: this.getRemoteCodeThreads(), timestamp: Date.now() });
 
-        this.answerInPcMirror(messageForAgent, targetThreadId, model).catch(err => {
+        this.answerInPcMirror(messageForAgent, targetThreadId, model, effort).catch(err => {
             const errorMessage: CodexChatMessage = {
                 id: `remote_assistant_error_${Date.now()}`,
                 role: 'assistant',
@@ -1551,7 +1579,13 @@ export class RemoteServer {
         );
         this.pcChatPanel.webview.onDidReceiveMessage(async msg => {
             if (msg?.type === 'send' && typeof msg.message === 'string' && msg.message.trim()) {
-                await this.enqueueRemoteCodeMessage(msg.message, typeof msg.model === 'string' ? msg.model : '', '', []);
+                await this.enqueueRemoteCodeMessage(
+                    msg.message,
+                    typeof msg.model === 'string' ? msg.model : this.selectedAgent,
+                    '',
+                    [],
+                    typeof msg.reasoningEffort === 'string' ? msg.reasoningEffort : this.selectedReasoningEffort
+                );
             }
         });
         this.pcChatPanel.onDidDispose(() => {
@@ -1572,8 +1606,12 @@ export class RemoteServer {
         const rows = messages.map(message => {
             const role = message.role === 'user' ? 'You' : message.role === 'assistant' ? 'Remote Code' : 'System';
             const cls = message.role === 'user' ? 'user' : message.role === 'assistant' ? 'assistant' : 'system';
+            const meta = [message.model, message.reasoningEffort ? this.reasoningEffortLabel(message.reasoningEffort) : '']
+                .filter(Boolean)
+                .join(' · ');
             return `<section class="msg ${cls}">
                 <div class="role">${this.escapeHtml(role)}</div>
+                ${meta ? `<div class="meta">${this.escapeHtml(meta)}</div>` : ''}
                 <pre>${this.escapeHtml(message.content)}</pre>
             </section>`;
         }).join('');
@@ -1591,11 +1629,13 @@ body{margin:0;background:#151617;color:#d7d7d7;font:14px/1.55 var(--vscode-font-
 .msg.user{background:#10283a;border-color:#16415d}
 .msg.system{background:#2a2118;border-color:#4b3624}
 .role{font-weight:600;color:#55b4ff;margin-bottom:7px}
+.meta{font-size:12px;color:#8e8e8e;margin:-2px 0 8px}
 .assistant .role{color:#7bd88f}.system .role{color:#e8b66b}
 pre{margin:0;white-space:pre-wrap;word-wrap:break-word;font:inherit}
 .composer{border-top:1px solid #282b2e;background:#181a1c;padding:12px;display:flex;gap:10px;align-items:flex-end}
 textarea{flex:1;resize:vertical;min-height:48px;max-height:180px;border:1px solid #34383d;border-radius:8px;background:#111315;color:#e8e8e8;padding:10px;font:inherit;outline:none}
 textarea:focus{border-color:#1492e6}
+select{height:42px;border:1px solid #34383d;border-radius:8px;background:#111315;color:#e8e8e8;padding:0 8px;font:inherit}
 button{border:0;border-radius:8px;background:#1492e6;color:white;padding:0 16px;height:42px;font-weight:600;cursor:pointer}
 </style>
 </head>
@@ -1606,6 +1646,20 @@ ${rows || '<div class="msg system"><div class="role">System</div><pre>Waiting fo
 </main>
 <form class="composer" id="composer">
   <textarea id="prompt" placeholder="Ask Remote Code..."></textarea>
+  <select id="model">
+    <option value="gpt-5.5">GPT-5.5</option>
+    <option value="gpt-5.4">GPT-5.4</option>
+    <option value="gpt-5.4-mini">GPT-5.4-Mini</option>
+    <option value="gpt-5.3-codex">GPT-5.3-Codex</option>
+    <option value="gpt-5.3-codex-spark">GPT-5.3-Codex-Spark</option>
+    <option value="gpt-5.2">GPT-5.2</option>
+  </select>
+  <select id="effort">
+    <option value="medium">Средний</option>
+    <option value="low">Низкий</option>
+    <option value="high">Высокий</option>
+    <option value="xhigh">Очень высокий</option>
+  </select>
   <button id="send" type="submit">Send</button>
 </form>
 <script>
@@ -1613,12 +1667,16 @@ const vscode = acquireVsCodeApi();
 const form = document.getElementById('composer');
 const prompt = document.getElementById('prompt');
 const messages = document.getElementById('messages');
+const model = document.getElementById('model');
+const effort = document.getElementById('effort');
+model.value = ${JSON.stringify(this.selectedAgent)};
+effort.value = ${JSON.stringify(this.selectedReasoningEffort)};
 messages.scrollTop = messages.scrollHeight;
 form.addEventListener('submit', event => {
   event.preventDefault();
   const message = prompt.value.trim();
   if (!message) return;
-  vscode.postMessage({ type: 'send', message });
+  vscode.postMessage({ type: 'send', message, model: model.value, reasoningEffort: effort.value });
   prompt.value = '';
 });
 prompt.addEventListener('keydown', event => {
@@ -2013,7 +2071,7 @@ prompt.addEventListener('keydown', event => {
     // POST /api/codex/send
     private async handleCodexSendRealtime(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
         const body = await this.readBody(req);
-        const { message, model, threadId, attachments } = JSON.parse(body);
+        const { message, model, threadId, attachments, reasoningEffort } = JSON.parse(body);
 
         if (!message) {
             this.jsonResponse(res, 400, { error: 'Message is required' });
@@ -2025,7 +2083,8 @@ prompt.addEventListener('keydown', event => {
                 message,
                 typeof model === 'string' ? model : '',
                 typeof threadId === 'string' ? threadId : '',
-                Array.isArray(attachments) ? attachments : []
+                Array.isArray(attachments) ? attachments : [],
+                typeof reasoningEffort === 'string' ? reasoningEffort : undefined
             );
 
             this.jsonResponse(res, 200, {
@@ -2033,6 +2092,7 @@ prompt.addEventListener('keydown', event => {
                 method: 'remote-code-agent',
                 message: 'Sent to Remote Code Agent',
                 threadId: targetThreadId,
+                reasoningEffort: this.selectedReasoningEffort,
                 note: 'Remote Code Agent owns this cross-device chat.'
             });
         } catch (err: any) {
@@ -2098,6 +2158,7 @@ prompt.addEventListener('keydown', event => {
                     name: agent.displayName || agent.name
                 })),
                 selected,
+                reasoningEffort: this.selectedReasoningEffort,
                 note: 'Only Codex/OpenAI-compatible VS Code models are shown.'
             });
         } catch (err: any) {
@@ -2626,16 +2687,12 @@ prompt.addEventListener('keydown', event => {
 
     private getDefaultCodexModels(): Array<{ id: string; name: string }> {
         return [
-            { id: 'gpt-5.3-codex', name: 'GPT-5.3-Codex' },
-            { id: 'gpt-5.2-codex', name: 'GPT-5.2-Codex' },
+            { id: 'gpt-5.5', name: 'GPT-5.5' },
             { id: 'gpt-5.4', name: 'GPT-5.4' },
-            { id: 'gpt-5.4-mini', name: 'GPT-5.4 mini' },
+            { id: 'gpt-5.4-mini', name: 'GPT-5.4-Mini' },
+            { id: 'gpt-5.3-codex', name: 'GPT-5.3-Codex' },
+            { id: 'gpt-5.3-codex-spark', name: 'GPT-5.3-Codex-Spark' },
             { id: 'gpt-5.2', name: 'GPT-5.2' },
-            { id: 'gpt-4.1', name: 'GPT-4.1' },
-            { id: 'gpt-4o', name: 'GPT-4o' },
-            { id: 'gpt-4o-mini', name: 'GPT-4o mini' },
-            { id: 'o4-mini', name: 'o4-mini' },
-            { id: 'o3-mini', name: 'o3-mini' },
         ];
     }
 
