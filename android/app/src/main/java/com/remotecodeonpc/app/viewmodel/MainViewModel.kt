@@ -33,7 +33,7 @@ data class AppUiState(
     val tunnelError: String? = null,
 
     // Navigation
-    val currentScreen: String = "vscode",
+    val currentScreen: String = "codex",
 
     // Folders
     val folders: FoldersResponse? = null,
@@ -286,6 +286,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                             loadCodexThreads(loadCurrent = false)
                             loadCodexEvents(threadId)
                         }
+                    }
+                    "codex:model-changed" -> {
+                        val model = data["model"] as? String ?: return
+                        _uiState.value = _uiState.value.copy(codexSelectedModel = model)
                     }
                     "codex:message", "codex:thinking", "codex:response" -> {
                         val threadId = data["threadId"] as? String
@@ -852,7 +856,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         currentCodexThreadId = nextThreadId,
                         isCodexLoading = false
                     )
-                    loadCodexThreads(loadCurrent = false)
+                    loadCodexThreads(loadCurrent = true)
                     loadCodexEvents(nextThreadId)
                     delay(4000)
                     loadCodexHistory(nextThreadId)
@@ -889,7 +893,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         codexActionEvents = if (threads.isEmpty()) emptyList() else _uiState.value.codexActionEvents,
                         codexError = null
                     )
-                    if (loadCurrent && nextCurrent.isNotBlank() && nextCurrent != current) {
+                    if (loadCurrent && nextCurrent.isNotBlank()) {
                         loadCodexHistory(nextCurrent)
                         loadCodexEvents(nextCurrent)
                     }
@@ -1068,7 +1072,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 loadFolders()
                 loadCodexStatus()
                 loadCodexModels()
-                loadCodexThreads(loadCurrent = false)
+                    loadCodexThreads(loadCurrent = true)
             }
             "chat" -> { loadChatAgents(); loadChatHistory() }
             "files" -> loadFolders()

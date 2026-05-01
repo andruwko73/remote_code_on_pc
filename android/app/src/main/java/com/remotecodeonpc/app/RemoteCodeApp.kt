@@ -168,7 +168,7 @@ fun RemoteCodeApp(
                                 }
                             }
                         },
-                        onBack = { viewModel.navigateTo("vscode") }
+                        onBack = { viewModel.navigateTo("codex") }
                     )
                     "diagnostics" -> DiagnosticsScreen(
                         diagnostics = state.diagnostics,
@@ -179,7 +179,7 @@ fun RemoteCodeApp(
                         isRunning = state.isTerminalRunning,
                         onExecCommand = { viewModel.execTerminal(it) },
                         onClearTerminal = { viewModel.clearTerminal() },
-                        onBack = { viewModel.navigateTo("vscode") }
+                        onBack = { viewModel.navigateTo("codex") }
                     )
                     "settings" -> SettingsScreen(
                         serverConfig = state.serverConfig,
@@ -199,7 +199,7 @@ fun RemoteCodeApp(
                         onStartTunnel = { viewModel.startTunnel() },
                         onStopTunnel = { viewModel.stopTunnel() },
                         onToggleTunnelMode = { viewModel.toggleTunnelMode(it) },
-                        onBack = { viewModel.navigateTo("vscode") },
+                        onBack = { viewModel.navigateTo("codex") },
                         onClearLogs = onClearLogs,
                         onUpdateApp = { onUpdateApp(state.serverConfig) }
                     )

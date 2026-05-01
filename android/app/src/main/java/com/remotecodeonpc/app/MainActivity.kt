@@ -29,7 +29,7 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
 
         CrashLogger.init(applicationContext)
-            CrashLogger.i("MainActivity", "App started, version=1.0.19")
+            CrashLogger.i("MainActivity", "App started, version=1.0.20")
 
         val defaultCrashHandler = Thread.getDefaultUncaughtExceptionHandler()
         Thread.setDefaultUncaughtExceptionHandler { thread, throwable ->

@@ -34,6 +34,12 @@ interface CodexChatMessage {
     threadId?: string;
 }
 
+interface RemoteCodeThreadSummary {
+    id: string;
+    title: string;
+    timestamp: number;
+}
+
 interface MobileAttachment {
     name?: string;
     mimeType?: string;
@@ -65,6 +71,7 @@ export class RemoteServer {
     private selectedAgent: string = 'auto';
     private agentCache?: { timestamp: number; agents: ChatAgent[] };
     private codexHistory: CodexChatMessage[] = [];
+    private currentRemoteThreadId: string = 'remote-code-default';
     private pcChatPanel?: vscode.WebviewPanel;
     private workspaceStorageCache?: { timestamp: number; dirs: string[] };
 
@@ -91,17 +98,6 @@ export class RemoteServer {
     get tunnelUrl() { return this._tunnelUrl; }
     get localIp() { return this._localIp; }
     get authToken() { return this._authToken; }
-
-    async openOfficialCodex(): Promise<void> {
-        const extension = vscode.extensions.getExtension('openai.chatgpt');
-        if (!extension) {
-            throw new Error('Official Codex extension openai.chatgpt is not installed.');
-        }
-        if (!extension.isActive) {
-            await extension.activate();
-        }
-        await vscode.commands.executeCommand('chatgpt.openSidebar');
-    }
 
     /** Публичный запуск туннеля */
     async startTunnelPublic(): Promise<string> {
@@ -161,6 +157,7 @@ export class RemoteServer {
                     });
 
                     // Восстанавливаем историю чатов из сохранённых данных
+                    this.restoreRemoteCodeState();
                     this.restoreChatHistory();
 
                     // Запускаем слежение за изменениями JSONL-файлов чатов
@@ -303,7 +300,7 @@ export class RemoteServer {
                 case pathname === '/api/codex/send':
                     return this.handleCodexSendRealtime(req, res);
                 case pathname === '/api/codex/history':
-                    return this.handleCodexHistoryFast(req, res);
+                    return this.handleCodexHistory(req, res);
                 case pathname === '/api/codex/events':
                     return this.handleCodexEvents(req, res);
                 case pathname === '/api/codex/actions':
@@ -313,7 +310,7 @@ export class RemoteServer {
                 case pathname === '/api/codex/models' && req.method === 'POST':
                     return this.handleCodexSelectModel(req, res);
                 case pathname === '/api/codex/threads':
-                    return this.handleCodexThreadsFast(req, res);
+                    return this.handleRemoteCodeThreads(req, res);
                 case pathname === '/api/codex/launch':
                     return this.handleCodexLaunch(req, res);
 
@@ -1269,7 +1266,80 @@ export class RemoteServer {
         return agents;
     }
 
+    private restoreRemoteCodeState(): void {
+        try {
+            const savedHistory = this._context.globalState.get<CodexChatMessage[]>('remote_code_history', []);
+            const savedThreadId = this._context.globalState.get<string>('remote_code_current_thread_id', 'remote-code-default');
+            const savedAgent = this._context.globalState.get<string>('remote_code_selected_agent', this.selectedAgent);
+            this.codexHistory = Array.isArray(savedHistory) ? savedHistory.slice(-200) : [];
+            this.currentRemoteThreadId = savedThreadId || 'remote-code-default';
+            this.selectedAgent = savedAgent || this.selectedAgent;
+            if (this.codexHistory.length === 0) {
+                this.codexHistory.push({
+                    id: `remote_system_${Date.now()}`,
+                    role: 'system',
+                    content: 'Remote Code Agent is ready. Messages from Android and VS Code stay in this shared thread.',
+                    timestamp: Date.now(),
+                    threadId: this.currentRemoteThreadId
+                });
+                this.saveRemoteCodeState();
+            }
+        } catch (err) {
+            console.warn('[RemoteCodeOnPC] Failed to restore Remote Code state:', err);
+        }
+    }
+
+    private saveRemoteCodeState(): void {
+        void this._context.globalState.update('remote_code_history', this.codexHistory.slice(-200));
+        void this._context.globalState.update('remote_code_current_thread_id', this.currentRemoteThreadId);
+        void this._context.globalState.update('remote_code_selected_agent', this.selectedAgent);
+    }
+
+    private getRemoteCodeThreads(): RemoteCodeThreadSummary[] {
+        const byThread = new Map<string, RemoteCodeThreadSummary>();
+        for (const message of this.codexHistory) {
+            const id = message.threadId || this.currentRemoteThreadId || 'remote-code-default';
+            const existing = byThread.get(id);
+            const titleSource = message.role === 'user' && message.content.trim()
+                ? message.content
+                : existing?.title || 'Remote Code';
+            const title = titleSource.replace(/\s+/g, ' ').slice(0, 80) || 'Remote Code';
+            const timestamp = Math.max(existing?.timestamp || 0, Math.round(message.timestamp || 0));
+            byThread.set(id, { id, title, timestamp });
+        }
+        if (!byThread.has(this.currentRemoteThreadId)) {
+            byThread.set(this.currentRemoteThreadId, {
+                id: this.currentRemoteThreadId,
+                title: 'Remote Code',
+                timestamp: Date.now()
+            });
+        }
+        return Array.from(byThread.values()).sort((a, b) => b.timestamp - a.timestamp);
+    }
+
+    private getWorkspaceContextForPrompt(): string {
+        const folders = vscode.workspace.workspaceFolders?.map(f => f.uri.fsPath).join('\n') || 'No workspace folder is open.';
+        const active = vscode.window.activeTextEditor;
+        const activeFile = active ? `${active.document.uri.fsPath} (${active.document.languageId})` : 'No active editor.';
+        return [
+            'You are Remote Code Agent running inside VS Code.',
+            'Help with code, files, diagnostics, terminal commands, and IDE context.',
+            'Workspace folders:',
+            folders,
+            'Active editor:',
+            activeFile
+        ].join('\n');
+    }
+
     private async sendToChat(message: string, agentName: string): Promise<string> {
+        return this.sendToChatStreaming(message, agentName);
+    }
+
+    private async sendToChatStreaming(
+        message: string,
+        agentName: string,
+        onChunk?: (content: string) => void
+    ): Promise<string> {
         // Используем VS Code LanguageModel API для отправки в Copilot Chat
         try {
             // Сначала пробуем найти модель GitHub Copilot
@@ -1300,7 +1370,7 @@ export class RemoteServer {
             const messages = [
                 new vscode.LanguageModelChatMessage(
                     vscode.LanguageModelChatMessageRole.User,
-                    message
+                    `${this.getWorkspaceContextForPrompt()}\n\nUser request:\n${message}`
                 )
             ];
 
@@ -1310,6 +1380,7 @@ export class RemoteServer {
             let result = '';
             for await (const chunk of response.text) {
                 result += chunk;
+                onChunk?.(result);
             }
             return result || '(пустой ответ)';
         } catch (err: any) {
@@ -1330,11 +1401,25 @@ export class RemoteServer {
             threadId
         };
         this.codexHistory.push(thinking);
-        this.codexHistory = this.codexHistory.slice(-100);
+        this.codexHistory = this.codexHistory.slice(-200);
+        this.saveRemoteCodeState();
         this.refreshPcChatPanel();
         this.broadcast({ type: 'codex:message', message: thinking, threadId, timestamp: Date.now() });
 
-        const response = await this.sendToChat(message, 'auto');
+        const response = await this.sendToChatStreaming(message, model || this.selectedAgent || 'auto', (content) => {
+            thinking.content = content || '...';
+            thinking.timestamp = Date.now();
+            this.codexHistory = this.codexHistory.map(m => m.id === thinking.id ? { ...thinking } : m);
+            this.saveRemoteCodeState();
+            this.refreshPcChatPanel();
+            this.broadcast({
+                type: 'codex:chunk',
+                messageId: thinking.id,
+                content: thinking.content,
+                threadId,
+                timestamp: thinking.timestamp
+            });
+        });
         const done: CodexChatMessage = {
             ...thinking,
             id: `codex_assistant_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
@@ -1342,7 +1427,8 @@ export class RemoteServer {
             timestamp: Date.now(),
             isStreaming: false
         };
-        this.codexHistory = this.codexHistory.filter(m => m.id !== thinking.id).concat(done).slice(-100);
+        this.codexHistory = this.codexHistory.filter(m => m.id !== thinking.id).concat(done).slice(-200);
+        this.saveRemoteCodeState();
         this.refreshPcChatPanel();
         this.broadcast({ type: 'codex:message', message: done, threadId, timestamp: Date.now() });
     }
@@ -1353,7 +1439,8 @@ export class RemoteServer {
         threadId: string,
         attachments: MobileAttachment[]
     ): Promise<string> {
-        const targetThreadId = threadId.trim() || this.getCodexThreadSummariesFast()[0]?.id || 'remote-code';
+        const targetThreadId = threadId.trim() || this.currentRemoteThreadId || 'remote-code-default';
+        this.currentRemoteThreadId = targetThreadId;
         const attachmentFiles = this.saveMobileAttachments(attachments);
         const messageForAgent = this.withAttachmentInstructions(message, attachmentFiles);
         const userMessage: CodexChatMessage = {
@@ -1365,11 +1452,13 @@ export class RemoteServer {
             threadId: targetThreadId
         };
         this.codexHistory.push(userMessage);
-        this.codexHistory = this.codexHistory.slice(-100);
+        this.codexHistory = this.codexHistory.slice(-200);
+        this.saveRemoteCodeState();
         this.openPcChatPanel();
         this.refreshPcChatPanel();
         this.broadcast({ type: 'codex:message', message: userMessage, threadId: targetThreadId, timestamp: Date.now() });
         this.broadcast({ type: 'codex:sent', message: messageForAgent, model, threadId: targetThreadId, timestamp: Date.now() });
+        this.broadcast({ type: 'codex:threads-update', threads: this.getRemoteCodeThreads(), timestamp: Date.now() });
 
         this.answerInPcMirror(messageForAgent, targetThreadId, model).catch(err => {
             const errorMessage: CodexChatMessage = {
@@ -1380,7 +1469,8 @@ export class RemoteServer {
                 threadId: targetThreadId
             };
             this.codexHistory.push(errorMessage);
-            this.codexHistory = this.codexHistory.slice(-100);
+            this.codexHistory = this.codexHistory.slice(-200);
+            this.saveRemoteCodeState();
             this.refreshPcChatPanel();
             this.broadcast({ type: 'codex:message', message: errorMessage, threadId: targetThreadId, timestamp: Date.now() });
         });
@@ -1415,7 +1505,10 @@ export class RemoteServer {
 
     private refreshPcChatPanel(): void {
         if (!this.pcChatPanel) return;
-        this.pcChatPanel.webview.html = this.renderPcChatHtml(this.codexHistory.slice(-80));
+        const messages = this.codexHistory
+            .filter(m => (m.threadId || this.currentRemoteThreadId) === this.currentRemoteThreadId)
+            .slice(-80);
+        this.pcChatPanel.webview.html = this.renderPcChatHtml(messages);
     }
 
     private renderPcChatHtml(messages: CodexChatMessage[]): string {
@@ -1490,85 +1583,9 @@ prompt.addEventListener('keydown', event => {
             .replace(/'/g, '&#39;');
     }
 
-    private async sendToOfficialCodexComposer(message: string): Promise<void> {
-        await this.openOfficialCodex();
-        await new Promise(resolve => setTimeout(resolve, 500));
 
-        let previousClipboard = '';
-        try {
-            previousClipboard = await vscode.env.clipboard.readText();
-        } catch {
-            previousClipboard = '';
-        }
-        await vscode.env.clipboard.writeText(message);
 
-        try {
-            await this.sendKeysToVSCode('^v', '{ENTER}');
-        } finally {
-            setTimeout(() => {
-                vscode.env.clipboard.writeText(previousClipboard).then(undefined, () => undefined);
-            }, 5000);
-        }
-    }
 
-    private sendKeysToVSCode(...keys: string[]): Promise<void> {
-        return new Promise((resolve, reject) => {
-            if (process.platform !== 'win32') {
-                reject(new Error('Official Codex UI automation is currently implemented for Windows only.'));
-                return;
-            }
-
-            const sendKeys = keys
-                .map((key, index) => `$wshell.SendKeys('${key}')${index < keys.length - 1 ? '\nStart-Sleep -Milliseconds 150' : ''}`)
-                .join('\n');
-            const script = [
-                "Add-Type -TypeDefinition @'",
-                'using System;',
-                'using System.Runtime.InteropServices;',
-                'public struct RECT { public int Left; public int Top; public int Right; public int Bottom; }',
-                'public static class NativeWin {',
-                '  [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();',
-                '  [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr hWnd, out RECT rect);',
-                '  [DllImport("user32.dll")] public static extern bool SetCursorPos(int X, int Y);',
-                '  [DllImport("user32.dll")] public static extern void mouse_event(uint flags, uint dx, uint dy, uint data, UIntPtr extra);',
-                '}',
-                "'@",
-                'Start-Sleep -Milliseconds 350',
-                '$wshell = New-Object -ComObject WScript.Shell',
-                "$activated = $wshell.AppActivate('Visual Studio Code')",
-                'if (-not $activated) { throw "Could not activate Visual Studio Code window" }',
-                'Start-Sleep -Milliseconds 700',
-                '$hwnd = [NativeWin]::GetForegroundWindow()',
-                '$rect = New-Object RECT',
-                'if ([NativeWin]::GetWindowRect($hwnd, [ref]$rect)) {',
-                '  $x = [int]($rect.Left + (($rect.Right - $rect.Left) * 0.72))',
-                '  $y = [int]($rect.Bottom - 110)',
-                '  [NativeWin]::SetCursorPos($x, $y) | Out-Null',
-                '  Start-Sleep -Milliseconds 120',
-                '  [NativeWin]::mouse_event(0x0002, 0, 0, 0, [UIntPtr]::Zero)',
-                '  [NativeWin]::mouse_event(0x0004, 0, 0, 0, [UIntPtr]::Zero)',
-                '}',
-                'Start-Sleep -Milliseconds 350',
-                sendKeys
-            ].join('\n');
-            const encoded = Buffer.from(script, 'utf16le').toString('base64');
-            const proc = spawn('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-EncodedCommand', encoded], {
-                windowsHide: true,
-                stdio: ['ignore', 'pipe', 'pipe']
-            });
-
-            let stderr = '';
-            proc.stderr.on('data', (chunk: Buffer) => { stderr += chunk.toString(); });
-            proc.on('error', reject);
-            proc.on('close', (code: number | null) => {
-                if (code === 0) {
-                    resolve();
-                } else {
-                    reject(new Error(stderr.trim() || `PowerShell SendKeys failed with code ${code ?? 'unknown'}`));
-                }
-            });
-        });
-    }
 
     private saveChatHistory(chatId: string, messages: ChatMessage[]): void {
         // Сохраняем историю в контексте расширения
@@ -1846,9 +1863,19 @@ prompt.addEventListener('keydown', event => {
     }
 
     // GET /api/codex/history
-    private async handleCodexHistory(_req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
+    private async handleCodexHistory(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
+        const params = url.parse(req.url || '', true).query;
+        const requestedThreadId = typeof params.threadId === 'string' && params.threadId.trim()
+            ? params.threadId.trim()
+            : this.currentRemoteThreadId;
+        this.currentRemoteThreadId = requestedThreadId || 'remote-code-default';
+        const messages = this.codexHistory
+            .filter(m => (m.threadId || this.currentRemoteThreadId) === this.currentRemoteThreadId)
+            .slice(-120);
         this.jsonResponse(res, 200, {
-            messages: this.codexHistory.slice(-100)
+            threadId: this.currentRemoteThreadId,
+            title: this.getRemoteCodeThreads().find(t => t.id === this.currentRemoteThreadId)?.title || 'Remote Code',
+            messages
         });
     }
 
@@ -2006,35 +2033,19 @@ prompt.addEventListener('keydown', event => {
     // GET /api/codex/models
     private async handleCodexModels(_req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
         try {
-            const codexPath = this.findCodexCli();
-            if (!codexPath) {
-                this.jsonResponse(res, 200, {
-                    models: this.getDefaultCodexModels(),
-                    selected: null,
-                    note: 'Codex CLI не установлен.'
-                });
-                return;
-            }
-
-            // Читаем текущую модель из конфиг-файла
-            let selected = '';
-            const configPath = this.getCodexConfigPath();
-            const configFile = path.join(configPath, 'config.toml');
-            if (fs.existsSync(configFile)) {
-                const config = fs.readFileSync(configFile, 'utf-8');
-                const modelMatch = config.match(/^model\s*=\s*"([^"]+)"/m);
-                if (modelMatch) selected = modelMatch[1];
-            }
-
+            const agents = await this.getAvailableAgents();
             this.jsonResponse(res, 200, {
-                models: this.getDefaultCodexModels(),
-                selected,
-                note: 'Модели предоставляются через Codex CLI (ChatGPT подписка)'
+                models: agents.map(agent => ({
+                    id: agent.name,
+                    name: agent.displayName || agent.name
+                })),
+                selected: this.selectedAgent,
+                note: 'Models are provided by VS Code Language Model API.'
             });
         } catch (err: any) {
             this.jsonResponse(res, 200, {
                 models: this.getDefaultCodexModels(),
-                selected: '',
+                selected: this.selectedAgent,
                 error: err.message
             });
         }
@@ -2043,7 +2054,7 @@ prompt.addEventListener('keydown', event => {
     // POST /api/codex/models
     private async handleCodexSelectModel(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
         const body = await this.readBody(req);
-        const { modelId } = JSON.parse(body);
+        const { modelId } = JSON.parse(body || '{}');
 
         if (!modelId) {
             this.jsonResponse(res, 400, { error: 'modelId is required' });
@@ -2051,26 +2062,10 @@ prompt.addEventListener('keydown', event => {
         }
 
         try {
-            const codexPath = this.findCodexCli();
-            if (!codexPath) {
-                this.jsonResponse(res, 400, { error: 'Codex CLI не установлен' });
-                return;
-            }
-
-            // Обновляем модель в конфиг-файле напрямую
-            const configPath = this.getCodexConfigPath();
-            const configFile = path.join(configPath, 'config.toml');
-            if (fs.existsSync(configFile)) {
-                let config = fs.readFileSync(configFile, 'utf-8');
-                if (config.includes('model =')) {
-                    config = config.replace(/^model\s*=.*$/m, `model = "${modelId}"`);
-                } else {
-                    config = `model = "${modelId}"\n` + config;
-                }
-                fs.writeFileSync(configFile, config, 'utf-8');
-            }
-
-            this.jsonResponse(res, 200, { success: true, model: modelId, result: `Модель изменена на ${modelId}` });
+            this.selectedAgent = modelId;
+            this.saveRemoteCodeState();
+            this.broadcast({ type: 'codex:model-changed', model: modelId, timestamp: Date.now() });
+            this.jsonResponse(res, 200, { success: true, model: modelId, result: `Model changed to ${modelId}` });
         } catch (err: any) {
             this.jsonResponse(res, 500, { error: err.message });
         }
@@ -2095,6 +2090,14 @@ prompt.addEventListener('keydown', event => {
     private async handleCodexThreadsFast(_req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
         try {
             this.jsonResponse(res, 200, { threads: this.getCodexThreadSummariesFast() });
+        } catch (err: any) {
+            this.jsonResponse(res, 200, { threads: [], error: err.message });
+        }
+    }
+
+    private async handleRemoteCodeThreads(_req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
+        try {
+            this.jsonResponse(res, 200, { threads: this.getRemoteCodeThreads() });
         } catch (err: any) {
             this.jsonResponse(res, 200, { threads: [], error: err.message });
         }
