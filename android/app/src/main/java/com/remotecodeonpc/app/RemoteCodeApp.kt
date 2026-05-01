@@ -257,6 +257,12 @@ private fun ConnectionScreen(
             fontWeight = FontWeight.Bold
         )
         Text(
+            "APK ${BuildConfig.VERSION_NAME}",
+            color = TextSecondary.copy(alpha = 0.7f),
+            fontSize = 12.sp,
+            modifier = Modifier.padding(top = 4.dp)
+        )
+        Text(
             "Подключитесь к VS Code на ПК",
             color = TextSecondary,
             fontSize = 14.sp,
@@ -474,6 +480,7 @@ private fun SettingsScreen(
                 InfoSettingRow("Статус", if (isConnected) "🟢 Подключено" else "🔴 Отключено")
                 InfoSettingRow("Режим", if (serverConfig.useTunnel) "🌐 Интернет (туннель)" else "📡 Локальная сеть")
                 InfoSettingRow("Сервер", "${serverConfig.host}:${serverConfig.port}")
+                InfoSettingRow("APK", BuildConfig.VERSION_NAME)
                 if (tunnelUrl != null) InfoSettingRow("Туннель", tunnelUrl)
                 if (localIp.isNotBlank()) InfoSettingRow("Локальный IP", localIp)
                 InfoSettingRow("Версия VS Code", status?.version ?: "—")

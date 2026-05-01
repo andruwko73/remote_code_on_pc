@@ -167,7 +167,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     // Heavy history scans are loaded on demand to keep first paint fast.
                     loadDiagnostics()
                     loadCodexStatus()
-                    loadCodexThreads()
+                    loadCodexThreads(loadCurrent = false)
                 } else {
                     CrashLogger.w("ViewModel", "getStatus failed: code=${response.code()}, message=${response.message()}")
                     _uiState.value = _uiState.value.copy(
@@ -199,7 +199,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     // Heavy history scans are loaded on demand to keep first paint fast.
                     loadDiagnostics()
                     loadCodexStatus()
-                    loadCodexThreads()
+                    loadCodexThreads(loadCurrent = false)
                 } catch (fallbackError: Exception) {
                     CrashLogger.e("ViewModel", "simple HTTP fallback failed", fallbackError)
                     _uiState.value = _uiState.value.copy(
@@ -281,7 +281,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         val threadId = data["threadId"] as? String
                         viewModelScope.launch {
                             loadCodexStatus()
-                            loadCodexThreads()
+                            loadCodexThreads(loadCurrent = false)
                             loadCodexEvents(threadId)
                         }
                     }
@@ -315,12 +315,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     }
                     "codex:sessions-update" -> {
                         viewModelScope.launch {
-                            loadCodexThreads()
+                            loadCodexThreads(loadCurrent = false)
                         }
                     }
                     "codex:threads-update" -> {
                         viewModelScope.launch {
-                            loadCodexThreads()
+                            loadCodexThreads(loadCurrent = false)
                         }
                     }
                     "codex:approval-request", "codex:action-update" -> {
@@ -332,7 +332,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     }
                     "codex:managed-status" -> {
                         viewModelScope.launch {
-                            loadCodexThreads()
+                            loadCodexThreads(loadCurrent = false)
                         }
                     }
                     "connected" -> {
@@ -350,7 +350,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                             viewModelScope.launch {
                                 loadFolders()
                                 loadCodexStatus()
-                                loadCodexThreads()
+                                loadCodexThreads(loadCurrent = false)
                             }
                         }
                     }
@@ -850,7 +850,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         currentCodexThreadId = nextThreadId,
                         isCodexLoading = false
                     )
-                    loadCodexThreads()
+                    loadCodexThreads(loadCurrent = false)
                     loadCodexEvents(nextThreadId)
                     delay(4000)
                     loadCodexHistory(nextThreadId)
@@ -868,7 +868,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             }
         }
     }
-    fun loadCodexThreads() {
+    fun loadCodexThreads(loadCurrent: Boolean = false) {
         viewModelScope.launch {
             try {
                 val api = ApiClient.getApi(_uiState.value.serverConfig)
@@ -887,7 +887,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         codexActionEvents = if (threads.isEmpty()) emptyList() else _uiState.value.codexActionEvents,
                         codexError = null
                     )
-                    if (nextCurrent.isNotBlank() && nextCurrent != current) {
+                    if (loadCurrent && nextCurrent.isNotBlank() && nextCurrent != current) {
                         loadCodexHistory(nextCurrent)
                         loadCodexEvents(nextCurrent)
                     }
@@ -1069,12 +1069,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 loadFolders()
                 loadCodexStatus()
                 loadCodexModels()
-                loadCodexThreads()
+                loadCodexThreads(loadCurrent = false)
             }
             "chat" -> { loadChatAgents(); loadChatHistory() }
             "files" -> loadFolders()
             "diagnostics" -> loadDiagnostics()
-            "codex" -> { loadCodexStatus(); loadCodexModels(); loadCodexThreads() }
+            "codex" -> { loadCodexStatus(); loadCodexModels(); loadCodexThreads(loadCurrent = true) }
             "terminal" -> { /* РЅРёС‡РµРіРѕ РЅРµ Р·Р°РіСЂСѓР¶Р°РµРј - С‚РµСЂРјРёРЅР°Р» Р»С‘РіРєРёР№ */ }
             "settings" -> loadTunnelStatus()
         }
