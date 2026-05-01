@@ -71,6 +71,7 @@ interface RemoteCodeActionEvent {
     cwd?: string;
     filePath?: string;
     contentBase64?: string;
+    patchBase64?: string;
     diff?: string;
     stdout?: string;
     stderr?: string;
@@ -1415,7 +1416,10 @@ export class RemoteServer {
             'Help with code, files, diagnostics, terminal commands, and IDE context.',
             'When an action needs user approval, do not claim it was done.',
             'Request terminal approval with a single line: ::run-command{"command":"...","cwd":"optional path"}',
+            'Read a project file with a single line: ::read-file{"path":"absolute path"}',
+            'Request current VS Code diagnostics with a single line: ::show-diagnostics{}',
             'Request file replacement approval with a single line: ::write-file{"path":"absolute path","contentBase64":"base64 utf8 content"}',
+            'Request unified patch approval with a single line: ::apply-patch{"path":"absolute path","patchBase64":"base64 utf8 unified diff"}',
             'The extension will show approve/deny controls on PC and phone, run the action only after approval, and stream the result back into this chat.',
             'Workspace folders:',
             folders,
@@ -1794,11 +1798,17 @@ export class RemoteServer {
                     result.stderr ? `stderr:\n${result.stderr}` : ''
                 ].filter(Boolean).join('\n\n').slice(0, 5000);
                 event.status = result.code === 0 ? 'completed' : 'failed';
-            } else if (event.type === 'patch_approval' && event.filePath && event.contentBase64) {
-                const text = Buffer.from(event.contentBase64, 'base64').toString('utf8');
-                fs.mkdirSync(path.dirname(event.filePath), { recursive: true });
-                fs.writeFileSync(event.filePath, text, 'utf8');
-                event.detail = `Файл изменен:\n${event.filePath}\n\n${event.diff || ''}`.slice(0, 5000);
+            } else if (event.type === 'patch_approval' && event.filePath && (event.contentBase64 || event.patchBase64)) {
+                if (event.patchBase64) {
+                    const patch = Buffer.from(event.patchBase64, 'base64').toString('utf8');
+                    await this.applyApprovedPatch(event.filePath, patch);
+                    event.detail = `Patch applied:\n${event.filePath}\n\n${event.diff || patch}`.slice(0, 5000);
+                } else if (event.contentBase64) {
+                    const text = Buffer.from(event.contentBase64, 'base64').toString('utf8');
+                    fs.mkdirSync(path.dirname(event.filePath), { recursive: true });
+                    fs.writeFileSync(event.filePath, text, 'utf8');
+                    event.detail = `File changed:\n${event.filePath}\n\n${event.diff || ''}`.slice(0, 5000);
+                }
                 event.status = 'completed';
             }
         } catch (err: any) {
@@ -1832,6 +1842,25 @@ export class RemoteServer {
         });
     }
 
+    private async applyApprovedPatch(filePath: string, patch: string): Promise<void> {
+        const workspace = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath || path.dirname(filePath);
+        await new Promise<void>((resolve, reject) => {
+            const child = spawn('git', ['apply', '--whitespace=nowarn', '-'], {
+                cwd: workspace,
+                shell: false,
+                windowsHide: true
+            });
+            let stderr = '';
+            child.stderr.on('data', chunk => { stderr += chunk.toString(); });
+            child.on('close', code => {
+                if (code === 0) resolve();
+                else reject(new Error(stderr.trim() || `git apply failed with code ${code}`));
+            });
+            child.on('error', reject);
+            child.stdin.end(patch);
+        });
+    }
+
     private broadcastActionUpdate(event: RemoteCodeActionEvent): void {
         this.broadcast({
             type: 'codex:action-update',
@@ -1848,7 +1877,7 @@ export class RemoteServer {
             : `Действие завершилось ошибкой: ${event.title}\n\n${event.detail || event.stderr || ''}`;
         const message: CodexChatMessage = {
             id: `action_result_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
-            role: 'system',
+            role: 'assistant',
             content: content.slice(0, 6000),
             timestamp: Date.now(),
             threadId: event.threadId
@@ -1861,13 +1890,14 @@ export class RemoteServer {
     }
 
     private createActionsFromAssistantResponse(response: string, threadId: string): void {
-        const directiveRegex = /::(run-command|write-file)(\{[^\n]+\})/g;
+        const directiveRegex = /::(run-command|write-file|apply-patch|read-file|show-diagnostics)(\{[^\n]*\})/g;
         let match: RegExpExecArray | null;
         const created: RemoteCodeActionEvent[] = [];
+        const toolResults: string[] = [];
         while ((match = directiveRegex.exec(response)) !== null) {
             try {
                 const kind = match[1];
-                const payload = JSON.parse(match[2]);
+                const payload = match[2].trim() ? JSON.parse(match[2]) : {};
                 const id = `action_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
                 if (kind === 'run-command' && typeof payload.command === 'string' && payload.command.trim()) {
                     created.push({
@@ -1899,10 +1929,32 @@ export class RemoteServer {
                         contentBase64: payload.contentBase64,
                         diff
                     });
+                } else if (kind === 'apply-patch' && typeof payload.path === 'string' && typeof payload.patchBase64 === 'string') {
+                    const patch = Buffer.from(payload.patchBase64, 'base64').toString('utf8');
+                    created.push({
+                        id,
+                        type: 'patch_approval',
+                        title: 'Применить patch',
+                        detail: patch.slice(0, 4000),
+                        status: 'pending',
+                        timestamp: Date.now(),
+                        threadId,
+                        actionable: true,
+                        filePath: payload.path,
+                        patchBase64: payload.patchBase64,
+                        diff: patch
+                    });
+                } else if (kind === 'read-file' && typeof payload.path === 'string') {
+                    toolResults.push(this.readFileToolResult(payload.path));
+                } else if (kind === 'show-diagnostics') {
+                    toolResults.push(this.diagnosticsToolResult());
                 }
             } catch (err) {
                 console.warn('[RemoteCodeOnPC] Failed to parse action directive:', err);
             }
+        }
+        if (toolResults.length > 0) {
+            this.appendToolResultMessage(toolResults.join('\n\n'), threadId);
         }
         if (created.length === 0) return;
         this.codexActionEvents = this.codexActionEvents.concat(created).slice(-250);
@@ -1922,8 +1974,61 @@ export class RemoteServer {
         return content
             .replace(/::run-command\{[^\n]+\}/g, '')
             .replace(/::write-file\{[^\n]+\}/g, '')
+            .replace(/::apply-patch\{[^\n]+\}/g, '')
+            .replace(/::read-file\{[^\n]+\}/g, '')
+            .replace(/::show-diagnostics\{[^\n]*\}/g, '')
             .replace(/\n{3,}/g, '\n\n')
             .trim() || 'Готово. Ожидаю подтверждение действия.';
+    }
+
+    private appendToolResultMessage(content: string, threadId: string): void {
+        const message: CodexChatMessage = {
+            id: `tool_result_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+            role: 'assistant',
+            content: content.slice(0, 9000),
+            timestamp: Date.now(),
+            threadId
+        };
+        this.codexHistory.push(message);
+        this.codexHistory = this.codexHistory.slice(-200);
+        this.saveRemoteCodeState();
+        this.refreshPcChatPanel();
+        this.broadcast({ type: 'codex:message', message, threadId, timestamp: Date.now() });
+    }
+
+    private readFileToolResult(filePath: string): string {
+        if (!path.isAbsolute(filePath)) {
+            return `read-file failed: path must be absolute: ${filePath}`;
+        }
+        if (!fs.existsSync(filePath)) {
+            return `read-file failed: file not found: ${filePath}`;
+        }
+        const stat = fs.statSync(filePath);
+        if (!stat.isFile()) {
+            return `read-file failed: not a file: ${filePath}`;
+        }
+        const maxBytes = 160_000;
+        const content = fs.readFileSync(filePath, 'utf8');
+        const clipped = content.length > maxBytes ? `${content.slice(0, maxBytes)}\n\n... truncated ...` : content;
+        return `read-file result: ${filePath}\n\n${clipped}`;
+    }
+
+    private diagnosticsToolResult(): string {
+        const diagnostics = vscode.languages.getDiagnostics()
+            .flatMap(([uri, items]) => items.map(item => ({
+                file: uri.fsPath,
+                line: item.range.start.line + 1,
+                column: item.range.start.character + 1,
+                severity: vscode.DiagnosticSeverity[item.severity] || 'Unknown',
+                message: item.message
+            })))
+            .slice(0, 80);
+        if (diagnostics.length === 0) {
+            return 'diagnostics result: no current VS Code diagnostics.';
+        }
+        return `diagnostics result:\n${diagnostics.map(item =>
+            `${item.file}:${item.line}:${item.column} [${item.severity}] ${item.message}`
+        ).join('\n')}`;
     }
 
     private createSimpleDiff(filePath: string, before: string, after: string): string {
