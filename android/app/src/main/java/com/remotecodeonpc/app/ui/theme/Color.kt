@@ -27,4 +27,5 @@ val InfoBlue = Color(0xFF3794FF)
 
 val StatusBarBg = Color(0xFF007ACC)
 val DividerColor = Color(0xFF3C3C3C)
+val DarkBorder = DividerColor
 val CardBg = Color(0xFF2D2D2D)

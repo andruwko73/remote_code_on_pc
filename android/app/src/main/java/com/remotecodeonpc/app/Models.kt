@@ -5,7 +5,9 @@ package com.remotecodeonpc.app
 data class ServerConfig(
     val host: String = "",
     val port: Int = 8799,
-    val authToken: String = ""
+    val authToken: String = "",
+    val useTunnel: Boolean = false,
+    val tunnelUrl: String = ""
 )
 
 data class WorkspaceStatus(
@@ -67,6 +69,7 @@ data class ChatMessage(
 
 data class ChatConversation(
     val id: String = "",
+    val title: String = "",
     val messageCount: Int = 0,
     val lastMessage: String = "",
     val lastTimestamp: Long = 0,
@@ -137,4 +140,118 @@ data class SelectAgentResponse(
 
 data class NewChatResponse(
     val chatId: String = ""
+)
+
+// ========== CODEX MODELS ==========
+
+data class CodexStatus(
+    val installed: Boolean = false,
+    val version: String = "",
+    val isRunning: Boolean = false,
+    val path: String? = null,
+    val desktopAppInstalled: Boolean = false,
+    val configPath: String? = null,
+    val error: String? = null
+)
+
+data class CodexModel(
+    val id: String = "",
+    val name: String = ""
+)
+
+data class CodexModelsResponse(
+    val models: List<CodexModel> = emptyList(),
+    val selected: String = "",
+    val note: String? = null,
+    val error: String? = null
+)
+
+data class CodexSendResponse(
+    val success: Boolean = false,
+    val message: String = "",
+    val command: String = "",
+    val threadId: String = "",
+    val note: String? = null,
+    val error: String? = null
+)
+
+data class CodexChatMessage(
+    val id: String = "",
+    val role: String = "",
+    val content: String = "",
+    val timestamp: Long = 0,
+    val model: String? = null,
+    val isStreaming: Boolean = false
+)
+
+data class CodexActionEvent(
+    val id: String = "",
+    val type: String = "",
+    val title: String = "",
+    val detail: String = "",
+    val status: String = "",
+    val timestamp: Long = 0,
+    val callId: String? = null,
+    val source: String? = null,
+    val actionable: Boolean = false
+)
+
+data class CodexHistoryResponse(
+    val threadId: String = "",
+    val title: String = "",
+    val messages: List<CodexChatMessage> = emptyList()
+)
+
+data class CodexEventsResponse(
+    val threadId: String = "",
+    val events: List<CodexActionEvent> = emptyList()
+)
+
+data class CodexActionResponse(
+    val success: Boolean = false,
+    val actionId: String = "",
+    val decision: String = "",
+    val error: String? = null
+)
+
+data class CodexThread(
+    val id: String = "",
+    val title: String = "",
+    val timestamp: Long = 0
+)
+
+data class CodexThreadsResponse(
+    val threads: List<CodexThread> = emptyList()
+)
+
+data class CodexSelectModelResponse(
+    val success: Boolean = false,
+    val model: String = "",
+    val result: String? = null,
+    val error: String? = null
+)
+
+data class CodexLaunchResponse(
+    val success: Boolean = false,
+    val method: String = "",
+    val path: String? = null,
+    val error: String? = null
+)
+
+// ========== TUNNEL MODELS ==========
+
+data class TunnelStatusResponse(
+    val tunnelActive: Boolean = false,
+    val tunnelUrl: String? = null,
+    val localIp: String = "",
+    val port: Int = 8799,
+    val localUrl: String = "",
+    val publicUrl: String? = null
+)
+
+data class TunnelActionResponse(
+    val success: Boolean = false,
+    val url: String? = null,
+    val message: String = "",
+    val error: String? = null
 )

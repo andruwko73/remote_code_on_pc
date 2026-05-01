@@ -3,6 +3,9 @@ package com.remotecodeonpc.app
 import androidx.compose.animation.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
@@ -11,6 +14,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -21,16 +25,12 @@ import com.remotecodeonpc.app.viewmodel.MainViewModel
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun RemoteCodeApp(viewModel: MainViewModel = viewModel()) {
+fun RemoteCodeApp(
+    viewModel: MainViewModel = viewModel(),
+    onShareLogs: () -> Unit = {},
+    onUpdateApp: () -> Unit = {}
+) {
     val state by viewModel.uiState.collectAsState()
-    var showConnectionDialog by remember { mutableStateOf(!state.isConnected) }
-
-    // Если потеряли соединение — показываем диалог
-    LaunchedEffect(state.isConnected) {
-        if (!state.isConnected && state.connectionError != null) {
-            showConnectionDialog = true
-        }
-    }
 
     Scaffold(
         modifier = Modifier.fillMaxSize(),
@@ -45,11 +45,20 @@ fun RemoteCodeApp(viewModel: MainViewModel = viewModel()) {
                         NavigationBarItem(
                             icon = {
                                 Icon(
-                                    screen.icon,
-                                    contentDescription = screen.title
+                                    imageVector = screen.icon,
+                                    contentDescription = screen.title,
+                                    tint = if (state.currentScreen == screen.route) AccentBlue else TextSecondary
                                 )
                             },
-                            label = { Text(screen.title, fontSize = 11.sp) },
+                            label = {
+                                Text(
+                                    screen.title,
+                                    fontSize = 11.sp,
+                                    maxLines = 1,
+                                    softWrap = true,
+                                    overflow = TextOverflow.Visible
+                                )
+                            },
                             selected = state.currentScreen == screen.route,
                             onClick = { viewModel.navigateTo(screen.route) },
                             colors = NavigationBarItemDefaults.colors(
@@ -57,7 +66,7 @@ fun RemoteCodeApp(viewModel: MainViewModel = viewModel()) {
                                 selectedTextColor = AccentBlue,
                                 unselectedIconColor = TextSecondary,
                                 unselectedTextColor = TextSecondary,
-                                indicatorColor = AccentBlue.copy(alpha = 0.15f)
+                                indicatorColor = AccentBlue.copy(alpha = 0.12f)
                             )
                         )
                     }
@@ -74,14 +83,81 @@ fun RemoteCodeApp(viewModel: MainViewModel = viewModel()) {
             if (state.isConnected) {
                 // Основные экраны
                 when (state.currentScreen) {
-                    "dashboard" -> DashboardScreen(
-                        status = state.status,
-                        diagnostics = state.diagnostics,
+                    "vscode" -> VSCodeScreen(
+                        agents = state.chatAgents,
+                        selectedAgent = state.selectedAgent,
+                        chatHistory = state.chatHistory,
+                        conversations = state.conversations,
+                        currentChatId = state.currentChatId,
+                        isChatLoading = state.isChatLoading,
+                        chatError = state.chatError,
+                        isThinking = state.isThinking,
                         folders = state.folders,
-                        isConnected = state.isConnected,
-                        onNavigateToChat = { viewModel.navigateTo("chat") },
-                        onNavigateToFiles = { viewModel.navigateTo("files") },
-                        onNavigateToDiagnostics = { viewModel.navigateTo("diagnostics") }
+                        currentFiles = state.currentFiles,
+                        fileContent = state.fileContent,
+                        isLoadingFiles = state.isLoadingFiles,
+                        onSendMessage = { viewModel.sendChatMessage(it) },
+                        onSelectAgent = { viewModel.selectAgent(it) },
+                        onNewChat = { viewModel.newChat() },
+                        onSwitchChat = { viewModel.switchToChat(it) },
+                        onNavigateToDir = { viewModel.loadFileTree(it) },
+                        onOpenFile = { viewModel.loadFileContent(it) },
+                        onOpenFolder = { viewModel.openFolder(it); viewModel.loadFileTree(it) },
+                        onGoUp = {
+                            state.currentFiles?.let { tree ->
+                                val cleanPath = tree.path.replace('\\', '/').trimEnd('/')
+                                val idx = cleanPath.lastIndexOf('/')
+                                if (idx >= 0) {
+                                    val parent = cleanPath.substring(0, idx).replace('/', '\\')
+                                    if (parent.length >= 3) {
+                                        viewModel.loadFileTree(
+                                            if (parent.endsWith(":")) "$parent\\" else parent
+                                        )
+                                    }
+                                }
+                            }
+                        },
+                        onNavigateToSettings = { viewModel.navigateTo("settings") }
+                    )
+                    "codex" -> CodexScreen(
+                        status = state.codexStatus,
+                        models = state.codexModels,
+                        selectedModel = state.codexSelectedModel,
+                        chatHistory = state.codexChatHistory,
+                        actionEvents = state.codexActionEvents,
+                        sendResult = state.codexSendResult,
+                        threads = state.codexThreads,
+                        currentThreadId = state.currentCodexThreadId,
+                        isLoading = state.isCodexLoading,
+                        error = state.codexError,
+                        folders = state.folders,
+                        currentFiles = state.currentFiles,
+                        fileContent = state.fileContent,
+                        isLoadingFiles = state.isLoadingFiles,
+                        onSendMessage = { viewModel.sendCodexMessage(it) },
+                        onSelectModel = { viewModel.selectCodexModel(it) },
+                        onLaunchCodex = { viewModel.launchCodex() },
+                        onLoadThreads = { viewModel.loadCodexThreads() },
+                        onSwitchThread = { viewModel.switchCodexThread(it) },
+                        onRespondToAction = { actionId, approve -> viewModel.respondToCodexAction(actionId, approve) },
+                        onNavigateToDir = { viewModel.loadFileTree(it) },
+                        onOpenFile = { viewModel.loadFileContent(it) },
+                        onOpenFolder = { viewModel.openFolder(it); viewModel.loadFileTree(it) },
+                        onGoUp = {
+                            state.currentFiles?.let { tree ->
+                                val cleanPath = tree.path.replace('\\', '/').trimEnd('/')
+                                val idx = cleanPath.lastIndexOf('/')
+                                if (idx >= 0) {
+                                    val parent = cleanPath.substring(0, idx).replace('/', '\\')
+                                    if (parent.length >= 3) {
+                                        viewModel.loadFileTree(
+                                            if (parent.endsWith(":")) "$parent\\" else parent
+                                        )
+                                    }
+                                }
+                            }
+                        },
+                        onNavigateToSettings = { viewModel.navigateTo("settings") }
                     )
                     "chat" -> ChatScreen(
                         agents = state.chatAgents,
@@ -107,27 +183,50 @@ fun RemoteCodeApp(viewModel: MainViewModel = viewModel()) {
                         onOpenFolder = { viewModel.openFolder(it); viewModel.loadFileTree(it) },
                         onGoUp = {
                             state.currentFiles?.let { tree ->
-                                val parent = tree.path.substringBeforeLast("\\")
-                                    .substringBeforeLast("/")
-                                if (parent.length > 3) viewModel.loadFileTree(parent)
+                                val cleanPath = tree.path.replace('\\', '/').trimEnd('/')
+                                val idx = cleanPath.lastIndexOf('/')
+                                if (idx >= 0) {
+                                    val parent = cleanPath.substring(0, idx).replace('/', '\\')
+                                    if (parent.length >= 3) {
+                                        viewModel.loadFileTree(
+                                            if (parent.endsWith(":")) "$parent\\" else parent
+                                        )
+                                    }
+                                }
                             }
                         },
-                        onBack = { }
+                        onBack = { viewModel.navigateTo("vscode") }
                     )
                     "diagnostics" -> DiagnosticsScreen(
                         diagnostics = state.diagnostics,
                         onRefresh = { viewModel.loadDiagnostics() }
                     )
+                    "terminal" -> TerminalScreen(
+                        output = state.terminalOutput,
+                        isRunning = state.isTerminalRunning,
+                        onExecCommand = { viewModel.execTerminal(it) },
+                        onClearTerminal = { viewModel.clearTerminal() },
+                        onBack = { viewModel.navigateTo("vscode") }
+                    )
                     "settings" -> SettingsScreen(
                         serverConfig = state.serverConfig,
                         status = state.status,
                         isConnected = state.isConnected,
+                        tunnelActive = state.tunnelActive,
+                        tunnelUrl = state.tunnelUrl,
+                        localIp = state.localIp,
+                        isTunnelStarting = state.isTunnelStarting,
+                        tunnelError = state.tunnelError,
                         onUpdateConfig = { viewModel.updateServerConfig(it) },
                         onReconnect = {
                             viewModel.disconnect()
-                            showConnectionDialog = true
+                            viewModel.connect()
                         },
-                        onDisconnect = { viewModel.disconnect() }
+                        onDisconnect = { viewModel.disconnect() },
+                        onStartTunnel = { viewModel.startTunnel() },
+                        onStopTunnel = { viewModel.stopTunnel() },
+                        onToggleTunnelMode = { viewModel.toggleTunnelMode(it) },
+                        onUpdateApp = onUpdateApp
                     )
                 }
             } else {
@@ -137,7 +236,9 @@ fun RemoteCodeApp(viewModel: MainViewModel = viewModel()) {
                     isConnecting = state.isConnecting,
                     error = state.connectionError,
                     onUpdateConfig = { viewModel.updateServerConfig(it) },
-                    onConnect = { viewModel.connect() }
+                    onConnect = { viewModel.connect() },
+                    onShareLogs = onShareLogs,
+                    onUpdateApp = onUpdateApp
                 )
             }
         }
@@ -150,7 +251,9 @@ private fun ConnectionScreen(
     isConnecting: Boolean,
     error: String?,
     onUpdateConfig: (ServerConfig) -> Unit,
-    onConnect: () -> Unit
+    onConnect: () -> Unit,
+    onShareLogs: () -> Unit = {},
+    onUpdateApp: () -> Unit = {}
 ) {
     var host by remember { mutableStateOf(serverConfig.host) }
     var port by remember { mutableStateOf(serverConfig.port.toString()) }
@@ -268,11 +371,9 @@ private fun ConnectionScreen(
             shape = androidx.compose.foundation.shape.RoundedCornerShape(12.dp)
         ) {
             if (isConnecting) {
-                CircularProgressIndicator(
-                    modifier = Modifier.size(20.dp),
-                    strokeWidth = 2.dp,
-                    color = TextBright
-                )
+                // Не используем CircularProgressIndicator — вызывает NoSuchMethodError
+                // на некоторых версиях Android из-за бага Compose Animation
+                Text("⏳", fontSize = 18.sp)
                 Spacer(modifier = Modifier.width(8.dp))
                 Text("Подключение...", fontSize = 16.sp)
             } else {
@@ -280,6 +381,31 @@ private fun ConnectionScreen(
                 Spacer(modifier = Modifier.width(8.dp))
                 Text("Подключиться", fontSize = 16.sp)
             }
+        }
+
+        // Кнопка отправки логов (всегда видна)
+        Spacer(modifier = Modifier.height(8.dp))
+        OutlinedButton(
+            onClick = onShareLogs,
+            modifier = Modifier.fillMaxWidth(),
+            colors = ButtonDefaults.outlinedButtonColors(contentColor = TextSecondary),
+            shape = androidx.compose.foundation.shape.RoundedCornerShape(12.dp)
+        ) {
+            Icon(Icons.Default.BugReport, contentDescription = null, modifier = Modifier.size(18.dp))
+            Spacer(modifier = Modifier.width(8.dp))
+            Text("Отправить логи", fontSize = 14.sp)
+        }
+
+        Spacer(modifier = Modifier.height(8.dp))
+        OutlinedButton(
+            onClick = onUpdateApp,
+            modifier = Modifier.fillMaxWidth(),
+            colors = ButtonDefaults.outlinedButtonColors(contentColor = AccentBlue),
+            shape = androidx.compose.foundation.shape.RoundedCornerShape(12.dp)
+        ) {
+            Icon(Icons.Default.SystemUpdate, contentDescription = null, modifier = Modifier.size(18.dp))
+            Spacer(modifier = Modifier.width(8.dp))
+            Text("Обновить из GitHub", fontSize = 14.sp)
         }
 
         Spacer(modifier = Modifier.height(16.dp))
@@ -298,15 +424,26 @@ private fun SettingsScreen(
     serverConfig: ServerConfig,
     status: WorkspaceStatus?,
     isConnected: Boolean,
+    tunnelActive: Boolean,
+    tunnelUrl: String?,
+    localIp: String,
+    isTunnelStarting: Boolean,
+    tunnelError: String?,
     onUpdateConfig: (ServerConfig) -> Unit,
     onReconnect: () -> Unit,
-    onDisconnect: () -> Unit
+    onDisconnect: () -> Unit,
+    onStartTunnel: () -> Unit,
+    onStopTunnel: () -> Unit,
+    onToggleTunnelMode: (Boolean) -> Unit,
+    onUpdateApp: () -> Unit
 ) {
+    val scrollState = rememberScrollState()
     Column(
         modifier = Modifier
             .fillMaxSize()
             .background(DarkBackground)
-            .padding(16.dp),
+            .padding(16.dp)
+            .verticalScroll(scrollState),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         Text("Настройки", color = TextBright, fontSize = 20.sp, fontWeight = FontWeight.Bold)
@@ -314,7 +451,7 @@ private fun SettingsScreen(
         // Информация о подключении
         Card(
             colors = CardDefaults.cardColors(containerColor = CardBg),
-            shape = androidx.compose.foundation.shape.RoundedCornerShape(12.dp)
+            shape = RoundedCornerShape(12.dp)
         ) {
             Column(modifier = Modifier.padding(16.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -324,9 +461,135 @@ private fun SettingsScreen(
                 }
                 Spacer(modifier = Modifier.height(12.dp))
                 InfoSettingRow("Статус", if (isConnected) "🟢 Подключено" else "🔴 Отключено")
+                InfoSettingRow("Режим", if (serverConfig.useTunnel) "🌐 Интернет (туннель)" else "📡 Локальная сеть")
                 InfoSettingRow("Сервер", "${serverConfig.host}:${serverConfig.port}")
+                if (tunnelUrl != null) InfoSettingRow("Туннель", tunnelUrl)
+                if (localIp.isNotBlank()) InfoSettingRow("Локальный IP", localIp)
                 InfoSettingRow("Версия VS Code", status?.version ?: "—")
                 InfoSettingRow("Платформа", status?.platform ?: "—")
+            }
+        }
+
+        // Туннель (интернет-доступ)
+        Card(
+            colors = CardDefaults.cardColors(containerColor = CardBg),
+            shape = RoundedCornerShape(12.dp)
+        ) {
+            Column(modifier = Modifier.padding(16.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        if (tunnelActive) Icons.Default.Wifi else Icons.Default.WifiOff,
+                        contentDescription = null,
+                        tint = if (tunnelActive) AccentGreen else TextSecondary
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Интернет-доступ", color = TextBright, fontWeight = FontWeight.SemiBold)
+                    Spacer(modifier = Modifier.weight(1f))
+                    // Индикатор активности
+                    Surface(
+                        color = if (tunnelActive) AccentGreen.copy(alpha = 0.2f) else DarkSurfaceVariant,
+                        shape = RoundedCornerShape(4.dp)
+                    ) {
+                        Text(
+                            if (tunnelActive) "АКТИВЕН" else "ВЫКЛ",
+                            color = if (tunnelActive) AccentGreen else TextSecondary,
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
+                        )
+                    }
+                }
+                Spacer(modifier = Modifier.height(12.dp))
+
+                // Статус туннеля
+                InfoSettingRow("Статус", if (tunnelActive) "🟢 Активен" else "⚪ Неактивен")
+                if (tunnelUrl != null) InfoSettingRow("Публичный URL", tunnelUrl)
+                if (localIp.isNotBlank()) InfoSettingRow("Локальный IP", localIp)
+                InfoSettingRow("Порт", serverConfig.port.toString())
+
+                // Ошибка туннеля
+                if (tunnelError != null) {
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(tunnelError, color = ErrorRed, fontSize = 12.sp)
+                }
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                // Кнопки управления туннелем
+                if (tunnelActive) {
+                    Button(
+                        onClick = onStopTunnel,
+                        modifier = Modifier.fillMaxWidth().height(44.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = ErrorRed),
+                        shape = RoundedCornerShape(10.dp)
+                    ) {
+                        Icon(Icons.Default.WifiOff, contentDescription = null)
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Остановить туннель")
+                    }
+                } else {
+                    Button(
+                        onClick = onStartTunnel,
+                        enabled = !isTunnelStarting,
+                        modifier = Modifier.fillMaxWidth().height(44.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = AccentGreen),
+                        shape = RoundedCornerShape(10.dp)
+                    ) {
+                        if (isTunnelStarting) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(18.dp),
+                                strokeWidth = 2.dp,
+                                color = TextBright
+                            )
+                        } else {
+                            Icon(Icons.Default.Wifi, contentDescription = null)
+                        }
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(if (isTunnelStarting) "Запуск..." else "Запустить туннель (ngrok)")
+                    }
+                }
+
+                // Переключение режима LAN / Internet
+                if (tunnelActive && tunnelUrl != null) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text("Использовать туннель", color = TextPrimary, fontSize = 14.sp)
+                        Switch(
+                            checked = serverConfig.useTunnel,
+                            onCheckedChange = { onToggleTunnelMode(it) },
+                            colors = SwitchDefaults.colors(
+                                checkedThumbColor = AccentGreen,
+                                checkedTrackColor = AccentGreen.copy(alpha = 0.3f),
+                                uncheckedThumbColor = TextSecondary,
+                                uncheckedTrackColor = DarkSurfaceVariant
+                            )
+                        )
+                    }
+
+                    if (serverConfig.useTunnel) {
+                        Surface(
+                            color = AccentGreen.copy(alpha = 0.1f),
+                            shape = RoundedCornerShape(8.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth().padding(12.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(Icons.Default.Cloud, contentDescription = null, tint = AccentGreen, modifier = Modifier.size(18.dp))
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(
+                                    "Подключение через интернет. Убедитесь, что ngrok запущен на ПК.",
+                                    color = TextSecondary,
+                                    fontSize = 12.sp
+                                )
+                            }
+                        }
+                    }
+                }
             }
         }
 
@@ -334,7 +597,7 @@ private fun SettingsScreen(
         status?.let { s ->
             Card(
                 colors = CardDefaults.cardColors(containerColor = CardBg),
-                shape = androidx.compose.foundation.shape.RoundedCornerShape(12.dp)
+                shape = RoundedCornerShape(12.dp)
             ) {
                 Column(modifier = Modifier.padding(16.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -350,14 +613,12 @@ private fun SettingsScreen(
             }
         }
 
-        Spacer(modifier = Modifier.weight(1f))
-
         // Кнопки управления
         Button(
             onClick = onReconnect,
             modifier = Modifier.fillMaxWidth().height(48.dp),
             colors = ButtonDefaults.buttonColors(containerColor = AccentBlue),
-            shape = androidx.compose.foundation.shape.RoundedCornerShape(12.dp)
+            shape = RoundedCornerShape(12.dp)
         ) {
             Icon(Icons.Default.Refresh, contentDescription = null)
             Spacer(modifier = Modifier.width(8.dp))
@@ -365,15 +626,28 @@ private fun SettingsScreen(
         }
 
         OutlinedButton(
+            onClick = onUpdateApp,
+            modifier = Modifier.fillMaxWidth().height(48.dp),
+            colors = ButtonDefaults.outlinedButtonColors(contentColor = AccentBlue),
+            shape = RoundedCornerShape(12.dp)
+        ) {
+            Icon(Icons.Default.SystemUpdate, contentDescription = null)
+            Spacer(modifier = Modifier.width(8.dp))
+            Text("Обновить из GitHub")
+        }
+
+        OutlinedButton(
             onClick = onDisconnect,
             modifier = Modifier.fillMaxWidth().height(48.dp),
             colors = ButtonDefaults.outlinedButtonColors(contentColor = ErrorRed),
-            shape = androidx.compose.foundation.shape.RoundedCornerShape(12.dp)
+            shape = RoundedCornerShape(12.dp)
         ) {
             Icon(Icons.Default.PowerSettingsNew, contentDescription = null)
             Spacer(modifier = Modifier.width(8.dp))
             Text("Отключиться")
         }
+
+        Spacer(modifier = Modifier.height(32.dp))
     }
 }
 

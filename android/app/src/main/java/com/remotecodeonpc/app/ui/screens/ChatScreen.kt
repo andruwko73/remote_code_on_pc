@@ -13,6 +13,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.Send
+import androidx.compose.material.icons.automirrored.filled.Chat
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -88,19 +90,54 @@ fun ChatScreen(
                             onDismissRequest = { showAgentSelector = false },
                             modifier = Modifier
                                 .background(DarkSurface)
-                                .widthIn(min = 200.dp)
+                                .widthIn(min = 220.dp)
                         ) {
                             agents.forEach { agent ->
+                                val aColor = when {
+                                    agent.name == "auto" -> AccentBlue
+                                    agent.name == "gpt-4o" -> AccentBlue
+                                    agent.name == "gpt-4o-mini" -> AccentGreen
+                                    agent.name == "deepseek-v3" -> AccentOrange
+                                    agent.name == "o3-mini" -> AccentPink
+                                    agent.name == "o4-mini" -> WarningYellow
+                                    agent.name == "claude-sonnet" -> ErrorRed
+                                    else -> AccentBlue
+                                }
                                 DropdownMenuItem(
                                     text = {
-                                        Column {
-                                            Text(
-                                                agent.displayName,
-                                                color = if (agent.name == selectedAgent) AccentBlue else TextPrimary,
-                                                fontWeight = if (agent.name == selectedAgent) FontWeight.Bold else FontWeight.Normal
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            Icon(
+                                                Icons.Default.SmartToy,
+                                                contentDescription = null,
+                                                tint = if (agent.name == selectedAgent) aColor else TextSecondary,
+                                                modifier = Modifier.size(20.dp)
                                             )
-                                            agent.model?.let {
-                                                Text(it, color = TextSecondary, fontSize = 11.sp)
+                                            Spacer(modifier = Modifier.width(10.dp))
+                                            Column {
+                                                Text(
+                                                    agent.displayName,
+                                                    color = if (agent.name == selectedAgent) aColor else TextPrimary,
+                                                    fontWeight = if (agent.name == selectedAgent) FontWeight.Bold else FontWeight.Normal,
+                                                    fontSize = 14.sp
+                                                )
+                                                Row {
+                                                    agent.model?.let {
+                                                        Text(it, color = TextSecondary, fontSize = 11.sp)
+                                                    }
+                                                    agent.vendor?.let {
+                                                        if (agent.model != null) Text(" · ", color = TextSecondary, fontSize = 11.sp)
+                                                        Text(it, color = TextSecondary.copy(alpha = 0.7f), fontSize = 11.sp)
+                                                    }
+                                                }
+                                            }
+                                            if (agent.name == selectedAgent) {
+                                                Spacer(modifier = Modifier.weight(1f))
+                                                Icon(
+                                                    Icons.Default.Check,
+                                                    contentDescription = null,
+                                                    tint = aColor,
+                                                    modifier = Modifier.size(18.dp)
+                                                )
                                             }
                                         }
                                     },
@@ -108,7 +145,7 @@ fun ChatScreen(
                                         onSelectAgent(agent.name)
                                         showAgentSelector = false
                                     },
-                                    modifier = Modifier.background(DarkSurface)
+                                    modifier = Modifier.background(if (agent.name == selectedAgent) aColor.copy(alpha = 0.08f) else DarkSurface)
                                 )
                             }
                         }
@@ -160,15 +197,29 @@ fun ChatScreen(
                             ) {
                                 Column(modifier = Modifier.padding(12.dp)) {
                                     Text(
-                                        "Чат #${conv.id.takeLast(6)}",
+                                        conv.title.ifBlank { "Чат #${conv.id.takeLast(6)}" },
                                         color = TextBright,
-                                        fontWeight = FontWeight.Medium
+                                        fontWeight = FontWeight.Medium,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
                                     )
-                                    Text(
-                                        "${conv.messageCount} сообщений",
-                                        color = TextSecondary,
-                                        fontSize = 12.sp
-                                    )
+                                    if (conv.lastMessage.isNotBlank()) {
+                                        Text(
+                                            conv.lastMessage,
+                                            color = TextSecondary,
+                                            fontSize = 12.sp,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis,
+                                            modifier = Modifier.padding(top = 2.dp)
+                                        )
+                                    } else {
+                                        Text(
+                                            "${conv.messageCount} сообщений",
+                                            color = TextSecondary,
+                                            fontSize = 12.sp,
+                                            modifier = Modifier.padding(top = 2.dp)
+                                        )
+                                    }
                                 }
                             }
                         }
@@ -203,7 +254,7 @@ fun ChatScreen(
                         horizontalAlignment = Alignment.CenterHorizontally
                     ) {
                         Icon(
-                            Icons.Default.Chat,
+                            Icons.AutoMirrored.Filled.Chat,
                             contentDescription = null,
                             tint = TextSecondary.copy(alpha = 0.3f),
                             modifier = Modifier.size(64.dp)
@@ -241,11 +292,7 @@ fun ChatScreen(
                                 .background(DarkSurfaceVariant, RoundedCornerShape(16.dp))
                                 .padding(horizontal = 16.dp, vertical = 10.dp)
                         ) {
-                            CircularProgressIndicator(
-                                modifier = Modifier.size(16.dp),
-                                strokeWidth = 2.dp,
-                                color = AccentBlue
-                            )
+                            Text("⏳", fontSize = 14.sp)
                             Spacer(modifier = Modifier.width(10.dp))
                             Text("Думаю...", color = TextSecondary, fontSize = 13.sp)
                         }
@@ -329,7 +376,7 @@ fun ChatScreen(
                         )
                     } else {
                         Icon(
-                            Icons.Default.Send,
+                            Icons.AutoMirrored.Filled.Send,
                             contentDescription = "Отправить",
                             tint = TextBright
                         )
@@ -344,13 +391,15 @@ fun ChatScreen(
 private fun AgentChip(agentName: String, agents: List<ChatAgent>, onClick: () -> Unit) {
     val agent = agents.find { it.name == agentName }
     val displayName = agent?.displayName ?: agentName
+    val modelName = agent?.model
     val accent = when {
-        agentName == "default" -> AccentBlue
-        agentName == "explain" -> AccentGreen
-        agentName == "fix" -> ErrorRed
-        agentName == "test" -> AccentPink
-        agentName == "ask" -> AccentOrange
-        agentName == "review" -> WarningYellow
+        agentName == "auto" -> AccentBlue
+        agentName == "gpt-4o" -> AccentBlue
+        agentName == "gpt-4o-mini" -> AccentGreen
+        agentName == "deepseek-v3" -> AccentOrange
+        agentName == "o3-mini" -> AccentPink
+        agentName == "o4-mini" -> WarningYellow
+        agentName == "claude-sonnet" -> ErrorRed
         else -> AccentBlue
     }
 
@@ -358,10 +407,10 @@ private fun AgentChip(agentName: String, agents: List<ChatAgent>, onClick: () ->
         onClick = onClick,
         shape = RoundedCornerShape(20.dp),
         color = accent.copy(alpha = 0.15f),
-        modifier = Modifier.height(36.dp)
+        modifier = Modifier.heightIn(min = 36.dp)
     ) {
         Row(
-            modifier = Modifier.padding(horizontal = 14.dp),
+            modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Icon(
@@ -371,12 +420,24 @@ private fun AgentChip(agentName: String, agents: List<ChatAgent>, onClick: () ->
                 modifier = Modifier.size(16.dp)
             )
             Spacer(modifier = Modifier.width(6.dp))
-            Text(
-                displayName,
-                color = accent,
-                fontWeight = FontWeight.Medium,
-                fontSize = 13.sp
-            )
+            Column {
+                Text(
+                    displayName,
+                    color = accent,
+                    fontWeight = FontWeight.Medium,
+                    fontSize = 13.sp,
+                    maxLines = 1
+                )
+                if (modelName != null) {
+                    Text(
+                        modelName,
+                        color = accent.copy(alpha = 0.7f),
+                        fontSize = 9.sp,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+            }
             Spacer(modifier = Modifier.width(4.dp))
             Icon(
                 Icons.Default.ArrowDropDown,

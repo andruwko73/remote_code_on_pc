@@ -7,6 +7,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.InsertDriveFile
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -35,6 +36,13 @@ fun FilesScreen(
     onBack: () -> Unit
 ) {
     var selectedTab by remember { mutableIntStateOf(0) }
+
+    // При получении дерева файлов переключаемся на вкладку "Файлы"
+    LaunchedEffect(currentFiles) {
+        if (currentFiles != null && selectedTab != 2) {
+            selectedTab = 1
+        }
+    }
 
     Column(
         modifier = Modifier
@@ -65,7 +73,7 @@ fun FilesScreen(
         }
 
         when (selectedTab) {
-            0 -> ProjectListTab(folders, onOpenFolder)
+            0 -> ProjectListTab(folders, onOpenFolder, onNavigateToDir)
             1 -> FileTreeTab(currentFiles, isLoading, onNavigateToDir, onOpenFile, onGoUp)
             2 -> FileViewerTab(fileContent, onBack)
         }
@@ -75,7 +83,8 @@ fun FilesScreen(
 @Composable
 private fun ProjectListTab(
     folders: FoldersResponse?,
-    onOpenFolder: (String) -> Unit
+    onOpenFolder: (String) -> Unit,
+    onNavigateToDir: (String) -> Unit
 ) {
     LazyColumn(
         modifier = Modifier
@@ -204,7 +213,7 @@ private fun DriveCard(drive: String, onClick: () -> Unit) {
             verticalAlignment = Alignment.CenterVertically
         ) {
             Icon(
-                Icons.DefaultStorage,
+                Icons.Default.Storage,
                 contentDescription = null,
                 tint = AccentOrange,
                 modifier = Modifier.size(24.dp)
@@ -306,20 +315,20 @@ private fun FileTreeItemRow(
 ) {
     val icon = when {
         item.isDirectory -> Icons.Default.Folder
-        item.extension in listOf(".ts", ".js", ".jsx", ".tsx") -> Icons.Default.Javascript
+        item.extension in listOf(".ts", ".js", ".jsx", ".tsx") -> Icons.Default.Code
         item.extension in listOf(".py") -> Icons.Default.Code
-        item.extension in listOf(".html", ".css") -> Icons.Default.Html
+        item.extension in listOf(".html", ".css") -> Icons.Default.Code
         item.extension in listOf(".json", ".xml", ".yaml", ".yml") -> Icons.Default.DataObject
         item.extension in listOf(".md") -> Icons.Default.Description
         item.extension in listOf(".kt", ".java") -> Icons.Default.Code
-        else -> if (item.isDirectory) Icons.Default.Folder else Icons.Default.InsertDriveFile
+        else -> if (item.isDirectory) Icons.Default.Folder else Icons.AutoMirrored.Filled.InsertDriveFile
     }
     val iconColor = when {
         item.isDirectory -> AccentOrange
         item.extension in listOf(".kt", ".java", ".ts", ".tsx") -> AccentBlue
         item.extension in listOf(".py") -> AccentYellow
         item.extension in listOf(".js", ".jsx") -> WarningYellow
-        item.extension in listOf(".html", ".css") -> AccentPink
+        item.extension in listOf(".html", ".css") -> AccentBlue
         else -> TextSecondary
     }
 
@@ -391,7 +400,7 @@ private fun FileViewerTab(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Icon(
-                    Icons.Default.InsertDriveFile,
+                    Icons.AutoMirrored.Filled.InsertDriveFile,
                     contentDescription = null,
                     tint = AccentBlue,
                     modifier = Modifier.size(18.dp)

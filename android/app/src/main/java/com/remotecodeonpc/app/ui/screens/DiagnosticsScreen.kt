@@ -21,6 +21,7 @@ import com.remotecodeonpc.app.DiagnosticsResponse
 import com.remotecodeonpc.app.ui.theme.*
 
 @Composable
+@OptIn(ExperimentalMaterial3Api::class)
 fun DiagnosticsScreen(
     diagnostics: DiagnosticsResponse?,
     onRefresh: () -> Unit

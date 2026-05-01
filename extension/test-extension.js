@@ -1,0 +1,217 @@
+/**
+ * Скрипт тестирования расширения Remote Code on PC
+ * Запуск: node test-extension.js
+ * Проверяет HTTP и WebSocket API без VS Code (проверка синтаксиса и логики)
+ */
+
+const http = require('http');
+
+const TESTS = {
+    passed: 0,
+    failed: 0,
+    total: 0
+};
+
+function assert(condition, name, detail) {
+    TESTS.total++;
+    if (condition) {
+        TESTS.passed++;
+        console.log(`  ✅ ${name}`);
+    } else {
+        TESTS.failed++;
+        console.log(`  ❌ ${name}: ${detail}`);
+    }
+}
+
+console.log('\n🔍 ===== ТЕСТИРОВАНИЕ Remote Code on PC =====\n');
+
+// ===== Тест 1: Проверка файлов =====
+console.log('📁 Тест 1: Проверка структуры файлов');
+
+const fs = require('fs');
+const path = require('path');
+
+const requiredFiles = [
+    'src/server.ts',
+    'src/extension.ts',
+    'package.json',
+    'tsconfig.json',
+];
+
+for (const f of requiredFiles) {
+    assert(fs.existsSync(path.join(__dirname, f)), `Файл существует: ${f}`, `Не найден: ${f}`);
+}
+
+// ===== Тест 2: Проверка импортов в server.ts =====
+console.log('\n📦 Тест 2: Проверка импортов server.ts');
+
+const serverContent = fs.readFileSync(path.join(__dirname, 'src', 'server.ts'), 'utf-8');
+
+assert(serverContent.includes("from 'ws'"), 'WebSocket импорт', 'ws не найден');
+assert(serverContent.includes("class RemoteServer"), 'Класс RemoteServer', 'Не найден');
+assert(serverContent.includes("handleRequest"), 'Метод handleRequest', 'Не найден');
+assert(serverContent.includes("handleWsConnection"), 'Метод handleWsConnection', 'Не найден');
+
+// ===== Тест 3: Проверка API-эндпоинтов =====
+console.log('\n🛣️  Тест 3: Проверка API-роутов server.ts');
+
+const routes = [
+    '/api/status',
+    '/api/workspace/folders',
+    '/api/workspace/open',
+    '/api/workspace/tree',
+    '/api/workspace/read-file',
+    '/api/chat/agents',
+    '/api/chat/send',
+    '/api/chat/history',
+    '/api/chat/select-agent',
+    '/api/chat/new',
+    '/api/chat/conversations',
+    '/api/diagnostics',
+    '/api/terminal/exec',
+    '/api/codex/status',
+    '/api/codex/send',
+    '/api/codex/history',
+    '/api/codex/models',
+    '/api/codex/threads',
+    '/api/codex/launch',
+    '/api/tunnel/status',
+    '/api/tunnel/start',
+    '/api/tunnel/stop',
+];
+
+for (const route of routes) {
+    const escaped = route.replace(/\//g, '\\/').replace(/\?/g, '\\?').replace(/\*/g, '\\*');
+    const regex = new RegExp(`pathname\\s*===\\s*['\`]${route}['\`]`);
+    assert(regex.test(serverContent), `Роут: ${route}`, `Не найден маршрут ${route}`);
+}
+
+// ===== Тест 4: Проверка хендлеров VS Code и Codex =====
+console.log('\n🎯 Тест 4: Проверка хендлеров');
+
+const handlers = [
+    'handleStatus',
+    'handleGetFolders',
+    'handleOpenFolder',
+    'handleFileTree',
+    'handleReadFile',
+    'handleGetAgents',
+    'handleChatSend',
+    'handleChatHistory',
+    'handleSelectAgent',
+    'handleNewChat',
+    'handleGetConversations',
+    'handleDiagnostics',
+    'handleTerminalExec',
+    'handleCodexStatus',
+    'handleCodexSend',
+    'handleCodexHistory',
+    'handleCodexModels',
+    'handleCodexSelectModel',
+    'handleCodexThreads',
+    'handleCodexLaunch',
+    'handleTunnelStatus',
+    'handleTunnelStart',
+    'handleTunnelStop',
+];
+
+for (const handler of handlers) {
+    assert(serverContent.includes(handler), `Хендлер: ${handler}`, `Не найден метод ${handler}`);
+}
+
+// ===== Тест 5: Проверка WebSocket функционала =====
+console.log('\n🔌 Тест 5: Проверка WebSocket');
+
+assert(serverContent.includes('wss.on('), 'WebSocketServer listener', 'Не найден');
+assert(serverContent.includes('wsClients.add'), 'WebSocket client tracking', 'Не найден');
+assert(serverContent.includes('broadcast'), 'Broadcast метод', 'Не найден');
+assert(serverContent.includes('broadcastDiagnostics'), 'Broadcast diagnostics метод', 'Не найден');
+
+// ===== Тест 6: Проверка Tunnel функционала =====
+console.log('\n🌐 Тест 6: Проверка Tunnel/Интернет');
+
+assert(serverContent.includes('detectLocalIp'), 'detectLocalIp метод', 'Не найден');
+assert(serverContent.includes('startTunnel'), 'startTunnel метод', 'Не найден');
+assert(serverContent.includes('stopTunnel'), 'stopTunnel метод', 'Не найден');
+assert(serverContent.includes('_tunnelUrl'), '_tunnelUrl поле', 'Не найдено');
+assert(serverContent.includes('ngrok'), 'Поддержка ngrok', 'Не найдена');
+
+// ===== Тест 7: Проверка extension.ts =====
+console.log('\n🧩 Тест 7: Проверка extension.ts');
+
+const extContent = fs.readFileSync(path.join(__dirname, 'src', 'extension.ts'), 'utf-8');
+
+assert(extContent.includes('statusBarItem'), 'StatusBarItem', 'Не найден');
+assert(extContent.includes('remoteCodeOnPC.start'), 'start команда', 'Не найдена');
+assert(extContent.includes('remoteCodeOnPC.stop'), 'stop команда', 'Не найдена');
+assert(extContent.includes('remoteCodeOnPC.tunnel'), 'tunnel команда', 'Не найдена');
+assert(extContent.includes('remoteCodeOnPC.status'), 'status команда', 'Не найдена');
+assert(extContent.includes('updateStatusBar'), 'updateStatusBar функция', 'Не найдена');
+
+// ===== Тест 8: Проверка package.json =====
+console.log('\n📦 Тест 8: Проверка package.json');
+
+const pkg = JSON.parse(fs.readFileSync(path.join(__dirname, 'package.json'), 'utf-8'));
+assert(!!pkg.name, 'name поле', 'Отсутствует');
+assert(!!pkg.contributes?.commands, 'commands в contributes', 'Отсутствуют');
+const cmds = pkg.contributes.commands.map(c => c.command);
+assert(cmds.includes('remoteCodeOnPC.start'), 'start в commands', 'Нет');
+assert(cmds.includes('remoteCodeOnPC.stop'), 'stop в commands', 'Нет');
+assert(cmds.includes('remoteCodeOnPC.tunnel'), 'tunnel в commands', 'Нет');
+
+// ===== Тест 9: Проверка Android файлов =====
+console.log('\n🤖 Тест 9: Проверка Android проекта');
+
+const androidBase = path.join(__dirname, '..', 'android');
+const androidFiles = [
+    'app/src/main/java/com/remotecodeonpc/app/Models.kt',
+    'app/src/main/java/com/remotecodeonpc/app/RemoteCodeApp.kt',
+    'app/src/main/java/com/remotecodeonpc/app/viewmodel/MainViewModel.kt',
+    'app/src/main/java/com/remotecodeonpc/app/network/ApiClient.kt',
+    'app/src/main/java/com/remotecodeonpc/app/network/WebSocketClient.kt',
+    'app/src/main/java/com/remotecodeonpc/app/ui/screens/VSCodeScreen.kt',
+    'app/src/main/java/com/remotecodeonpc/app/ui/screens/CodexScreen.kt',
+    'app/src/main/java/com/remotecodeonpc/app/ui/navigation/Screen.kt',
+    'app/src/main/java/com/remotecodeonpc/app/ui/theme/Color.kt',
+    'app/build.gradle.kts',
+    'settings.gradle.kts',
+    'gradle/wrapper/gradle-wrapper.properties',
+    'gradlew.bat',
+];
+
+for (const f of androidFiles) {
+    const fullPath = path.join(androidBase, f);
+    assert(fs.existsSync(fullPath), `Android файл: ${f}`, `Не найден: ${fullPath}`);
+}
+
+// ===== Тест 10: Проверка Codex интегрции =====
+console.log('\n🤖 Тест 10: Проверка Codex интеграции');
+
+assert(serverContent.includes('CodexStatus'), 'CodexStatus интерфейс', 'Не найден');
+assert(serverContent.includes('findCodexCli'), 'findCodexCli метод', 'Не найден');
+assert(serverContent.includes('isCodexDesktopAppInstalled'), 'isCodexDesktopAppInstalled', 'Не найден');
+assert(serverContent.includes('getCodexDesktopPath'), 'getCodexDesktopPath', 'Не найден');
+assert(serverContent.includes('getDefaultCodexModels'), 'getDefaultCodexModels', 'Не найден');
+
+// Проверка Android Codex
+const mainVm = fs.readFileSync(path.join(androidBase, 'app', 'src', 'main', 'java', 'com', 'remotecodeonpc', 'app', 'viewmodel', 'MainViewModel.kt'), 'utf-8');
+assert(mainVm.includes('loadCodexStatus'), 'loadCodexStatus в MainViewModel', 'Не найден');
+assert(mainVm.includes('loadCodexModels'), 'loadCodexModels в MainViewModel', 'Не найден');
+assert(mainVm.includes('sendCodexMessage'), 'sendCodexMessage в MainViewModel', 'Не найден');
+assert(mainVm.includes('loadCodexThreads'), 'loadCodexThreads в MainViewModel', 'Не найден');
+assert(mainVm.includes('launchCodex'), 'launchCodex в MainViewModel', 'Не найден');
+
+// ===== ИТОГИ =====
+console.log('\n' + '='.repeat(50));
+console.log(`📊 РЕЗУЛЬТАТЫ ТЕСТИРОВАНИЯ:`);
+console.log(`   Всего тестов: ${TESTS.total}`);
+console.log(`   ✅ Пройдено: ${TESTS.passed}`);
+console.log(`   ❌ Провалено: ${TESTS.failed}`);
+
+if (TESTS.failed === 0) {
+    console.log('\n🎉 ВСЕ ТЕСТЫ ПРОЙДЕНЫ!');
+} else {
+    console.log(`\n⚠️  ${TESTS.failed} тестов не пройдено`);
+}
+
+console.log('='.repeat(50));

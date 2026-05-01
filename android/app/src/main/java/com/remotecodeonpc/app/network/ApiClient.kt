@@ -1,5 +1,6 @@
 package com.remotecodeonpc.app.network
 
+import com.remotecodeonpc.app.CrashLogger
 import com.remotecodeonpc.app.*
 import okhttp3.OkHttpClient
 import okhttp3.logging.HttpLoggingInterceptor
@@ -54,6 +55,46 @@ interface RemoteCodeApi {
     // Terminal
     @POST("/api/terminal/exec")
     suspend fun execTerminal(@Body body: Map<String, String>): Response<Map<String, Any>>
+
+    // ===== CODEX =====
+
+    @GET("/api/codex/status")
+    suspend fun getCodexStatus(): Response<CodexStatus>
+
+    @POST("/api/codex/send")
+    suspend fun sendCodexMessage(@Body body: Map<String, String>): Response<CodexSendResponse>
+
+    @GET("/api/codex/history")
+    suspend fun getCodexHistory(@Query("threadId") threadId: String? = null): Response<CodexHistoryResponse>
+
+    @GET("/api/codex/events")
+    suspend fun getCodexEvents(@Query("threadId") threadId: String? = null): Response<CodexEventsResponse>
+
+    @POST("/api/codex/actions")
+    suspend fun respondToCodexAction(@Body body: Map<String, String>): Response<CodexActionResponse>
+
+    @GET("/api/codex/models")
+    suspend fun getCodexModels(): Response<CodexModelsResponse>
+
+    @POST("/api/codex/models")
+    suspend fun selectCodexModel(@Body body: Map<String, String>): Response<CodexSelectModelResponse>
+
+    @GET("/api/codex/threads")
+    suspend fun getCodexThreads(): Response<CodexThreadsResponse>
+
+    @POST("/api/codex/launch")
+    suspend fun launchCodex(): Response<CodexLaunchResponse>
+
+    // ===== TUNNEL =====
+
+    @GET("/api/tunnel/status")
+    suspend fun getTunnelStatus(): Response<TunnelStatusResponse>
+
+    @POST("/api/tunnel/start")
+    suspend fun startTunnel(): Response<TunnelActionResponse>
+
+    @POST("/api/tunnel/stop")
+    suspend fun stopTunnel(): Response<TunnelActionResponse>
 }
 
 object ApiClient {
@@ -67,17 +108,27 @@ object ApiClient {
         }
 
         currentConfig = config
-        baseUrl = "http://${config.host}:${config.port}"
+        baseUrl = if (config.useTunnel && config.tunnelUrl.isNotBlank()) {
+            config.tunnelUrl.trimEnd('/')
+        } else {
+            "http://${config.host}:${config.port}"
+        }
 
-        val logging = HttpLoggingInterceptor().apply {
-            level = HttpLoggingInterceptor.Level.BASIC
+        CrashLogger.d("ApiClient", "Building Retrofit: baseUrl=$baseUrl, useTunnel=${config.useTunnel}")
+
+        val logging = HttpLoggingInterceptor { message ->
+            CrashLogger.d("HTTP", message)
+        }.apply {
+            level = HttpLoggingInterceptor.Level.HEADERS
         }
 
         val client = OkHttpClient.Builder()
             .addInterceptor(logging)
-            .connectTimeout(5, TimeUnit.SECONDS)
+            .connectTimeout(30, TimeUnit.SECONDS)
             .readTimeout(30, TimeUnit.SECONDS)
             .writeTimeout(30, TimeUnit.SECONDS)
+            .callTimeout(60, TimeUnit.SECONDS)
+            .retryOnConnectionFailure(true)
             .apply {
                 if (config.authToken.isNotBlank()) {
                     addInterceptor { chain ->
@@ -91,7 +142,7 @@ object ApiClient {
             .build()
 
         val retrofit = Retrofit.Builder()
-            .baseUrl(baseUrl)
+            .baseUrl(if (baseUrl.endsWith("/")) baseUrl else "$baseUrl/")
             .client(client)
             .addConverterFactory(GsonConverterFactory.create())
             .build()

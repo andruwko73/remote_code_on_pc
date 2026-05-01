@@ -2,6 +2,9 @@ package com.remotecodeonpc.app.network
 
 import android.util.Log
 import com.google.gson.Gson
+import com.remotecodeonpc.app.CrashLogger
+import com.remotecodeonpc.app.ServerConfig
+import kotlinx.coroutines.*
 import okhttp3.*
 import java.util.concurrent.TimeUnit
 
@@ -10,19 +13,43 @@ interface WebSocketListener {
     fun onDisconnected()
     fun onMessage(type: String, data: Map<String, Any>)
     fun onError(error: String)
+    fun onConnectionLost() {}
 }
 
-class WebSocketClient(private val config: com.remotecodeonpc.app.ServerConfig) {
+class WebSocketClient(private val config: ServerConfig) {
     private var webSocket: WebSocket? = null
     private var listener: WebSocketListener? = null
     private val gson = Gson()
+    private var shouldReconnect = true
+    private var reconnectJob: Job? = null
+    private var retryCount = 0
+    private var maxRetries = 15
+    private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
+
     private val client = OkHttpClient.Builder()
         .readTimeout(0, TimeUnit.MILLISECONDS)
+        .pingInterval(30, TimeUnit.SECONDS)
         .build()
 
     fun connect(listener: WebSocketListener) {
         this.listener = listener
-        val wsUrl = "ws://${config.host}:${config.port}"
+        shouldReconnect = true
+        retryCount = 0
+        doConnect()
+    }
+
+    private fun doConnect() {
+        val wsUrl = if (config.useTunnel && config.tunnelUrl.isNotBlank()) {
+            config.tunnelUrl
+                .replace("http://", "ws://")
+                .replace("https://", "wss://")
+                .trimEnd('/') + "/ws"
+        } else {
+            "ws://${config.host}:${config.port}/ws"
+        }
+
+        CrashLogger.d("WSClient", "Connecting to $wsUrl (attempt ${retryCount + 1})")
+
         val request = Request.Builder()
             .url(wsUrl)
             .apply {
@@ -32,36 +59,78 @@ class WebSocketClient(private val config: com.remotecodeonpc.app.ServerConfig) {
             }
             .build()
 
-        webSocket = client.newWebSocket(request, object : WebSocketListener {
+        webSocket = client.newWebSocket(request, object : okhttp3.WebSocketListener() {
             override fun onOpen(webSocket: WebSocket, response: Response) {
-                Log.d("WSClient", "Connected to $wsUrl")
+                CrashLogger.i("WSClient", "Connected to $wsUrl (protocol=${response.protocol})")
+                retryCount = 0 // сброс счётчика при успехе
                 this@WebSocketClient.listener?.onConnected()
             }
 
             override fun onMessage(webSocket: WebSocket, text: String) {
+                CrashLogger.d("WSClient", "WS message received: ${text.take(200)}")
                 try {
                     val json = gson.fromJson(text, Map::class.java) as Map<String, Any>
                     val type = json["type"] as? String ?: "unknown"
                     @Suppress("UNCHECKED_CAST")
-                    this@WebSocketClient.listener?.onMessage(type, json as Map<String, Any>)
+                    val nestedData = json["data"] as? Map<String, Any>
+                    val data = nestedData ?: json
+                        .filterKeys { it != "type" && it != "timestamp" }
+                        .mapValues { it.value as Any }
+                    this@WebSocketClient.listener?.onMessage(type, data)
                 } catch (e: Exception) {
-                    Log.e("WSClient", "Parse error: ${e.message}")
+                    CrashLogger.e("WSClient", "WS message parse error", e)
                 }
             }
 
             override fun onClosing(webSocket: WebSocket, code: Int, reason: String) {
+                CrashLogger.d("WSClient", "WS closing: code=$code reason=$reason")
                 webSocket.close(1000, null)
                 this@WebSocketClient.listener?.onDisconnected()
+                scheduleReconnect()
+            }
+
+            override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
+                CrashLogger.d("WSClient", "WS closed: code=$code reason=$reason")
+                this@WebSocketClient.listener?.onDisconnected()
+                scheduleReconnect()
             }
 
             override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
-                Log.e("WSClient", "Error: ${t.message}")
+                CrashLogger.e("WSClient", "WS failure: ${t.message} (response=${response?.code})", t)
                 this@WebSocketClient.listener?.onError(t.message ?: "Unknown error")
+                this@WebSocketClient.listener?.onDisconnected()
+                scheduleReconnect()
             }
         })
     }
 
+    private fun scheduleReconnect() {
+        if (!shouldReconnect) return
+        retryCount++
+        if (retryCount > maxRetries) {
+            CrashLogger.w("WSClient", "Max reconnect attempts ($maxRetries) reached — connection lost")
+            shouldReconnect = false
+            listener?.onConnectionLost()
+            return
+        }
+        reconnectJob?.cancel()
+        // Экспоненциальный backoff: 2s → 4s → 8s → 15s → 30s (cap)
+        val delayMs = minOf(2000L * (1 shl (retryCount.coerceAtMost(4))), 30000L)
+        reconnectJob = scope.launch {
+            delay(delayMs)
+            if (shouldReconnect) {
+                CrashLogger.d("WSClient", "Reconnecting (attempt $retryCount of $maxRetries)...")
+                doConnect()
+            }
+        }
+    }
+
     fun disconnect() {
+        CrashLogger.d("WSClient", "Disconnecting WS")
+        shouldReconnect = false
+        reconnectJob?.cancel()
+        reconnectJob = null
+        scope.cancel()
         webSocket?.close(1000, "Client closing")
         webSocket = null
     }

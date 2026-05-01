@@ -12,6 +12,7 @@
     "Other"
   ],
   "activationEvents": [
+    "onStartupFinished",
     "onCommand:remoteCodeOnPC.start"
   ],
   "main": "./out/extension.js",
@@ -24,6 +25,10 @@
       {
         "command": "remoteCodeOnPC.stop",
         "title": "Remote Code on PC: Остановить сервер"
+      },
+      {
+        "command": "remoteCodeOnPC.tunnel",
+        "title": "Remote Code on PC: Запустить/остановить интернет-туннель (ngrok)"
       },
       {
         "command": "remoteCodeOnPC.status",
@@ -54,12 +59,14 @@
   "scripts": {
     "vscode:prepublish": "npm run compile",
     "compile": "tsc -p ./",
+    "standalone": "node launcher.js",
     "watch": "tsc -watch -p ./"
   },
   "devDependencies": {
     "@types/node": "^20.0.0",
     "@types/vscode": "^1.85.0",
-    "typescript": "^5.3.0"
+    "@types/ws": "^8.18.1",
+    "typescript": "^5.9.3"
   },
   "dependencies": {
     "ws": "^8.16.0"
