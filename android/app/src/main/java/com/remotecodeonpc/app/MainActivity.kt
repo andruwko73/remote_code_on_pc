@@ -22,12 +22,14 @@ import java.util.concurrent.TimeUnit
 
 class MainActivity : ComponentActivity() {
     private val publicUpdateUrl = "https://raw.githubusercontent.com/andruwko73/remote_code_on_pc/main/apk/app-debug.apk"
+    private var pendingUpdateApk: File? = null
+    private var waitingForInstallPermission = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
         CrashLogger.init(applicationContext)
-        CrashLogger.i("MainActivity", "App started, version=1.0.5")
+        CrashLogger.i("MainActivity", "App started, version=1.0.6")
 
         val defaultCrashHandler = Thread.getDefaultUncaughtExceptionHandler()
         Thread.setDefaultUncaughtExceptionHandler { thread, throwable ->
@@ -48,6 +50,19 @@ class MainActivity : ComponentActivity() {
                     )
                 }
             }
+        }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        if (
+            waitingForInstallPermission &&
+            (Build.VERSION.SDK_INT < Build.VERSION_CODES.O || packageManager.canRequestPackageInstalls())
+        ) {
+            waitingForInstallPermission = false
+            pendingUpdateApk
+                ?.takeIf { it.exists() && it.length() >= 1024 * 1024 }
+                ?.let { installApk(it) }
         }
     }
 
@@ -118,7 +133,9 @@ class MainActivity : ComponentActivity() {
 
     private fun installApk(apkFile: File) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && !packageManager.canRequestPackageInstalls()) {
-            Toast.makeText(this, "Allow installs from this app, then press update again", Toast.LENGTH_LONG).show()
+            pendingUpdateApk = apkFile
+            waitingForInstallPermission = true
+            Toast.makeText(this, "Allow installs from this app, then return here", Toast.LENGTH_LONG).show()
             startActivity(Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES).apply {
                 data = Uri.parse("package:$packageName")
             })
