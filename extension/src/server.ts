@@ -1604,11 +1604,11 @@ export class RemoteServer {
 
     private renderPcChatHtml(messages: CodexChatMessage[]): string {
         const rows = messages.map(message => {
-            const role = message.role === 'user' ? 'You' : message.role === 'assistant' ? 'Remote Code' : 'System';
+            const role = message.role === 'user' ? 'You' : message.role === 'assistant' ? 'Codex' : 'System';
             const cls = message.role === 'user' ? 'user' : message.role === 'assistant' ? 'assistant' : 'system';
             const meta = [message.model, message.reasoningEffort ? this.reasoningEffortLabel(message.reasoningEffort) : '']
                 .filter(Boolean)
-                .join(' · ');
+                .join(' - ');
             return `<section class="msg ${cls}">
                 <div class="role">${this.escapeHtml(role)}</div>
                 ${meta ? `<div class="meta">${this.escapeHtml(meta)}</div>` : ''}
@@ -1621,53 +1621,62 @@ export class RemoteServer {
 <meta charset="UTF-8">
 <style>
 html,body{height:100%}
-body{margin:0;background:#151617;color:#d7d7d7;font:14px/1.55 var(--vscode-font-family);display:flex;flex-direction:column}
-.top{border-bottom:1px solid #282b2e;padding:12px 16px;background:#1b1d1f}
-.title{font-size:13px;color:#8e8e8e;text-transform:uppercase;letter-spacing:.08em}
-.messages{flex:1;overflow:auto;padding:18px 18px 8px}
-.msg{border:1px solid #2a2d2f;border-radius:8px;padding:12px 14px;margin:0 0 12px;background:#1d1f20}
-.msg.user{background:#10283a;border-color:#16415d}
-.msg.system{background:#2a2118;border-color:#4b3624}
+body{margin:0;background:#101112;color:#d7d7d7;font:14px/1.55 var(--vscode-font-family);display:flex;flex-direction:column}
+.top{border-bottom:1px solid #222426;padding:10px 18px;background:#121314;display:flex;gap:28px;align-items:center}
+.title{font-size:12px;color:#d8d8d8;text-transform:uppercase;letter-spacing:.08em;border-bottom:1px solid #33a3ff;padding-bottom:8px}
+.tab{font-size:12px;color:#8e8e8e;text-transform:uppercase;letter-spacing:.08em}
+.messages{flex:1;overflow:auto;padding:22px min(5vw,48px) 18px}
+.msg{padding:8px 0 18px;margin:0 0 8px;background:transparent;border:0}
+.msg.user{max-width:780px;margin-left:auto;color:#f0f0f0}
+.msg.user pre{background:#12324a;border:1px solid #194866;border-radius:8px;padding:12px 14px}
+.msg.system pre{color:#aeb0b3}
 .role{font-weight:600;color:#55b4ff;margin-bottom:7px}
 .meta{font-size:12px;color:#8e8e8e;margin:-2px 0 8px}
 .assistant .role{color:#7bd88f}.system .role{color:#e8b66b}
 pre{margin:0;white-space:pre-wrap;word-wrap:break-word;font:inherit}
-.composer{border-top:1px solid #282b2e;background:#181a1c;padding:12px;display:flex;flex-direction:column;gap:10px}
-.controls{display:flex;gap:8px;align-items:center;min-width:0}
-textarea{width:100%;box-sizing:border-box;resize:vertical;min-height:64px;max-height:180px;border:1px solid #34383d;border-radius:8px;background:#111315;color:#e8e8e8;padding:10px;font:inherit;outline:none}
-textarea:focus{border-color:#1492e6}
-select{height:38px;min-width:0;border:1px solid #34383d;border-radius:8px;background:#111315;color:#e8e8e8;padding:0 8px;font:inherit}
-#model{flex:1 1 180px}
-#effort{flex:0 1 150px}
-button{border:0;border-radius:8px;background:#1492e6;color:white;padding:0 16px;height:38px;font-weight:600;cursor:pointer;white-space:nowrap}
-@media (max-width: 560px){.controls{flex-wrap:wrap}#model,#effort{flex:1 1 45%}button{flex:1 1 100%}}
+.composer-wrap{padding:12px min(5vw,48px) 18px;background:#101112}
+.composer{max-width:1100px;margin:0 auto;border:1px solid #24272a;background:#131516;border-radius:20px;padding:14px 16px 12px;display:flex;flex-direction:column;gap:10px;box-shadow:0 8px 24px rgba(0,0,0,.22)}
+.controls{display:flex;gap:10px;align-items:center;min-width:0}
+.plus{font-size:25px;line-height:1;color:#b8b8b8;background:transparent;border:0;width:34px;padding:0}
+textarea{width:100%;box-sizing:border-box;resize:none;min-height:72px;max-height:180px;border:0;background:transparent;color:#e8e8e8;padding:2px 0;font:inherit;font-size:15px;outline:none}
+textarea::placeholder{color:#666}
+select{height:34px;min-width:0;border:0;border-radius:8px;background:transparent;color:#bdbdbd;padding:0 4px;font:inherit}
+#model{flex:0 1 170px}
+#effort{flex:0 1 145px}
+.context{margin-left:auto;color:#4bb4ff;font-weight:500;white-space:nowrap}
+button.send{border:0;border-radius:50%;background:#8e8e8e;color:#111;width:44px;height:44px;font-size:22px;font-weight:700;cursor:pointer;white-space:nowrap}
+@media (max-width: 680px){.messages{padding-left:18px;padding-right:18px}.composer-wrap{padding-left:12px;padding-right:12px}.controls{flex-wrap:wrap}.context{margin-left:0}button.send{margin-left:auto}}
 </style>
 </head>
 <body>
-<div class="top"><div class="title">Remote Code Agent</div></div>
+<div class="top"><div class="title">CODEX</div><div class="tab">CHAT</div></div>
 <main class="messages" id="messages">
 ${rows || '<div class="msg system"><div class="role">System</div><pre>Waiting for a message from Android or VS Code.</pre></div>'}
 </main>
-<form class="composer" id="composer">
-  <textarea id="prompt" placeholder="Ask Remote Code..."></textarea>
-  <div class="controls">
-    <select id="model">
-      <option value="gpt-5.5">GPT-5.5</option>
-      <option value="gpt-5.4">GPT-5.4</option>
-      <option value="gpt-5.4-mini">GPT-5.4-Mini</option>
-      <option value="gpt-5.3-codex">GPT-5.3-Codex</option>
-      <option value="gpt-5.3-codex-spark">GPT-5.3-Codex-Spark</option>
-      <option value="gpt-5.2">GPT-5.2</option>
-    </select>
-    <select id="effort">
-      <option value="medium">???????</option>
-      <option value="low">??????</option>
-      <option value="high">???????</option>
-      <option value="xhigh">????? ???????</option>
-    </select>
-    <button id="send" type="submit">Send</button>
-  </div>
-</form>
+<div class="composer-wrap">
+  <form class="composer" id="composer">
+    <textarea id="prompt" placeholder="Ask for additional changes"></textarea>
+    <div class="controls">
+      <button class="plus" type="button" title="Add">+</button>
+      <select id="model">
+        <option value="gpt-5.5">GPT-5.5</option>
+        <option value="gpt-5.4">GPT-5.4</option>
+        <option value="gpt-5.4-mini">GPT-5.4-Mini</option>
+        <option value="gpt-5.3-codex">GPT-5.3-Codex</option>
+        <option value="gpt-5.3-codex-spark">GPT-5.3-Codex-Spark</option>
+        <option value="gpt-5.2">GPT-5.2</option>
+      </select>
+      <select id="effort">
+        <option value="medium">Medium</option>
+        <option value="low">Low</option>
+        <option value="high">High</option>
+        <option value="xhigh">Very high</option>
+      </select>
+      <span class="context">Context IDE</span>
+      <button class="send" id="send" type="submit">&uarr;</button>
+    </div>
+  </form>
+</div>
 <script>
 const vscode = acquireVsCodeApi();
 const form = document.getElementById('composer');

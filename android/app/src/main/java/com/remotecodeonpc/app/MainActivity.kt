@@ -23,13 +23,15 @@ import java.util.concurrent.TimeUnit
 class MainActivity : ComponentActivity() {
     private val publicUpdateUrl = "https://raw.githubusercontent.com/andruwko73/remote_code_on_pc/main/apk/app-debug.apk"
     private var pendingUpdateApk: File? = null
+    private var pendingUpdateConfig: ServerConfig? = null
     private var waitingForInstallPermission = false
+    private var isUpdateInProgress = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
         CrashLogger.init(applicationContext)
-            CrashLogger.i("MainActivity", "App started, version=1.0.23")
+            CrashLogger.i("MainActivity", "App started, version=1.0.24")
 
         val defaultCrashHandler = Thread.getDefaultUncaughtExceptionHandler()
         Thread.setDefaultUncaughtExceptionHandler { thread, throwable ->
@@ -61,9 +63,12 @@ class MainActivity : ComponentActivity() {
             (Build.VERSION.SDK_INT < Build.VERSION_CODES.O || packageManager.canRequestPackageInstalls())
         ) {
             waitingForInstallPermission = false
-            pendingUpdateApk
-                ?.takeIf { it.exists() && it.length() >= 1024 * 1024 }
-                ?.let { installApk(it) }
+            val apk = pendingUpdateApk?.takeIf { it.exists() && it.length() >= 1024 * 1024 }
+            if (apk != null) {
+                installApk(apk)
+            } else {
+                pendingUpdateConfig?.let { downloadAndInstallUpdate(it) }
+            }
         }
     }
 
@@ -82,12 +87,30 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun downloadAndInstallUpdate(config: ServerConfig) {
+        if (isUpdateInProgress) {
+            Toast.makeText(this, "Update is already downloading...", Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && !packageManager.canRequestPackageInstalls()) {
+            pendingUpdateConfig = config
+            pendingUpdateApk = null
+            waitingForInstallPermission = true
+            Toast.makeText(this, "Allow installs from this app, then return here", Toast.LENGTH_LONG).show()
+            startActivity(Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES).apply {
+                data = Uri.parse("package:$packageName")
+            })
+            return
+        }
+
         val updateUrls = buildUpdateUrls(config)
         if (updateUrls.isEmpty()) {
             Toast.makeText(this, "Enter PC IP first", Toast.LENGTH_LONG).show()
             return
         }
 
+        isUpdateInProgress = true
+        pendingUpdateConfig = config
         Toast.makeText(this, "Downloading update...", Toast.LENGTH_SHORT).show()
         Thread {
             try {
@@ -113,14 +136,23 @@ class MainActivity : ComponentActivity() {
                                 throw IllegalStateException("HTTP ${response.code}")
                             }
                             val body = response.body ?: throw IllegalStateException("Empty update body")
-                            val apkFile = File(cacheDir, "remote-code-update.apk")
+                            cacheDir.listFiles()
+                                ?.filter { it.name.startsWith("remote-code-update-") && it.extension == "apk" }
+                                ?.forEach { it.delete() }
+                            val apkFile = File(cacheDir, "remote-code-update-${System.currentTimeMillis()}.apk")
+                            if (apkFile.exists()) apkFile.delete()
                             apkFile.outputStream().use { output ->
                                 body.byteStream().copyTo(output)
+                                output.flush()
                             }
                             if (apkFile.length() < 1024 * 1024) {
                                 throw IllegalStateException("Downloaded file is too small")
                             }
-                            runOnUiThread { installApk(apkFile) }
+                            pendingUpdateApk = apkFile
+                            runOnUiThread {
+                                isUpdateInProgress = false
+                                installApk(apkFile)
+                            }
                             return@Thread
                         }
                     } catch (e: Exception) {
@@ -132,6 +164,7 @@ class MainActivity : ComponentActivity() {
             } catch (e: Exception) {
                 CrashLogger.e("MainActivity", "Update failed", e)
                 runOnUiThread {
+                    isUpdateInProgress = false
                     Toast.makeText(this, "Update failed: ${e.message}", Toast.LENGTH_LONG).show()
                 }
             }
@@ -154,6 +187,7 @@ class MainActivity : ComponentActivity() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && !packageManager.canRequestPackageInstalls()) {
             pendingUpdateApk = apkFile
             waitingForInstallPermission = true
+            isUpdateInProgress = false
             Toast.makeText(this, "Allow installs from this app, then return here", Toast.LENGTH_LONG).show()
             startActivity(Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES).apply {
                 data = Uri.parse("package:$packageName")
