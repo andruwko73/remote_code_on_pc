@@ -117,16 +117,6 @@ fun CodexScreen(
                     )
                 }
                 TextButton(
-                    onClick = { selectedTab = 0 },
-                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp)
-                ) {
-                    Text(
-                        "\u0427\u0410\u0422",
-                        color = if (selectedTab == 0) TextBright else TextSecondary,
-                        fontSize = 13.sp
-                    )
-                }
-                TextButton(
                     onClick = { selectedTab = 1 },
                     contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp)
                 ) {

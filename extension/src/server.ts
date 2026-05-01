@@ -1637,7 +1637,7 @@ export class RemoteServer {
                     canSelectFiles: true,
                     canSelectFolders: false,
                     canSelectMany: true,
-                    title: 'Add files to Remote Code prompt'
+                title: 'Добавить файлы в запрос Remote Code'
                 });
                 if (!uris || uris.length === 0) return;
                 const text = uris.map(uri => `@${uri.fsPath}`).join('\n');
@@ -1676,7 +1676,7 @@ export class RemoteServer {
                 }
                 return;
             case 'showBranch':
-                await vscode.window.showInformationMessage(`Remote Code branch: ${this.getGitBranchLabel()}`);
+                await vscode.window.showInformationMessage(`Ветка Remote Code: ${this.getGitBranchLabel()}`);
                 return;
             default:
                 await vscode.window.showInformationMessage(`Remote Code: ${action}`);
@@ -1695,7 +1695,7 @@ export class RemoteServer {
     private getGitBranchLabel(): string {
         try {
             const folder = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-            if (!folder) return 'No branch';
+            if (!folder) return 'нет ветки';
             const branch = execSync('git branch --show-current', {
                 cwd: folder,
                 encoding: 'utf8',
@@ -1704,36 +1704,36 @@ export class RemoteServer {
             }).trim();
             return branch || 'detached';
         } catch {
-            return 'No branch';
+            return 'нет ветки';
         }
     }
 
     private renderPcChatHtml(messages: CodexChatMessage[]): string {
         const modelOptions = this.getDefaultCodexModels();
         const selectedModel = modelOptions.some(model => model.id === this.selectedAgent) ? this.selectedAgent : 'gpt-5.5';
-        const workspaceName = vscode.workspace.workspaceFolders?.[0]?.name || 'No workspace';
+        const workspaceName = vscode.workspace.workspaceFolders?.[0]?.name || 'Нет рабочей папки';
         const branchLabel = this.getGitBranchLabel();
         const title = this.getCurrentThreadTitle();
         const effortOptions = [
-            { id: 'medium', name: 'Medium' },
-            { id: 'low', name: 'Low' },
-            { id: 'high', name: 'High' },
-            { id: 'xhigh', name: 'Very high' }
+            { id: 'medium', name: 'Средний' },
+            { id: 'low', name: 'Низкий' },
+            { id: 'high', name: 'Высокий' },
+            { id: 'xhigh', name: 'Очень высокий' }
         ];
         const profileOptions = [
-            { id: 'user', name: 'User' },
-            { id: 'review', name: 'Review' },
-            { id: 'fast', name: 'Fast' }
+            { id: 'user', name: 'Пользовательские' },
+            { id: 'review', name: 'Проверка' },
+            { id: 'fast', name: 'Быстрый режим' }
         ];
         const workModeOptions = [
-            { id: 'local', name: 'Work locally' },
+            { id: 'local', name: 'Работать локально' },
             { id: 'workspace', name: workspaceName }
         ];
         const selectedEffort = effortOptions.some(option => option.id === this.selectedReasoningEffort)
             ? this.selectedReasoningEffort
             : 'medium';
         const rows = messages.map(message => {
-            const role = message.role === 'user' ? 'You' : message.role === 'assistant' ? 'Remote Code' : 'System';
+            const role = message.role === 'user' ? 'Вы' : message.role === 'assistant' ? 'Remote Code' : 'Система';
             const cls = message.role === 'user' ? 'user' : message.role === 'assistant' ? 'assistant' : 'system';
             const meta = [message.model, message.reasoningEffort ? this.reasoningEffortLabel(message.reasoningEffort) : '']
                 .filter(Boolean)
@@ -1750,18 +1750,18 @@ export class RemoteServer {
 <meta charset="UTF-8">
 <style>
 html,body{height:100%}
-body{margin:0;background:#101112;color:#d7d7d7;font:14px/1.55 var(--vscode-font-family);display:flex;flex-direction:column}
-.top{height:46px;border-bottom:1px solid #202224;background:#101112;display:flex;align-items:center;gap:12px;padding:0 18px}
-.edit-icon{color:#9a9a9a;font-size:20px}
-.thread-title{font-size:15px;color:#f0f0f0;font-weight:700;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+body{margin:0;background:#101112;color:#d7d7d7;font:15px/1.55 var(--vscode-font-family);display:flex;flex-direction:column}
+.top{height:44px;border-bottom:1px solid #202224;background:#101112;display:flex;align-items:center;gap:10px;padding:0 16px}
+.edit-icon{color:#9a9a9a;font-size:18px}
+.thread-title{font-size:16px;color:#f0f0f0;font-weight:700;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .toolbar-spacer{flex:1}
-.icon-btn{width:30px;height:30px;border:0;border-radius:7px;background:transparent;color:#aaa;font:inherit;font-size:17px;display:inline-flex;align-items:center;justify-content:center;cursor:pointer}
+.icon-btn{width:28px;height:28px;border:0;border-radius:7px;background:transparent;color:#aaa;font:inherit;font-size:16px;display:inline-flex;align-items:center;justify-content:center;cursor:pointer}
 .icon-btn:hover{background:#1f2123;color:#e7e7e7}
 .pill-btn{height:30px;border:1px solid #2b2d30;border-radius:9px;background:#17191b;color:#bdbdbd;padding:0 10px;font:inherit;cursor:pointer}
 .pill-btn:hover{background:#222426;color:#e5e5e5}
-.messages{flex:1;overflow:auto;padding:26px min(6vw,72px) 18px}
-.msg{padding:7px 0 20px;margin:0;background:transparent;border:0;max-width:960px}
-.msg.user{max-width:760px;margin-left:auto;color:#f0f0f0}
+.messages{flex:1;overflow:auto;padding:26px min(4.5vw,54px) 18px}
+.msg{padding:6px 0 20px;margin:0;background:transparent;border:0;max-width:980px}
+.msg.user{max-width:620px;margin-left:auto;color:#f0f0f0}
 .msg.user .role,.msg.user .meta{display:none}
 .msg.user pre{background:#2a2b2d;border:1px solid #303235;border-radius:18px;padding:12px 16px}
 .msg.system pre{color:#aeb0b3}
@@ -1769,18 +1769,18 @@ body{margin:0;background:#101112;color:#d7d7d7;font:14px/1.55 var(--vscode-font-
 .meta{font-size:12px;color:#8e8e8e;margin:-2px 0 8px}
 .assistant .role{color:#dcdcdc}.system .role{color:#e8b66b}
 pre{margin:0;white-space:pre-wrap;word-wrap:break-word;font:inherit}
-.composer-wrap{padding:12px min(6vw,72px) 18px;background:#101112}
-.composer{max-width:1100px;margin:0 auto;border:1px solid #282a2d;background:#2b2b2d;border-radius:22px;padding:14px 16px 10px;display:flex;flex-direction:column;gap:10px;box-shadow:none}
-.controls{display:flex;gap:10px;align-items:center;min-width:0}
-.subcontrols{display:flex;gap:18px;align-items:center;margin:4px auto 0;max-width:1100px;color:#8e8e8e}
+.composer-wrap{padding:10px min(4.5vw,54px) 16px;background:#101112}
+.composer{max-width:980px;margin:0 auto;border:1px solid #282a2d;background:#2b2b2d;border-radius:22px;padding:14px 16px 10px;display:flex;flex-direction:column;gap:10px;box-shadow:none}
+.controls{display:flex;gap:8px;align-items:center;min-width:0}
+.subcontrols{display:flex;gap:14px;align-items:center;margin:5px auto 0;max-width:980px;color:#8e8e8e;font-size:13px}
 .plus{font-size:25px;line-height:1;color:#b8b8b8;background:transparent;border:0;width:34px;padding:0;cursor:pointer}
-textarea{width:100%;box-sizing:border-box;resize:none;min-height:72px;max-height:180px;border:0;background:transparent;color:#e8e8e8;padding:2px 0;font:inherit;font-size:15px;outline:none}
+textarea{width:100%;box-sizing:border-box;resize:none;min-height:68px;max-height:180px;border:0;background:transparent;color:#e8e8e8;padding:2px 0;font:inherit;font-size:15px;outline:none}
 textarea::placeholder{color:#707070}
-.dropdown{position:relative;flex:0 1 174px;min-width:0}
-.dropdown.effort{flex-basis:145px}
-.dropdown.profile{flex-basis:150px}
-.dropdown.workmode{flex:0 1 190px}
-.dropdown-btn{height:34px;width:100%;border:0;background:transparent;color:#bdbdbd;padding:0 8px;font:inherit;display:flex;align-items:center;justify-content:space-between;gap:8px;border-radius:8px;cursor:pointer}
+.dropdown{position:relative;flex:0 1 142px;min-width:0}
+.dropdown.effort{flex-basis:112px}
+.dropdown.profile{flex-basis:168px}
+.dropdown.workmode{flex:0 1 172px}
+.dropdown-btn{height:32px;width:100%;border:0;background:transparent;color:#bdbdbd;padding:0 7px;font:inherit;font-size:13px;display:flex;align-items:center;justify-content:space-between;gap:7px;border-radius:8px;cursor:pointer}
 .dropdown-btn:hover,.dropdown.open .dropdown-btn{background:#343537;color:#e0e0e0}
 .chev{font-size:16px;color:#9a9a9a}
 .menu{display:none;position:absolute;left:0;bottom:40px;min-width:100%;max-height:260px;overflow:auto;background:#252526;border:1px solid #3a3a3a;border-radius:10px;padding:6px;box-shadow:0 10px 30px rgba(0,0,0,.45);z-index:5}
@@ -1788,7 +1788,7 @@ textarea::placeholder{color:#707070}
 .item{width:100%;text-align:left;border:0;background:transparent;color:#d7d7d7;padding:8px 10px;border-radius:7px;font:inherit;cursor:pointer;white-space:nowrap}
 .item:hover{background:#343638}
 .item.selected{color:#f1f1f1;background:#313438}
-.context{margin-left:auto;color:#4bb4ff;font-weight:500;white-space:nowrap;border:0;background:transparent;font:inherit;cursor:pointer;border-radius:8px;padding:7px 8px}
+.context{margin-left:auto;color:#4bb4ff;font-weight:500;white-space:nowrap;border:0;background:transparent;font:inherit;font-size:13px;cursor:pointer;border-radius:8px;padding:7px 8px}
 .context.off{color:#8e8e8e}
 .context:hover{background:#343537}
 .context .spark{padding-right:4px}
@@ -1800,23 +1800,23 @@ button.send{border:0;border-radius:50%;background:#b7b7b7;color:#111;width:44px;
 </head>
 <body>
 <div class="top">
-  <button class="icon-btn edit-icon" type="button" data-action="newChat" title="New chat">&#9633;</button>
+  <button class="icon-btn edit-icon" type="button" data-action="newChat" title="Новый чат">&#9633;</button>
   <div class="thread-title">${this.escapeHtml(title)}</div>
-  <button class="icon-btn" type="button" data-action="clearChat" title="Clear chat">...</button>
+  <button class="icon-btn" type="button" data-action="clearChat" title="Очистить чат">...</button>
   <div class="toolbar-spacer"></div>
-  <button class="icon-btn" type="button" id="topRun" title="Run prompt">&triangleright;</button>
-  <button class="pill-btn" type="button" title="VS Code context">VS Code</button>
-  <button class="icon-btn" type="button" data-action="openTerminal" title="Terminal">&#9633;</button>
-  <button class="icon-btn" type="button" data-action="openSettings" title="Settings">&#9881;</button>
+  <button class="icon-btn" type="button" id="topRun" title="Отправить">&triangleright;</button>
+  <button class="pill-btn" type="button" title="Контекст VS Code">VS Code</button>
+  <button class="icon-btn" type="button" data-action="openTerminal" title="Терминал">&#9633;</button>
+  <button class="icon-btn" type="button" data-action="openSettings" title="Настройки">&#9881;</button>
 </div>
 <main class="messages" id="messages">
-${rows || '<div class="msg system"><div class="role">System</div><pre>Waiting for a message from Android or VS Code.</pre></div>'}
+${rows || '<div class="msg system"><div class="role">Система</div><pre>Жду сообщение с телефона или из VS Code.</pre></div>'}
 </main>
 <div class="composer-wrap">
   <form class="composer" id="composer">
-    <textarea id="prompt" placeholder="Ask for additional changes"></textarea>
+    <textarea id="prompt" placeholder="Запросите внесение дополнительных изменений"></textarea>
     <div class="controls">
-      <button class="plus" type="button" data-action="addFile" title="Add file">+</button>
+      <button class="plus" type="button" data-action="addFile" title="Добавить файл">+</button>
       <div class="dropdown profile" id="profileDrop">
         <button class="dropdown-btn" type="button"><span>&#9881;</span><span id="profileLabel"></span><span class="chev">&#8964;</span></button>
         <div class="menu" id="profileMenu"></div>
@@ -1829,7 +1829,7 @@ ${rows || '<div class="msg system"><div class="role">System</div><pre>Waiting fo
         <button class="dropdown-btn" type="button"><span id="effortLabel"></span><span class="chev">&#8964;</span></button>
         <div class="menu" id="effortMenu"></div>
       </div>
-      <button class="context" id="contextToggle" type="button"><span class="spark">*</span>Context IDE</button>
+      <button class="context" id="contextToggle" type="button"><span class="spark">*</span>Контекст IDE</button>
       <button class="send" id="send" type="submit">&uarr;</button>
     </div>
   </form>
@@ -1838,7 +1838,7 @@ ${rows || '<div class="msg system"><div class="role">System</div><pre>Waiting fo
       <button class="dropdown-btn" type="button"><span id="workModeLabel"></span><span class="chev">&#8964;</span></button>
       <div class="menu" id="workModeMenu"></div>
     </div>
-    <button class="link-btn" type="button" data-action="showBranch">branch ${this.escapeHtml(branchLabel)}</button>
+    <button class="link-btn" type="button" data-action="showBranch">ветка ${this.escapeHtml(branchLabel)}</button>
   </div>
 </div>
 <script>
