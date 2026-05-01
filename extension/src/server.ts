@@ -114,6 +114,9 @@ export class RemoteServer {
         return new Promise((resolve, reject) => {
             try {
                 this.httpServer = http.createServer((req, res) => this.handleRequest(req, res));
+                this.httpServer.headersTimeout = 15000;
+                this.httpServer.requestTimeout = 15000;
+                this.httpServer.keepAliveTimeout = 1000;
 
                 this.wss = new WebSocketServer({ server: this.httpServer });
                 this.wss.on('connection', (ws, req) => {
@@ -167,6 +170,12 @@ export class RemoteServer {
                     this._isRunning = false;
                     reject(err);
                 });
+                this.httpServer.on('clientError', (err, socket) => {
+                    this.logHttpRequest(`CLIENT_ERROR ${err.message}`);
+                    if (socket.writable) {
+                        socket.end('HTTP/1.1 400 Bad Request\r\nConnection: close\r\nContent-Length: 0\r\n\r\n');
+                    }
+                });
             } catch (err) {
                 reject(err);
             }
@@ -208,6 +217,7 @@ export class RemoteServer {
     // ========== HTTP ROUTER ==========
 
     private async handleRequest(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
+        this.logHttpRequest(`${req.socket.remoteAddress}:${req.socket.remotePort} ${req.method} ${req.url} ua=${req.headers['user-agent'] || ''}`);
         // CORS
         res.setHeader('Access-Control-Allow-Origin', '*');
         res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
@@ -1143,9 +1153,28 @@ export class RemoteServer {
         res.writeHead(status, {
             'Content-Type': 'application/json; charset=utf-8',
             'Content-Length': bytes,
-            'Connection': 'close'
+            'Connection': 'close',
+            'Cache-Control': 'no-store'
         });
         res.end(body);
+    }
+
+    private logHttpRequest(line: string): void {
+        try {
+            const dir = this._context.globalStorageUri.fsPath;
+            fs.mkdirSync(dir, { recursive: true });
+            const file = path.join(dir, 'remote-http.log');
+            const entry = `[${new Date().toISOString()}] ${line}\n`;
+            fs.appendFileSync(file, entry, 'utf8');
+            const maxBytes = 256 * 1024;
+            const stat = fs.statSync(file);
+            if (stat.size > maxBytes) {
+                const text = fs.readFileSync(file, 'utf8');
+                fs.writeFileSync(file, text.slice(-maxBytes), 'utf8');
+            }
+        } catch {
+            // Logging must never break the server.
+        }
     }
 
     private async handleAppApk(_req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {

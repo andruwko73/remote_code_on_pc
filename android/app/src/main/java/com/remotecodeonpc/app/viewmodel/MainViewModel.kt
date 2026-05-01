@@ -7,6 +7,7 @@ import androidx.lifecycle.viewModelScope
 import com.remotecodeonpc.app.CrashLogger
 import com.remotecodeonpc.app.*
 import com.remotecodeonpc.app.network.ApiClient
+import com.remotecodeonpc.app.network.SimpleHttpClient
 import com.remotecodeonpc.app.network.WebSocketClient
 import com.remotecodeonpc.app.network.WebSocketListener
 import kotlinx.coroutines.delay
@@ -176,11 +177,39 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     )
                 }
             } catch (e: Exception) {
-                CrashLogger.e("ViewModel", "connect() exception", e)
-                _uiState.value = _uiState.value.copy(
-                    isConnecting = false,
-                    connectionError = "Ошибка подключения: ${e.message}"
-                )
+                CrashLogger.e("ViewModel", "connect() exception, trying simple HTTP fallback", e)
+                try {
+                    val status = SimpleHttpClient.getStatus(config)
+                    CrashLogger.i("ViewModel", "Connected with simple HTTP fallback: version=${status.version}")
+                    _uiState.value = _uiState.value.copy(
+                        isConnected = true,
+                        isConnecting = false,
+                        connectionError = null,
+                        status = WorkspaceStatus(
+                            version = status.version,
+                            appName = status.appName,
+                            isRunning = status.isRunning,
+                            platform = status.platform,
+                            workspace = status.workspace,
+                            uptime = status.uptime,
+                            memoryUsage = status.memoryUsage
+                        )
+                    )
+                    connectWebSocket()
+                    loadFolders()
+                    loadChatAgents()
+                    loadChatHistory()
+                    loadConversations()
+                    loadDiagnostics()
+                    loadCodexStatus()
+                    loadCodexThreads()
+                } catch (fallbackError: Exception) {
+                    CrashLogger.e("ViewModel", "simple HTTP fallback failed", fallbackError)
+                    _uiState.value = _uiState.value.copy(
+                        isConnecting = false,
+                        connectionError = "Connection error: ${fallbackError.message ?: e.message}"
+                    )
+                }
             }
         }
     }
