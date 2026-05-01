@@ -31,6 +31,7 @@ interface CodexChatMessage {
     timestamp: number;
     model?: string;
     isStreaming?: boolean;
+    threadId?: string;
 }
 
 interface MobileAttachment {
@@ -1701,7 +1702,7 @@ export class RemoteServer {
             this.jsonResponse(res, 200, {
                 threadId: selected.id,
                 title: selected.title,
-                messages: selected.messages.slice(-120)
+                messages: this.mergeLocalCodexMessages(selected.id, selected.messages).slice(-120)
             });
         } catch (err: any) {
             this.jsonResponse(res, 200, { threadId: '', title: '', messages: [], error: err.message });
@@ -1755,7 +1756,8 @@ export class RemoteServer {
                 role: 'user',
                 content: messageForCodex,
                 timestamp: Date.now(),
-                model: typeof model === 'string' && model ? model : undefined
+                model: typeof model === 'string' && model ? model : undefined,
+                threadId: targetThreadId
             };
             this.codexHistory.push(userMessage);
             this.codexHistory = this.codexHistory.slice(-100);
@@ -2235,6 +2237,14 @@ export class RemoteServer {
             .filter((s): s is { id: string; title: string; timestamp: number; messages: CodexChatMessage[]; filePath: string } => !!s);
         sessions.sort((a, b) => b.timestamp - a.timestamp);
         return sessions;
+    }
+
+    private mergeLocalCodexMessages(threadId: string, serverMessages: CodexChatMessage[]): CodexChatMessage[] {
+        const localMessages = this.codexHistory.filter(local =>
+            local.threadId === threadId &&
+            !serverMessages.some(server => server.role === local.role && server.content === local.content)
+        );
+        return [...serverMessages, ...localMessages].sort((a, b) => a.timestamp - b.timestamp);
     }
 
     private getCodexThreadSummariesFast(): Array<{ id: string; title: string; timestamp: number }> {

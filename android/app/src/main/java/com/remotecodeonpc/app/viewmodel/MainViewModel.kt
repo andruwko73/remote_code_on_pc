@@ -282,7 +282,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         viewModelScope.launch {
                             loadCodexStatus()
                             loadCodexThreads()
-                            loadCodexHistory(threadId)
                             loadCodexEvents(threadId)
                         }
                     }
@@ -740,8 +739,17 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 val response = api.getCodexHistory(selectedThreadId)
                 if (response.isSuccessful) {
                     val body = response.body()
+                    val serverMessages = body?.messages ?: emptyList()
+                    val localPending = _uiState.value.codexChatHistory.filter { local ->
+                        local.id.startsWith("mobile_user_") &&
+                            serverMessages.none { server ->
+                                server.role == local.role && server.content == local.content
+                            }
+                    }
                     _uiState.value = _uiState.value.copy(
-                        codexChatHistory = body?.messages ?: emptyList(),
+                        codexChatHistory = (serverMessages + localPending)
+                            .sortedBy { it.timestamp }
+                            .takeLast(120),
                         currentCodexThreadId = body?.threadId?.takeIf { it.isNotBlank() }
                             ?: selectedThreadId
                             ?: _uiState.value.currentCodexThreadId,
@@ -823,7 +831,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             try {
                 val api = ApiClient.getApi(_uiState.value.serverConfig)
-                val threadId = _uiState.value.currentCodexThreadId
+                val threadId = _uiState.value.currentCodexThreadId.takeIf { current ->
+                    current.isNotBlank() && _uiState.value.codexThreads.any { it.id == current }
+                } ?: _uiState.value.codexThreads.firstOrNull()?.id.orEmpty()
                 val response = api.sendCodexMessage(
                     mapOf(
                         "message" to text,
@@ -841,8 +851,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         isCodexLoading = false
                     )
                     loadCodexThreads()
-                    loadCodexHistory(nextThreadId)
                     loadCodexEvents(nextThreadId)
+                    delay(4000)
+                    loadCodexHistory(nextThreadId)
                 } else {
                     _uiState.value = _uiState.value.copy(
                         codexError = "Ошибка ${response.code()}",
