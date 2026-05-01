@@ -1248,12 +1248,14 @@ export class RemoteServer {
         if (agents.length === 0) {
             agents.push(
                 { name: 'auto', displayName: 'Auto', vendor: 'github', isDefault: true, model: 'Автовыбор модели' },
+                { name: 'gpt-5.3-codex', displayName: 'GPT-5.3-Codex', vendor: 'openai', model: 'GPT-5.3-Codex' },
+                { name: 'gpt-5.2-codex', displayName: 'GPT-5.2-Codex', vendor: 'openai', model: 'GPT-5.2-Codex' },
+                { name: 'gpt-5.4', displayName: 'GPT-5.4', vendor: 'openai', model: 'GPT-5.4' },
+                { name: 'gpt-5.4-mini', displayName: 'GPT-5.4 mini', vendor: 'openai', model: 'GPT-5.4 mini' },
                 { name: 'gpt-4o', displayName: 'GPT-4o', vendor: 'openai', model: 'GPT-4o' },
                 { name: 'gpt-4o-mini', displayName: 'GPT-4o-mini', vendor: 'openai', model: 'GPT-4o-mini' },
-                { name: 'deepseek-v3', displayName: 'DeepSeek V3', vendor: 'deepseek', model: 'DeepSeek V3' },
                 { name: 'o3-mini', displayName: 'o3-mini', vendor: 'openai', model: 'o3-mini' },
                 { name: 'o4-mini', displayName: 'o4-mini', vendor: 'openai', model: 'o4-mini' },
-                { name: 'claude-sonnet', displayName: 'Claude Sonnet', vendor: 'anthropic', model: 'Claude 3.5 Sonnet' },
             );
         }
 
@@ -1264,6 +1266,53 @@ export class RemoteServer {
 
         this.agentCache = { timestamp: Date.now(), agents };
         return agents;
+    }
+
+    private isRemoteCodeModel(agent: ChatAgent): boolean {
+        const id = (agent.name || '').toLowerCase();
+        const display = (agent.displayName || '').toLowerCase();
+        const model = (agent.model || '').toLowerCase();
+        const vendor = (agent.vendor || '').toLowerCase();
+        const text = `${id} ${display} ${model} ${vendor}`;
+
+        if (id === 'auto') return true;
+        if (/(claude|anthropic|gemini|google|grok|xai|deepseek|mistral|llama)/.test(text)) return false;
+        return (
+            text.includes('codex') ||
+            vendor === 'openai' ||
+            /^gpt[-_.]/.test(id) ||
+            /^o\d/.test(id)
+        );
+    }
+
+    private getRemoteCodeModelAgents(agents: ChatAgent[]): ChatAgent[] {
+        const filtered = agents.filter(agent => this.isRemoteCodeModel(agent));
+        const source = filtered.length > 0 ? filtered : this.getDefaultCodexModels().map((model, index) => ({
+            name: model.id,
+            displayName: model.name,
+            vendor: 'openai',
+            model: model.name,
+            isDefault: index === 0
+        }));
+        return source.sort((a, b) => {
+            const score = (agent: ChatAgent) => {
+                const id = `${agent.name} ${agent.displayName}`.toLowerCase();
+                if (id.includes('codex')) return 0;
+                if (agent.name === 'auto') return 1;
+                if (id.includes('gpt-5')) return 2;
+                if (id.includes('gpt')) return 3;
+                return 4;
+            };
+            return score(a) - score(b) || (a.displayName || a.name).localeCompare(b.displayName || b.name);
+        });
+    }
+
+    private ensureRemoteCodeSelectedAgent(agents: ChatAgent[]): string {
+        if (!agents.find(agent => agent.name === this.selectedAgent)) {
+            this.selectedAgent = agents[0]?.name || 'gpt-5.3-codex';
+            this.saveRemoteCodeState();
+        }
+        return this.selectedAgent;
     }
 
     private restoreRemoteCodeState(): void {
@@ -1356,13 +1405,21 @@ export class RemoteServer {
                 throw new Error('Нет доступных моделей чата. Проверьте подключение Copilot.');
             }
 
+            const allowedAgents = this.getRemoteCodeModelAgents(models.map((m: any) => ({
+                name: m.id || m.name || '',
+                displayName: m.name || m.id || '',
+                vendor: m.vendor || '',
+                model: m.family || m.id || m.name || ''
+            })));
+            const allowedNames = new Set(allowedAgents.map(agent => agent.name));
+
             // Ищем модель, соответствующую выбранному агенту
-            let model = models[0];
+            let model = models.find((m: any) => allowedNames.has(m.id || m.name || '')) || models[0];
             if (agentName && agentName !== 'auto') {
                 const found = models.find(m => {
                     const mId = (m as any).id || (m as any).name || '';
                     const mVendor = (m as any).vendor || '';
-                    return mId.includes(agentName) || mVendor.includes(agentName);
+                    return allowedNames.has(mId) && (mId.includes(agentName) || mVendor.includes(agentName));
                 });
                 if (found) model = found;
             }
@@ -2033,14 +2090,15 @@ prompt.addEventListener('keydown', event => {
     // GET /api/codex/models
     private async handleCodexModels(_req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
         try {
-            const agents = await this.getAvailableAgents();
+            const agents = this.getRemoteCodeModelAgents(await this.getAvailableAgents());
+            const selected = this.ensureRemoteCodeSelectedAgent(agents);
             this.jsonResponse(res, 200, {
                 models: agents.map(agent => ({
                     id: agent.name,
                     name: agent.displayName || agent.name
                 })),
-                selected: this.selectedAgent,
-                note: 'Models are provided by VS Code Language Model API.'
+                selected,
+                note: 'Only Codex/OpenAI-compatible VS Code models are shown.'
             });
         } catch (err: any) {
             this.jsonResponse(res, 200, {
@@ -2062,6 +2120,11 @@ prompt.addEventListener('keydown', event => {
         }
 
         try {
+            const agents = this.getRemoteCodeModelAgents(await this.getAvailableAgents());
+            if (!agents.find(agent => agent.name === modelId)) {
+                this.jsonResponse(res, 400, { error: `Model ${modelId} is not available for Remote Code Agent` });
+                return;
+            }
             this.selectedAgent = modelId;
             this.saveRemoteCodeState();
             this.broadcast({ type: 'codex:model-changed', model: modelId, timestamp: Date.now() });
@@ -2563,15 +2626,16 @@ prompt.addEventListener('keydown', event => {
 
     private getDefaultCodexModels(): Array<{ id: string; name: string }> {
         return [
-            { id: 'o4-mini', name: 'o4-mini (быстрый)' },
-            { id: 'o3-mini', name: 'o3-mini (средний)' },
-            { id: 'gpt-4o', name: 'GPT-4o' },
-            { id: 'gpt-4o-mini', name: 'GPT-4o Mini' },
+            { id: 'gpt-5.3-codex', name: 'GPT-5.3-Codex' },
+            { id: 'gpt-5.2-codex', name: 'GPT-5.2-Codex' },
+            { id: 'gpt-5.4', name: 'GPT-5.4' },
+            { id: 'gpt-5.4-mini', name: 'GPT-5.4 mini' },
+            { id: 'gpt-5.2', name: 'GPT-5.2' },
             { id: 'gpt-4.1', name: 'GPT-4.1' },
-            { id: 'gpt-4.1-nano', name: 'GPT-4.1 Nano' },
-            { id: 'gpt-4.1-mini', name: 'GPT-4.1 Mini' },
-            { id: 'deepseek-chat', name: 'DeepSeek V3' },
-            { id: 'deepseek-reasoner', name: 'DeepSeek R1' },
+            { id: 'gpt-4o', name: 'GPT-4o' },
+            { id: 'gpt-4o-mini', name: 'GPT-4o mini' },
+            { id: 'o4-mini', name: 'o4-mini' },
+            { id: 'o3-mini', name: 'o3-mini' },
         ];
     }
 
