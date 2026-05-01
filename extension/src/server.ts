@@ -295,7 +295,7 @@ export class RemoteServer {
                 case pathname === '/api/codex/send':
                     return this.handleCodexSendRealtime(req, res);
                 case pathname === '/api/codex/history':
-                    return this.handleCodexHistoryFromFiles(req, res);
+                    return this.handleCodexHistoryFast(req, res);
                 case pathname === '/api/codex/events':
                     return this.handleCodexEvents(req, res);
                 case pathname === '/api/codex/actions':
@@ -305,7 +305,7 @@ export class RemoteServer {
                 case pathname === '/api/codex/models' && req.method === 'POST':
                     return this.handleCodexSelectModel(req, res);
                 case pathname === '/api/codex/threads':
-                    return this.handleCodexThreadsFromFiles(req, res);
+                    return this.handleCodexThreadsFast(req, res);
                 case pathname === '/api/codex/launch':
                     return this.handleCodexLaunch(req, res);
 
@@ -1672,6 +1672,36 @@ export class RemoteServer {
         });
     }
 
+    private async handleCodexHistoryFast(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
+        try {
+            const params = url.parse(req.url || '', true).query;
+            const threadId = params.threadId as string | undefined;
+            const index = this.getCodexSessionIndex();
+            const filePath = threadId
+                ? this.findCodexSessionFile(threadId)
+                : this.getCodexSessionFiles(1)[0];
+
+            if (!filePath) {
+                this.jsonResponse(res, 200, { threadId: '', title: '', messages: this.codexHistory.slice(-100) });
+                return;
+            }
+
+            const selected = this.parseCodexSessionFile(filePath, index);
+            if (!selected) {
+                this.jsonResponse(res, 200, { threadId: threadId || '', title: '', messages: [] });
+                return;
+            }
+
+            this.jsonResponse(res, 200, {
+                threadId: selected.id,
+                title: selected.title,
+                messages: selected.messages.slice(-120)
+            });
+        } catch (err: any) {
+            this.jsonResponse(res, 200, { threadId: '', title: '', messages: [], error: err.message });
+        }
+    }
+
     private async handleCodexEvents(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
         const params = url.parse(req.url || '', true).query;
         this.jsonResponse(res, 200, {
@@ -1865,6 +1895,30 @@ export class RemoteServer {
                     timestamp: s.timestamp
                 }))
             });
+        } catch (err: any) {
+            this.jsonResponse(res, 200, { threads: [], error: err.message });
+        }
+    }
+
+    private async handleCodexThreadsFast(_req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
+        try {
+            const index = this.getCodexSessionIndex();
+            let threads = Array.from(index.entries()).map(([id, meta]) => ({
+                id,
+                title: meta.title || 'Codex',
+                timestamp: Math.round(meta.timestamp || 0)
+            }));
+
+            if (threads.length === 0) {
+                threads = this.getCodexSessionFiles(60).map(filePath => ({
+                    id: this.codexIdFromFilePath(filePath),
+                    title: path.basename(filePath, '.jsonl'),
+                    timestamp: Math.round(fs.statSync(filePath).mtimeMs)
+                }));
+            }
+
+            threads.sort((a, b) => b.timestamp - a.timestamp);
+            this.jsonResponse(res, 200, { threads: threads.slice(0, 80) });
         } catch (err: any) {
             this.jsonResponse(res, 200, { threads: [], error: err.message });
         }
@@ -2189,13 +2243,21 @@ export class RemoteServer {
         return sessions;
     }
 
+    private codexIdFromFilePath(filePath: string): string {
+        return path.basename(filePath, '.jsonl').replace(/^rollout-[^-]+-\d\d-\d\dT\d\d-\d\d-\d\d-/, '');
+    }
+
+    private findCodexSessionFile(threadId: string): string | undefined {
+        return this.getCodexSessionFiles(300).find(filePath => this.codexIdFromFilePath(filePath) === threadId);
+    }
+
     private parseCodexSessionFile(
         filePath: string,
         index: Map<string, { title: string; timestamp: number }>
     ): { id: string; title: string; timestamp: number; messages: CodexChatMessage[]; filePath: string } | null {
         try {
             const lines = fs.readFileSync(filePath, 'utf-8').split(/\r?\n/).filter(Boolean);
-            let id = path.basename(filePath, '.jsonl').replace(/^rollout-[^-]+-\d\d-\d\dT\d\d-\d\d-\d\d-/, '');
+            let id = this.codexIdFromFilePath(filePath);
             let title = 'Codex';
             let timestamp = Math.round(fs.statSync(filePath).mtimeMs);
             const messages: CodexChatMessage[] = [];

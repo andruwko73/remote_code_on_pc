@@ -41,6 +41,9 @@ import com.remotecodeonpc.app.FileTreeItem
 import com.remotecodeonpc.app.FoldersResponse
 import com.remotecodeonpc.app.MessageAttachment
 import com.remotecodeonpc.app.ui.theme.*
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -204,18 +207,24 @@ fun CodexChatTab(
     var attachments by remember { mutableStateOf<List<MessageAttachment>>(emptyList()) }
     val listState = rememberLazyListState()
     val context = LocalContext.current
+    val attachmentScope = rememberCoroutineScope()
     val attachmentPicker = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetMultipleContents()
     ) { uris ->
-        val next = uris.mapNotNull { uri ->
-            runCatching { context.readMessageAttachment(uri) }
-                .onFailure {
-                    Toast.makeText(context, "Не удалось прикрепить файл: ${it.message}", Toast.LENGTH_LONG).show()
+        if (uris.isEmpty()) return@rememberLauncherForActivityResult
+        attachmentScope.launch {
+            var errorMessage: String? = null
+            val next = withContext(Dispatchers.IO) {
+                uris.take(4).mapNotNull { uri ->
+                    runCatching { context.readMessageAttachment(uri) }
+                        .onFailure { errorMessage = "Attachment failed: ${it.message}" }
+                        .getOrNull()
                 }
-                .getOrNull()
-        }
-        if (next.isNotEmpty()) {
-            attachments = (attachments + next).takeLast(6)
+            }
+            errorMessage?.let { Toast.makeText(context, it, Toast.LENGTH_LONG).show() }
+            if (next.isNotEmpty()) {
+                attachments = (attachments + next).takeLast(4)
+            }
         }
     }
 
@@ -751,11 +760,16 @@ private fun Context.readMessageAttachment(uri: Uri): MessageAttachment {
         }
     }
 
-    val bytes = resolver.openInputStream(uri)?.use { it.readBytes() }
-        ?: throw IllegalStateException("Файл недоступен")
-    if (bytes.size > 12 * 1024 * 1024) {
-        throw IllegalStateException("Файл больше 12 MB")
+    val maxBytes = 6 * 1024 * 1024
+    if (size > maxBytes) {
+        throw IllegalStateException("???? ?????? 6 MB")
     }
+    val bytes = resolver.openInputStream(uri)?.use { input ->
+        val data = input.readBytes()
+        if (data.size > maxBytes) throw IllegalStateException("???? ?????? 6 MB")
+        data
+    } ?: throw IllegalStateException("???? ??????????")
+    if (bytes.isEmpty()) throw IllegalStateException("?????? ????")
     return MessageAttachment(
         name = name,
         mimeType = mimeType,

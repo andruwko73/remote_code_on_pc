@@ -136,9 +136,9 @@ object ApiClient {
                 chain.proceed(request)
             }
             .connectTimeout(8, TimeUnit.SECONDS)
-            .readTimeout(12, TimeUnit.SECONDS)
-            .writeTimeout(12, TimeUnit.SECONDS)
-            .callTimeout(15, TimeUnit.SECONDS)
+            .readTimeout(30, TimeUnit.SECONDS)
+            .writeTimeout(30, TimeUnit.SECONDS)
+            .callTimeout(35, TimeUnit.SECONDS)
             .retryOnConnectionFailure(false)
             .apply {
                 if (config.authToken.isNotBlank()) {

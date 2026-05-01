@@ -77,6 +77,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private var wsClient: WebSocketClient? = null
     private var healthCheckJob: kotlinx.coroutines.Job? = null
+    private var healthCheckFailures = 0
 
     init {
         loadSavedConfig()
@@ -165,7 +166,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     loadFolders()
                     loadChatAgents()
                     loadChatHistory()
-                    loadConversations()
+                    // Heavy history scans are loaded on demand to keep first paint fast.
                     loadDiagnostics()
                     loadCodexStatus()
                     loadCodexThreads()
@@ -199,7 +200,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     loadFolders()
                     loadChatAgents()
                     loadChatHistory()
-                    loadConversations()
+                    // Heavy history scans are loaded on demand to keep first paint fast.
                     loadDiagnostics()
                     loadCodexStatus()
                     loadCodexThreads()
@@ -219,6 +220,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         wsClient = WebSocketClient(_uiState.value.serverConfig)
         wsClient?.connect(object : WebSocketListener {
             override fun onConnected() {
+                healthCheckFailures = 0
                 _uiState.value = _uiState.value.copy(isWebSocketConnected = true)
                 startHealthCheck()
             }
@@ -400,12 +402,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     if (!response.isSuccessful) {
                         CrashLogger.w("ViewModel", "Health-check failed: ${response.code()}")
                         onHealthCheckFailed()
-                        break
                     }
                 } catch (e: Exception) {
                     CrashLogger.w("ViewModel", "Health-check network error: ${e.message}")
                     onHealthCheckFailed()
-                    break
                 }
             }
         }
@@ -413,17 +413,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private fun onHealthCheckFailed() {
         if (!_uiState.value.isConnected) return // уже на экране коннекта
-        CrashLogger.w("ViewModel", "Connection dead — returning to connection screen")
-        healthCheckJob?.cancel()
-        healthCheckJob = null
-        wsClient?.disconnect()
-        wsClient = null
-        ApiClient.reset()
-        val savedConfig = _uiState.value.serverConfig
-        _uiState.value = AppUiState().copy(
-            serverConfig = savedConfig,
-            connectionError = "Соединение потеряно. Проверьте, включён ли ПК."
-        )
+        healthCheckFailures++
+        CrashLogger.w("ViewModel", "Health-check failure $healthCheckFailures; keeping current screen")
+        _uiState.value = _uiState.value.copy(isWebSocketConnected = false)
+        if (healthCheckFailures >= 3) {
+            wsClient?.disconnect()
+            wsClient = null
+            connectWebSocket()
+            healthCheckFailures = 0
+        }
     }
 
     // ===== FOLDERS =====
