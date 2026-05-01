@@ -1,6 +1,5 @@
 import * as vscode from 'vscode';
 import { RemoteServer } from './server';
-import { RemoteChatPanel } from './panel';
 
 let server: RemoteServer | undefined;
 let statusBarItem: vscode.StatusBarItem | undefined;
@@ -62,7 +61,7 @@ export function activate(context: vscode.ExtensionContext) {
                 return;
             }
         }
-        RemoteChatPanel.show(context, server);
+        await server.openOfficialCodex();
     });
 
     const stopCmd = vscode.commands.registerCommand('remoteCodeOnPC.stop', async () => {

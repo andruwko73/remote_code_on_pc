@@ -34,7 +34,6 @@ const path = require('path');
 const requiredFiles = [
     'src/server.ts',
     'src/extension.ts',
-    'src/panel.ts',
     'package.json',
     'tsconfig.json',
 ];
@@ -152,7 +151,7 @@ assert(extContent.includes('remoteCodeOnPC.stop'), 'stop команда', 'Не 
 assert(extContent.includes('remoteCodeOnPC.tunnel'), 'tunnel команда', 'Не найдена');
 assert(extContent.includes('remoteCodeOnPC.status'), 'status команда', 'Не найдена');
 assert(extContent.includes('remoteCodeOnPC.openChat'), 'openChat команда', 'Не найдена');
-assert(extContent.includes('RemoteChatPanel'), 'RemoteChatPanel интеграция', 'Не найдена');
+assert(extContent.includes('openOfficialCodex'), 'официальный Codex Sidebar', 'Не найден');
 assert(extContent.includes('updateStatusBar'), 'updateStatusBar функция', 'Не найдена');
 
 // ===== Тест 8: Проверка package.json =====

@@ -62,6 +62,7 @@ export class RemoteServer {
     private chatHistory: Map<string, ChatMessage[]> = new Map();
     private currentChatId: string = 'default';
     private selectedAgent: string = 'auto';
+    private agentCache?: { timestamp: number; agents: ChatAgent[] };
     private codexHistory: CodexChatMessage[] = [];
 
     // Internet tunnel
@@ -87,6 +88,17 @@ export class RemoteServer {
     get tunnelUrl() { return this._tunnelUrl; }
     get localIp() { return this._localIp; }
     get authToken() { return this._authToken; }
+
+    async openOfficialCodex(): Promise<void> {
+        const extension = vscode.extensions.getExtension('openai.chatgpt');
+        if (!extension) {
+            throw new Error('Official Codex extension openai.chatgpt is not installed.');
+        }
+        if (!extension.isActive) {
+            await extension.activate();
+        }
+        await vscode.commands.executeCommand('chatgpt.openSidebar');
+    }
 
     /** Публичный запуск туннеля */
     async startTunnelPublic(): Promise<string> {
@@ -779,16 +791,6 @@ export class RemoteServer {
             this._context.globalState.update('selected_agent', agentName);
         } catch (e) { /* ignore */ }
 
-        // Пробуем переключить агента в VS Code
-        try {
-            await vscode.commands.executeCommand('github.copilot.chat.focus');
-            // Отправляем команду смены агента через вставку текста
-            const chatAgentCmd = agent.displayName || agent.name;
-            vscode.env.clipboard.writeText(`@${chatAgentCmd} `);
-        } catch (e) {
-            // Игнорируем, если команда недоступна
-        }
-
         // Уведомляем WS клиентов о смене агента
         this.broadcast({
             type: 'chat:agent-changed',
@@ -976,7 +978,6 @@ export class RemoteServer {
         // Отправляем приветственное сообщение с полным состоянием
         const workspaceFolders = vscode.workspace.workspaceFolders || [];
         const activeEditor = vscode.window.activeTextEditor;
-        const agents = await this.getAvailableAgents();
         ws.send(JSON.stringify({
             type: 'connected',
             timestamp: Date.now(),
@@ -1171,6 +1172,10 @@ export class RemoteServer {
     }
 
     private async getAvailableAgents(): Promise<ChatAgent[]> {
+        if (this.agentCache && Date.now() - this.agentCache.timestamp < 30000) {
+            return this.agentCache.agents;
+        }
+
         // Динамически получаем модели из VS Code LM API
         const agents: ChatAgent[] = [];
 
@@ -1216,6 +1221,7 @@ export class RemoteServer {
             this.selectedAgent = agents[0]?.name || 'auto';
         }
 
+        this.agentCache = { timestamp: Date.now(), agents };
         return agents;
     }
 
@@ -1263,17 +1269,67 @@ export class RemoteServer {
             }
             return result || '(пустой ответ)';
         } catch (err: any) {
-            console.error('[RemoteCodeOnPC] Ошибка отправки в чат:', err.message);
-
-            // Пробуем fallback через clipboard (без ожидания ответа)
-            try {
-                await vscode.env.clipboard.writeText(message);
-                await vscode.commands.executeCommand('github.copilot.chat.focus');
-                return `📋 Сообщение скопировано в буфер и открыт чат Copilot.\nОжидайте ответ в VS Code.`;
-            } catch {
-                throw new Error(`Не удалось отправить запрос в чат: ${err.message}`);
-            }
+            const errorMessage = err?.message || String(err);
+            console.warn('[RemoteCodeOnPC] VS Code LM request failed:', errorMessage);
+            throw new Error(`VS Code language model request failed: ${errorMessage}`);
         }
+    }
+
+    private async sendToOfficialCodexComposer(message: string): Promise<void> {
+        await this.openOfficialCodex();
+        await new Promise(resolve => setTimeout(resolve, 500));
+
+        let previousClipboard = '';
+        try {
+            previousClipboard = await vscode.env.clipboard.readText();
+        } catch {
+            previousClipboard = '';
+        }
+        await vscode.env.clipboard.writeText(message);
+
+        try {
+            await this.sendKeysToVSCode('^v', '{ENTER}');
+        } finally {
+            setTimeout(() => {
+                vscode.env.clipboard.writeText(previousClipboard).then(undefined, () => undefined);
+            }, 1500);
+        }
+    }
+
+    private sendKeysToVSCode(...keys: string[]): Promise<void> {
+        return new Promise((resolve, reject) => {
+            if (process.platform !== 'win32') {
+                reject(new Error('Official Codex UI automation is currently implemented for Windows only.'));
+                return;
+            }
+
+            const sendKeys = keys
+                .map((key, index) => `$wshell.SendKeys('${key}')${index < keys.length - 1 ? '\nStart-Sleep -Milliseconds 150' : ''}`)
+                .join('\n');
+            const script = [
+                'Start-Sleep -Milliseconds 350',
+                '$wshell = New-Object -ComObject WScript.Shell',
+                "$null = $wshell.AppActivate('Visual Studio Code')",
+                'Start-Sleep -Milliseconds 350',
+                sendKeys
+            ].join('\n');
+            const encoded = Buffer.from(script, 'utf16le').toString('base64');
+            const proc = spawn('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-EncodedCommand', encoded], {
+                windowsHide: true,
+                stdio: ['ignore', 'pipe', 'pipe']
+            });
+
+            let stderr = '';
+            proc.stderr.on('data', (chunk: Buffer) => { stderr += chunk.toString(); });
+            proc.on('error', reject);
+            proc.on('close', (code: number | null) => {
+                if (code === 0) {
+                    resolve();
+                } else {
+                    reject(new Error(stderr.trim() || `PowerShell SendKeys failed with code ${code ?? 'unknown'}`));
+                }
+            });
+        });
     }
 
     private saveChatHistory(chatId: string, messages: ChatMessage[]): void {
@@ -1514,6 +1570,7 @@ export class RemoteServer {
     // GET /api/codex/status
     private async handleCodexStatus(_req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
         try {
+            const officialExtension = vscode.extensions.getExtension('openai.chatgpt');
             const codexPath = this.findCodexCli();
             const isInstalled = !!codexPath;
             let version = '';
@@ -1531,6 +1588,9 @@ export class RemoteServer {
                 version,
                 isRunning: isInstalled,
                 path: codexPath || null,
+                officialVsCodeExtensionInstalled: !!officialExtension,
+                officialVsCodeExtensionActive: !!officialExtension?.isActive,
+                officialVsCodeExtensionVersion: officialExtension?.packageJSON?.version || null,
                 desktopAppInstalled: this.isCodexDesktopAppInstalled(),
                 configPath: this.getCodexConfigPath()
             });
@@ -1540,6 +1600,7 @@ export class RemoteServer {
                 version: '',
                 isRunning: false,
                 path: null,
+                officialVsCodeExtensionInstalled: !!vscode.extensions.getExtension('openai.chatgpt'),
                 desktopAppInstalled: this.isCodexDesktopAppInstalled(),
                 error: err.message
             });
@@ -1608,86 +1669,27 @@ export class RemoteServer {
         }
 
         try {
-            const codexPath = this.findCodexCli();
-            if (!codexPath) {
-                this.jsonResponse(res, 400, { error: 'Codex CLI не найден. Установите: npm i -g @openai/codex' });
-                return;
-            }
-
-            const modelId = model || undefined;
             const attachmentFiles = this.saveMobileAttachments(Array.isArray(attachments) ? attachments : []);
             const messageForCodex = this.withAttachmentInstructions(message, attachmentFiles);
+            await this.sendToOfficialCodexComposer(messageForCodex);
+
             const userMessage: CodexChatMessage = {
                 id: `codex_user_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
                 role: 'user',
                 content: messageForCodex,
                 timestamp: Date.now(),
-                model: modelId
+                model: typeof model === 'string' && model ? model : undefined
             };
-            const assistantMessage: CodexChatMessage = {
-                id: `codex_assistant_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
-                role: 'assistant',
-                content: '',
-                timestamp: Date.now(),
-                model: modelId,
-                isStreaming: true
-            };
-            this.codexHistory.push(userMessage, assistantMessage);
+            this.codexHistory.push(userMessage);
             this.codexHistory = this.codexHistory.slice(-100);
-
             this.broadcast({ type: 'codex:message', message: userMessage, threadId, timestamp: Date.now() });
-            this.broadcast({ type: 'codex:thinking', message: assistantMessage, threadId, timestamp: Date.now() });
-
-            let cmd = `${this.formatCommandExecutable(codexPath)} exec`;
-            if (modelId) cmd += ` -m ${this.quoteShellArg(modelId)}`;
-            cmd += ` -- ${JSON.stringify(messageForCodex)}`;
-
-            const proc = spawn(cmd, {
-                shell: true,
-                windowsHide: true,
-                cwd: vscode.workspace.workspaceFolders?.[0]?.uri.fsPath || undefined,
-                stdio: ['ignore', 'pipe', 'pipe']
-            });
-
-            const appendChunk = (chunk: string) => {
-                if (!chunk) return;
-                assistantMessage.content += chunk;
-                assistantMessage.timestamp = Date.now();
-                this.broadcast({
-                    type: 'codex:chunk',
-                    messageId: assistantMessage.id,
-                    chunk,
-                    content: assistantMessage.content,
-                    timestamp: assistantMessage.timestamp
-                });
-            };
-
-            proc.stdout.on('data', (data: Buffer) => appendChunk(data.toString()));
-            proc.stderr.on('data', (data: Buffer) => appendChunk(data.toString()));
-            proc.on('error', (err: Error) => {
-                assistantMessage.content += `\nОшибка запуска Codex: ${err.message}`;
-                assistantMessage.isStreaming = false;
-                assistantMessage.timestamp = Date.now();
-                this.broadcast({ type: 'codex:response', message: assistantMessage, timestamp: Date.now() });
-            });
-            proc.on('close', (code: number | null) => {
-                if (!assistantMessage.content.trim()) {
-                    assistantMessage.content = code === 0
-                        ? '(Codex завершился без текстового вывода)'
-                        : `Codex завершился с кодом ${code ?? 'unknown'}`;
-                }
-                assistantMessage.isStreaming = false;
-                assistantMessage.timestamp = Date.now();
-                this.broadcast({ type: 'codex:response', message: assistantMessage, timestamp: Date.now() });
-            });
-
-            this.broadcast({ type: 'codex:sent', message: messageForCodex, model: modelId, threadId, timestamp: Date.now() });
+            this.broadcast({ type: 'codex:sent', message: messageForCodex, model, threadId, timestamp: Date.now() });
 
             this.jsonResponse(res, 200, {
                 success: true,
-                message: 'Запрос отправлен в Codex CLI',
-                command: cmd,
-                note: 'Ответ будет обновляться в чате Codex на телефоне'
+                method: 'official-vscode-codex-ui',
+                message: 'Sent to the official Codex VS Code extension',
+                note: 'Response streaming is owned by the official Codex sidebar.'
             });
         } catch (err: any) {
             this.jsonResponse(res, 500, { error: err.message });
@@ -1872,23 +1874,11 @@ export class RemoteServer {
     // POST /api/codex/launch
     private async handleCodexLaunch(_req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
         try {
-            // Codex CLI v0.125.0 — запускаем в интерактивном режиме
-            const codexPath = this.findCodexCli();
-            if (codexPath) {
-                const terminal = vscode.window.createTerminal('Codex');
-                terminal.show();
-                terminal.sendText(codexPath);
-                this.jsonResponse(res, 200, {
-                    success: true,
-                    method: 'cli',
-                    note: 'Codex CLI v0.125.0 запущен в интерактивном режиме'
-                });
-                return;
-            }
-
-            this.jsonResponse(res, 400, {
-                success: false,
-                error: 'Codex не найден. Установите: npm i -g @openai/codex'
+            await this.openOfficialCodex();
+            this.jsonResponse(res, 200, {
+                success: true,
+                method: 'official-vscode-codex',
+                note: 'Official Codex Sidebar opened in VS Code'
             });
         } catch (err: any) {
             this.jsonResponse(res, 500, { error: err.message });
