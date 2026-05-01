@@ -6,6 +6,7 @@ import android.net.Uri
 import android.provider.OpenableColumns
 import android.util.Base64
 import android.widget.Toast
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.*
@@ -89,6 +90,9 @@ fun CodexScreen(
     onNavigateToSettings: () -> Unit = {}
 ) {
     var selectedTab by remember { mutableStateOf(0) }
+    BackHandler(enabled = selectedTab != 0) {
+        selectedTab = 0
+    }
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -106,20 +110,16 @@ fun CodexScreen(
                     .padding(horizontal = 8.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text(
-                    "CODEX",
-                    color = if (selectedTab == 0) AccentBlue else TextSecondary,
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    modifier = Modifier.padding(horizontal = 8.dp)
-                )
-                if (selectedTab != 0) {
-                    TextButton(
-                        onClick = { selectedTab = 0 },
-                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp)
-                    ) {
-                        Text("\u0427\u0410\u0422", color = TextBright, fontSize = 13.sp)
-                    }
+                TextButton(
+                    onClick = { selectedTab = 0 },
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp)
+                ) {
+                    Text(
+                        "CODEX",
+                        color = if (selectedTab == 0) AccentBlue else TextBright,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.SemiBold
+                    )
                 }
                 TextButton(
                     onClick = { selectedTab = 1 },

@@ -1844,6 +1844,7 @@ export class RemoteServer {
 
     private async applyApprovedPatch(filePath: string, patch: string): Promise<void> {
         const workspace = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath || path.dirname(filePath);
+        this.assertPatchOnlyTouchesTarget(filePath, patch, workspace);
         await new Promise<void>((resolve, reject) => {
             const child = spawn('git', ['apply', '--whitespace=nowarn', '-'], {
                 cwd: workspace,
@@ -1859,6 +1860,44 @@ export class RemoteServer {
             child.on('error', reject);
             child.stdin.end(patch);
         });
+    }
+
+    private assertPatchOnlyTouchesTarget(filePath: string, patch: string, workspace: string): void {
+        const target = path.resolve(filePath).toLowerCase();
+        const refs: string[] = [];
+        const addRef = (raw: string) => {
+            let value = raw.trim().split(/\t/)[0].trim();
+            if (!value || value === '/dev/null') return;
+            if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) {
+                value = value.slice(1, -1);
+            }
+            if (value.startsWith('a/') || value.startsWith('b/')) {
+                value = value.slice(2);
+            }
+            const absolute = path.isAbsolute(value) ? value : path.resolve(workspace, value);
+            refs.push(path.resolve(absolute).toLowerCase());
+        };
+
+        for (const line of patch.split(/\r?\n/)) {
+            const gitMatch = line.match(/^diff --git\s+a\/(.+?)\s+b\/(.+)$/);
+            if (gitMatch) {
+                addRef(gitMatch[1]);
+                addRef(gitMatch[2]);
+                continue;
+            }
+            const fileMatch = line.match(/^(?:---|\+\+\+)\s+(.+)$/);
+            if (fileMatch) {
+                addRef(fileMatch[1]);
+            }
+        }
+
+        if (refs.length === 0) {
+            throw new Error('Patch rejected: no target file references found.');
+        }
+        const unexpected = refs.find(ref => ref !== target);
+        if (unexpected) {
+            throw new Error(`Patch rejected: expected only ${filePath}, got ${unexpected}.`);
+        }
     }
 
     private broadcastActionUpdate(event: RemoteCodeActionEvent): void {
