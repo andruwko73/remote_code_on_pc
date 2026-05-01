@@ -2,7 +2,7 @@
   "name": "remote-code-on-pc",
   "displayName": "Remote Code on PC",
   "description": "HTTP/WebSocket сервер для удаленного управления VS Code с Android-приложения",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "publisher": "remote-code-on-pc",
   "license": "MIT",
   "engines": {
@@ -57,6 +57,11 @@
           "type": "string",
           "default": "",
           "description": "Токен авторизации (пусто — без пароля)"
+        },
+        "remoteCodeOnPC.enableFileWatchers": {
+          "type": "boolean",
+          "default": false,
+          "description": "Enable live filesystem watchers for VS Code/Codex chat JSONL files. Disabled by default to reduce CPU load."
         }
       }
     }

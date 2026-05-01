@@ -64,6 +64,7 @@ export class RemoteServer {
     private selectedAgent: string = 'auto';
     private agentCache?: { timestamp: number; agents: ChatAgent[] };
     private codexHistory: CodexChatMessage[] = [];
+    private workspaceStorageCache?: { timestamp: number; dirs: string[] };
 
     // Internet tunnel
     private _tunnelUrl: string | null = null;
@@ -161,7 +162,12 @@ export class RemoteServer {
                     this.restoreChatHistory();
 
                     // Запускаем слежение за изменениями JSONL-файлов чатов
-                    this.startChatSessionWatcher();
+                    const enableFileWatchers = vscode.workspace.getConfiguration('remoteCodeOnPC').get<boolean>('enableFileWatchers', false);
+                    if (enableFileWatchers) {
+                        this.startChatSessionWatcher();
+                    } else {
+                        console.log('[RemoteCodeOnPC] File watchers disabled; mobile refresh loads chat data on demand.');
+                    }
 
                     resolve();
                 });
@@ -430,7 +436,7 @@ export class RemoteServer {
         // Получаем доступные chat-агенты из VS Code
         const agents = await this.getAvailableAgents();
         const chats = this.getAllVSCodeChats();
-        if ((this.currentChatId === 'default' || this.getVSCodeChatHistory(this.currentChatId).length === 0) && chats.length > 0) {
+        if (this.currentChatId === 'default' && chats.length > 0) {
             this.currentChatId = chats[0].id;
         }
         this.jsonResponse(res, 200, {
@@ -525,6 +531,9 @@ export class RemoteServer {
      */
     private getAllWorkspaceStorageDirs(): string[] {
         try {
+            if (this.workspaceStorageCache && Date.now() - this.workspaceStorageCache.timestamp < 15000) {
+                return this.workspaceStorageCache.dirs;
+            }
             const appData = process.env.APPDATA || '';
             const wsRoot = path.join(appData, 'Code', 'User', 'workspaceStorage');
             const results: string[] = [];
@@ -537,6 +546,7 @@ export class RemoteServer {
                     results.push(dir);
                 }
             }
+            this.workspaceStorageCache = { timestamp: Date.now(), dirs: results };
             return results;
         } catch {
             return [];
@@ -843,7 +853,7 @@ export class RemoteServer {
     private async handleGetConversations(_req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
         // Читаем реальные чаты из ВСЕХ chatSessions
         const jsonlChats = this.getAllVSCodeChats();
-        if ((this.currentChatId === 'default' || this.getVSCodeChatHistory(this.currentChatId).length === 0) && jsonlChats.length > 0) {
+        if (this.currentChatId === 'default' && jsonlChats.length > 0) {
             this.currentChatId = jsonlChats[0].id;
         }
         const conversations: Array<{
@@ -1067,14 +1077,10 @@ export class RemoteServer {
                     setTimeout(() => {
                         this.broadcast({
                             type: 'codex:sessions-update',
-                            threads: this.getCodexSessionsFromFiles().map(s => ({
-                                id: s.id,
-                                title: s.title,
-                                timestamp: s.timestamp
-                            })),
+                            threads: this.getCodexThreadSummariesFast(),
                             timestamp: Date.now()
                         });
-                    }, 500);
+                    }, 2000);
                 });
                 this._chatSessionWatchers.push(codexWatcher);
                 console.log(`[RemoteCodeOnPC] Codex watcher started: ${codexRoot}`);
@@ -1902,23 +1908,7 @@ export class RemoteServer {
 
     private async handleCodexThreadsFast(_req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
         try {
-            const index = this.getCodexSessionIndex();
-            let threads = Array.from(index.entries()).map(([id, meta]) => ({
-                id,
-                title: meta.title || 'Codex',
-                timestamp: Math.round(meta.timestamp || 0)
-            }));
-
-            if (threads.length === 0) {
-                threads = this.getCodexSessionFiles(60).map(filePath => ({
-                    id: this.codexIdFromFilePath(filePath),
-                    title: path.basename(filePath, '.jsonl'),
-                    timestamp: Math.round(fs.statSync(filePath).mtimeMs)
-                }));
-            }
-
-            threads.sort((a, b) => b.timestamp - a.timestamp);
-            this.jsonResponse(res, 200, { threads: threads.slice(0, 80) });
+            this.jsonResponse(res, 200, { threads: this.getCodexThreadSummariesFast() });
         } catch (err: any) {
             this.jsonResponse(res, 200, { threads: [], error: err.message });
         }
@@ -2241,6 +2231,26 @@ export class RemoteServer {
             .filter((s): s is { id: string; title: string; timestamp: number; messages: CodexChatMessage[]; filePath: string } => !!s);
         sessions.sort((a, b) => b.timestamp - a.timestamp);
         return sessions;
+    }
+
+    private getCodexThreadSummariesFast(): Array<{ id: string; title: string; timestamp: number }> {
+        const index = this.getCodexSessionIndex();
+        let threads = Array.from(index.entries()).map(([id, meta]) => ({
+            id,
+            title: meta.title || 'Codex',
+            timestamp: Math.round(meta.timestamp || 0)
+        }));
+
+        if (threads.length === 0) {
+            threads = this.getCodexSessionFiles(60).map(filePath => ({
+                id: this.codexIdFromFilePath(filePath),
+                title: path.basename(filePath, '.jsonl'),
+                timestamp: Math.round(fs.statSync(filePath).mtimeMs)
+            }));
+        }
+
+        threads.sort((a, b) => b.timestamp - a.timestamp);
+        return threads.slice(0, 80);
     }
 
     private codexIdFromFilePath(filePath: string): string {
