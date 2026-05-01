@@ -214,7 +214,10 @@ export class RemoteServer {
         res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
 
         if (req.method === 'OPTIONS') {
-            res.writeHead(204);
+            res.writeHead(204, {
+                'Content-Length': 0,
+                'Connection': 'close'
+            });
             res.end();
             return;
         }
@@ -1135,8 +1138,14 @@ export class RemoteServer {
     }
 
     private jsonResponse(res: http.ServerResponse, status: number, data: any): void {
-        res.writeHead(status, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify(data));
+        const body = JSON.stringify(data);
+        const bytes = Buffer.byteLength(body, 'utf8');
+        res.writeHead(status, {
+            'Content-Type': 'application/json; charset=utf-8',
+            'Content-Length': bytes,
+            'Connection': 'close'
+        });
+        res.end(body);
     }
 
     private async handleAppApk(_req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
