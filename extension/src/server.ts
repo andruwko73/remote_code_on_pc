@@ -65,6 +65,7 @@ export class RemoteServer {
     private selectedAgent: string = 'auto';
     private agentCache?: { timestamp: number; agents: ChatAgent[] };
     private codexHistory: CodexChatMessage[] = [];
+    private pcChatPanel?: vscode.WebviewPanel;
     private workspaceStorageCache?: { timestamp: number; dirs: string[] };
 
     // Internet tunnel
@@ -1318,6 +1319,96 @@ export class RemoteServer {
         }
     }
 
+    private async answerInPcMirror(message: string, threadId: string, model?: string): Promise<void> {
+        const thinking: CodexChatMessage = {
+            id: `codex_assistant_thinking_${Date.now()}`,
+            role: 'assistant',
+            content: '...',
+            timestamp: Date.now(),
+            model: typeof model === 'string' && model ? model : undefined,
+            isStreaming: true,
+            threadId
+        };
+        this.codexHistory.push(thinking);
+        this.codexHistory = this.codexHistory.slice(-100);
+        this.refreshPcChatPanel();
+        this.broadcast({ type: 'codex:message', message: thinking, threadId, timestamp: Date.now() });
+
+        const response = await this.sendToChat(message, 'auto');
+        const done: CodexChatMessage = {
+            ...thinking,
+            id: `codex_assistant_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+            content: response,
+            timestamp: Date.now(),
+            isStreaming: false
+        };
+        this.codexHistory = this.codexHistory.filter(m => m.id !== thinking.id).concat(done).slice(-100);
+        this.refreshPcChatPanel();
+        this.broadcast({ type: 'codex:message', message: done, threadId, timestamp: Date.now() });
+    }
+
+    private openPcChatPanel(): void {
+        if (this.pcChatPanel) {
+            this.pcChatPanel.reveal(vscode.ViewColumn.Beside, true);
+            return;
+        }
+        this.pcChatPanel = vscode.window.createWebviewPanel(
+            'remoteCodePcChat',
+            'Remote Code Chat',
+            vscode.ViewColumn.Beside,
+            { enableScripts: false, retainContextWhenHidden: true }
+        );
+        this.pcChatPanel.onDidDispose(() => {
+            this.pcChatPanel = undefined;
+        });
+        this.refreshPcChatPanel();
+    }
+
+    private refreshPcChatPanel(): void {
+        if (!this.pcChatPanel) return;
+        this.pcChatPanel.webview.html = this.renderPcChatHtml(this.codexHistory.slice(-80));
+    }
+
+    private renderPcChatHtml(messages: CodexChatMessage[]): string {
+        const rows = messages.map(message => {
+            const role = message.role === 'user' ? 'Вы' : message.role === 'assistant' ? 'Codex' : 'Система';
+            const cls = message.role === 'user' ? 'user' : message.role === 'assistant' ? 'assistant' : 'system';
+            return `<section class="msg ${cls}">
+                <div class="role">${this.escapeHtml(role)}</div>
+                <pre>${this.escapeHtml(message.content)}</pre>
+            </section>`;
+        }).join('');
+        return `<!doctype html>
+<html>
+<head>
+<meta charset="UTF-8">
+<style>
+body{margin:0;background:#151617;color:#d7d7d7;font:14px/1.55 var(--vscode-font-family);padding:18px}
+.title{font-size:13px;color:#8e8e8e;text-transform:uppercase;letter-spacing:.08em;margin-bottom:16px}
+.msg{border:1px solid #2a2d2f;border-radius:8px;padding:12px 14px;margin:0 0 12px;background:#1d1f20}
+.msg.user{background:#10283a;border-color:#16415d}
+.msg.system{background:#2a2118;border-color:#4b3624}
+.role{font-weight:600;color:#55b4ff;margin-bottom:7px}
+.assistant .role{color:#7bd88f}.system .role{color:#e8b66b}
+pre{margin:0;white-space:pre-wrap;word-wrap:break-word;font:inherit}
+</style>
+</head>
+<body>
+<div class="title">Remote Code Chat Mirror</div>
+${rows || '<div class="msg system"><div class="role">Система</div><pre>Ожидаю сообщение с телефона.</pre></div>'}
+</body>
+</html>`;
+    }
+
+    private escapeHtml(value: string): string {
+        return value
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;');
+    }
+
     private async sendToOfficialCodexComposer(message: string): Promise<void> {
         await this.openOfficialCodex();
         await new Promise(resolve => setTimeout(resolve, 500));
@@ -1770,8 +1861,6 @@ export class RemoteServer {
                 : (this.getCodexThreadSummariesFast()[0]?.id || '');
             const attachmentFiles = this.saveMobileAttachments(Array.isArray(attachments) ? attachments : []);
             const messageForCodex = this.withAttachmentInstructions(message, attachmentFiles);
-            await this.sendToOfficialCodexComposer(messageForCodex);
-
             const userMessage: CodexChatMessage = {
                 id: `codex_user_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
                 role: 'user',
@@ -1782,15 +1871,45 @@ export class RemoteServer {
             };
             this.codexHistory.push(userMessage);
             this.codexHistory = this.codexHistory.slice(-100);
+            this.openPcChatPanel();
+            this.refreshPcChatPanel();
             this.broadcast({ type: 'codex:message', message: userMessage, threadId: targetThreadId, timestamp: Date.now() });
             this.broadcast({ type: 'codex:sent', message: messageForCodex, model, threadId: targetThreadId, timestamp: Date.now() });
 
+            this.sendToOfficialCodexComposer(messageForCodex).catch(err => {
+                const warningMessage: CodexChatMessage = {
+                    id: `codex_system_${Date.now()}`,
+                    role: 'system',
+                    content: `Official Codex UI automation failed: ${err?.message || String(err)}`,
+                    timestamp: Date.now(),
+                    threadId: targetThreadId
+                };
+                this.codexHistory.push(warningMessage);
+                this.codexHistory = this.codexHistory.slice(-100);
+                this.refreshPcChatPanel();
+                this.broadcast({ type: 'codex:message', message: warningMessage, threadId: targetThreadId, timestamp: Date.now() });
+            });
+
+            this.answerInPcMirror(messageForCodex, targetThreadId, model).catch(err => {
+                const errorMessage: CodexChatMessage = {
+                    id: `codex_assistant_error_${Date.now()}`,
+                    role: 'assistant',
+                    content: `Remote Code mirror error: ${err?.message || String(err)}`,
+                    timestamp: Date.now(),
+                    threadId: targetThreadId
+                };
+                this.codexHistory.push(errorMessage);
+                this.codexHistory = this.codexHistory.slice(-100);
+                this.refreshPcChatPanel();
+                this.broadcast({ type: 'codex:message', message: errorMessage, threadId: targetThreadId, timestamp: Date.now() });
+            });
+
             this.jsonResponse(res, 200, {
                 success: true,
-                method: 'official-vscode-codex-ui',
-                message: 'Sent to the official Codex VS Code extension',
+                method: 'remote-code-pc-mirror',
+                message: 'Sent to Remote Code PC mirror and queued for Codex UI automation',
                 threadId: targetThreadId,
-                note: 'Response streaming is owned by the official Codex sidebar.'
+                note: 'Official Codex webview has no public API for direct thread injection; Remote Code mirrors the phone chat in VS Code.'
             });
         } catch (err: any) {
             this.jsonResponse(res, 500, { error: err.message });
