@@ -58,6 +58,24 @@ interface DiagnosticItem {
     code?: string;
 }
 
+interface RemoteCodeActionEvent {
+    id: string;
+    type: string;
+    title: string;
+    detail: string;
+    status: 'pending' | 'approved' | 'denied' | 'running' | 'completed' | 'failed';
+    timestamp: number;
+    threadId: string;
+    actionable: boolean;
+    command?: string;
+    cwd?: string;
+    filePath?: string;
+    contentBase64?: string;
+    diff?: string;
+    stdout?: string;
+    stderr?: string;
+}
+
 export class RemoteServer {
     private httpServer?: http.Server;
     private wss?: WebSocketServer;
@@ -77,6 +95,7 @@ export class RemoteServer {
     private selectedProfile: string = 'user';
     private agentCache?: { timestamp: number; agents: ChatAgent[] };
     private codexHistory: CodexChatMessage[] = [];
+    private codexActionEvents: RemoteCodeActionEvent[] = [];
     private currentRemoteThreadId: string = 'remote-code-default';
     private pcChatPanel?: vscode.WebviewPanel;
     private workspaceStorageCache?: { timestamp: number; dirs: string[] };
@@ -1311,6 +1330,7 @@ export class RemoteServer {
     private restoreRemoteCodeState(): void {
         try {
             const savedHistory = this._context.globalState.get<CodexChatMessage[]>('remote_code_history', []);
+            const savedActions = this._context.globalState.get<RemoteCodeActionEvent[]>('remote_code_actions', []);
             const savedThreadId = this._context.globalState.get<string>('remote_code_current_thread_id', 'remote-code-default');
             const savedAgent = this._context.globalState.get<string>('remote_code_selected_agent', this.selectedAgent);
             const savedEffort = this._context.globalState.get<string>('remote_code_reasoning_effort', this.selectedReasoningEffort);
@@ -1319,6 +1339,7 @@ export class RemoteServer {
             const savedProfile = this._context.globalState.get<string>('remote_code_profile', this.selectedProfile);
             const allowedModelIds = new Set(this.getDefaultCodexModels().map(model => model.id));
             this.codexHistory = Array.isArray(savedHistory) ? savedHistory.slice(-200) : [];
+            this.codexActionEvents = Array.isArray(savedActions) ? savedActions.slice(-250) : [];
             this.currentRemoteThreadId = savedThreadId || 'remote-code-default';
             this.selectedAgent = allowedModelIds.has(savedAgent) ? savedAgent : 'gpt-5.5';
             this.selectedReasoningEffort = savedEffort || this.selectedReasoningEffort;
@@ -1342,6 +1363,7 @@ export class RemoteServer {
 
     private saveRemoteCodeState(): void {
         void this._context.globalState.update('remote_code_history', this.codexHistory.slice(-200));
+        void this._context.globalState.update('remote_code_actions', this.codexActionEvents.slice(-250));
         void this._context.globalState.update('remote_code_current_thread_id', this.currentRemoteThreadId);
         void this._context.globalState.update('remote_code_selected_agent', this.selectedAgent);
         void this._context.globalState.update('remote_code_reasoning_effort', this.selectedReasoningEffort);
@@ -1379,6 +1401,10 @@ export class RemoteServer {
         return [
             'You are Remote Code Agent running inside VS Code.',
             'Help with code, files, diagnostics, terminal commands, and IDE context.',
+            'When an action needs user approval, do not claim it was done.',
+            'Request terminal approval with a single line: ::run-command{"command":"...","cwd":"optional path"}',
+            'Request file replacement approval with a single line: ::write-file{"path":"absolute path","contentBase64":"base64 utf8 content"}',
+            'The extension will show approve/deny controls on PC and phone, run the action only after approval, and stream the result back into this chat.',
             'Workspace folders:',
             folders,
             'Active editor:',
@@ -1528,6 +1554,7 @@ export class RemoteServer {
             isStreaming: false
         };
         this.codexHistory = this.codexHistory.filter(m => m.id !== thinking.id).concat(done).slice(-200);
+        this.createActionsFromAssistantResponse(response, threadId);
         this.saveRemoteCodeState();
         this.refreshPcChatPanel();
         this.broadcast({ type: 'codex:message', message: done, threadId, timestamp: Date.now() });
@@ -1614,6 +1641,8 @@ export class RemoteServer {
                 );
             } else if (msg?.type === 'action' && typeof msg.action === 'string') {
                 await this.handlePcChatAction(msg.action, msg);
+            } else if (msg?.type === 'actionResponse' && typeof msg.actionId === 'string') {
+                await this.applyActionResponse(msg.actionId, msg.decision === 'approve');
             }
         });
         this.pcChatPanel.onDidDispose(() => {
@@ -1627,7 +1656,8 @@ export class RemoteServer {
         const messages = this.codexHistory
             .filter(m => (m.threadId || this.currentRemoteThreadId) === this.currentRemoteThreadId)
             .slice(-80);
-        this.pcChatPanel.webview.html = this.renderPcChatHtml(messages);
+        const actions = this.getActionEventsForThread(this.currentRemoteThreadId);
+        this.pcChatPanel.webview.html = this.renderPcChatHtml(messages, actions);
     }
 
     private async handlePcChatAction(action: string, msg: any): Promise<void> {
@@ -1652,6 +1682,7 @@ export class RemoteServer {
                 return;
             case 'clearChat':
                 this.codexHistory = this.codexHistory.filter(message => message.threadId !== this.currentRemoteThreadId);
+                this.codexActionEvents = this.codexActionEvents.filter(event => event.threadId !== this.currentRemoteThreadId);
                 this.saveRemoteCodeState();
                 this.refreshPcChatPanel();
                 return;
@@ -1715,6 +1746,186 @@ export class RemoteServer {
         );
     }
 
+    private async applyActionResponse(actionId: string, approve: boolean): Promise<RemoteCodeActionEvent | undefined> {
+        const event = this.codexActionEvents.find(item => item.id === actionId);
+        if (!event) return undefined;
+        if (!approve) {
+            event.status = 'denied';
+            event.actionable = false;
+            event.timestamp = Date.now();
+            this.saveRemoteCodeState();
+            this.refreshPcChatPanel();
+            this.broadcastActionUpdate(event);
+            return event;
+        }
+        event.status = 'running';
+        event.actionable = false;
+        event.timestamp = Date.now();
+        this.saveRemoteCodeState();
+        this.refreshPcChatPanel();
+        this.broadcastActionUpdate(event);
+        try {
+            if (event.type === 'command_approval' && event.command) {
+                const result = await this.runApprovedCommand(event.command, event.cwd);
+                event.stdout = result.stdout;
+                event.stderr = result.stderr;
+                event.detail = [
+                    event.command,
+                    result.stdout ? `stdout:\n${result.stdout}` : '',
+                    result.stderr ? `stderr:\n${result.stderr}` : ''
+                ].filter(Boolean).join('\n\n').slice(0, 5000);
+                event.status = result.code === 0 ? 'completed' : 'failed';
+            } else if (event.type === 'patch_approval' && event.filePath && event.contentBase64) {
+                const text = Buffer.from(event.contentBase64, 'base64').toString('utf8');
+                fs.mkdirSync(path.dirname(event.filePath), { recursive: true });
+                fs.writeFileSync(event.filePath, text, 'utf8');
+                event.detail = `Файл изменен:\n${event.filePath}\n\n${event.diff || ''}`.slice(0, 5000);
+                event.status = 'completed';
+            }
+        } catch (err: any) {
+            event.status = 'failed';
+            event.stderr = err?.message || String(err);
+            event.detail = event.stderr || event.detail;
+        }
+        event.timestamp = Date.now();
+        this.saveRemoteCodeState();
+        this.refreshPcChatPanel();
+        this.broadcastActionUpdate(event);
+        this.appendActionResultMessage(event);
+        return event;
+    }
+
+    private async runApprovedCommand(command: string, cwd?: string): Promise<{ code: number; stdout: string; stderr: string }> {
+        const workspace = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+        const finalCwd = cwd && path.isAbsolute(cwd) ? cwd : workspace || process.cwd();
+        return new Promise(resolve => {
+            const child = spawn(command, {
+                cwd: finalCwd,
+                shell: true,
+                windowsHide: true
+            });
+            let stdout = '';
+            let stderr = '';
+            child.stdout.on('data', chunk => { stdout += chunk.toString(); });
+            child.stderr.on('data', chunk => { stderr += chunk.toString(); });
+            child.on('close', code => resolve({ code: code ?? 0, stdout: stdout.trim(), stderr: stderr.trim() }));
+            child.on('error', err => resolve({ code: 1, stdout: stdout.trim(), stderr: err.message || String(err) }));
+        });
+    }
+
+    private broadcastActionUpdate(event: RemoteCodeActionEvent): void {
+        this.broadcast({
+            type: 'codex:action-update',
+            threadId: event.threadId,
+            event,
+            events: this.getActionEventsForThread(event.threadId),
+            timestamp: Date.now()
+        });
+    }
+
+    private appendActionResultMessage(event: RemoteCodeActionEvent): void {
+        const content = event.status === 'completed'
+            ? `Действие выполнено: ${event.title}\n\n${event.detail || ''}`
+            : `Действие завершилось ошибкой: ${event.title}\n\n${event.detail || event.stderr || ''}`;
+        const message: CodexChatMessage = {
+            id: `action_result_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+            role: 'system',
+            content: content.slice(0, 6000),
+            timestamp: Date.now(),
+            threadId: event.threadId
+        };
+        this.codexHistory.push(message);
+        this.codexHistory = this.codexHistory.slice(-200);
+        this.saveRemoteCodeState();
+        this.refreshPcChatPanel();
+        this.broadcast({ type: 'codex:message', message, threadId: event.threadId, timestamp: Date.now() });
+    }
+
+    private createActionsFromAssistantResponse(response: string, threadId: string): void {
+        const directiveRegex = /::(run-command|write-file)(\{[^\n]+\})/g;
+        let match: RegExpExecArray | null;
+        const created: RemoteCodeActionEvent[] = [];
+        while ((match = directiveRegex.exec(response)) !== null) {
+            try {
+                const kind = match[1];
+                const payload = JSON.parse(match[2]);
+                const id = `action_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+                if (kind === 'run-command' && typeof payload.command === 'string' && payload.command.trim()) {
+                    created.push({
+                        id,
+                        type: 'command_approval',
+                        title: 'Выполнить команду',
+                        detail: payload.command,
+                        status: 'pending',
+                        timestamp: Date.now(),
+                        threadId,
+                        actionable: true,
+                        command: payload.command,
+                        cwd: typeof payload.cwd === 'string' ? payload.cwd : undefined
+                    });
+                } else if (kind === 'write-file' && typeof payload.path === 'string' && typeof payload.contentBase64 === 'string') {
+                    const nextText = Buffer.from(payload.contentBase64, 'base64').toString('utf8');
+                    const currentText = fs.existsSync(payload.path) ? fs.readFileSync(payload.path, 'utf8') : '';
+                    const diff = this.createSimpleDiff(payload.path, currentText, nextText);
+                    created.push({
+                        id,
+                        type: 'patch_approval',
+                        title: 'Изменить файл',
+                        detail: diff.slice(0, 4000),
+                        status: 'pending',
+                        timestamp: Date.now(),
+                        threadId,
+                        actionable: true,
+                        filePath: payload.path,
+                        contentBase64: payload.contentBase64,
+                        diff
+                    });
+                }
+            } catch (err) {
+                console.warn('[RemoteCodeOnPC] Failed to parse action directive:', err);
+            }
+        }
+        if (created.length === 0) return;
+        this.codexActionEvents = this.codexActionEvents.concat(created).slice(-250);
+        this.saveRemoteCodeState();
+        for (const event of created) {
+            this.broadcast({
+                type: 'codex:approval-request',
+                threadId,
+                event,
+                events: this.getActionEventsForThread(threadId),
+                timestamp: Date.now()
+            });
+        }
+    }
+
+    private createSimpleDiff(filePath: string, before: string, after: string): string {
+        const beforeLines = before.split(/\r?\n/);
+        const afterLines = after.split(/\r?\n/);
+        const out = [`--- ${filePath}`, `+++ ${filePath}`];
+        const max = Math.max(beforeLines.length, afterLines.length);
+        for (let i = 0; i < max; i++) {
+            if (beforeLines[i] === afterLines[i]) {
+                if (beforeLines[i] !== undefined) out.push(` ${beforeLines[i]}`);
+            } else {
+                if (beforeLines[i] !== undefined) out.push(`-${beforeLines[i]}`);
+                if (afterLines[i] !== undefined) out.push(`+${afterLines[i]}`);
+            }
+            if (out.length > 240) {
+                out.push('... diff truncated ...');
+                break;
+            }
+        }
+        return out.join('\n');
+    }
+
+    private getActionEventsForThread(threadId?: string): RemoteCodeActionEvent[] {
+        const target = threadId || this.currentRemoteThreadId;
+        return this.codexActionEvents
+            .filter(event => !target || event.threadId === target)
+            .slice(-80);
+    }
+
     private getCurrentThreadTitle(): string {
         const firstUserMessage = this.codexHistory.find(message =>
             (message.threadId || this.currentRemoteThreadId) === this.currentRemoteThreadId &&
@@ -1740,7 +1951,7 @@ export class RemoteServer {
         }
     }
 
-    private renderPcChatHtml(messages: CodexChatMessage[]): string {
+    private renderPcChatHtml(messages: CodexChatMessage[], actions: RemoteCodeActionEvent[] = []): string {
         const modelOptions = this.getDefaultCodexModels();
         const selectedModel = modelOptions.some(model => model.id === this.selectedAgent) ? this.selectedAgent : 'gpt-5.5';
         const workspaceName = vscode.workspace.workspaceFolders?.[0]?.name || 'Нет рабочей папки';
@@ -1776,6 +1987,14 @@ export class RemoteServer {
                 ${message.role === 'assistant' && meta ? `<div class="meta meta-bottom">${this.escapeHtml(meta)}</div>` : ''}
             </section>`;
         }).join('');
+        const actionRows = actions.map(event => `<section class="action ${this.escapeHtml(event.status)}">
+            <div class="action-head"><strong>${this.escapeHtml(event.title)}</strong><span>${this.escapeHtml(event.status)}</span></div>
+            <pre>${this.escapeHtml(event.detail || event.diff || '')}</pre>
+            ${event.actionable && event.status === 'pending' ? `<div class="action-buttons">
+                <button type="button" data-action-id="${this.escapeHtml(event.id)}" data-decision="deny">Отклонить</button>
+                <button type="button" data-action-id="${this.escapeHtml(event.id)}" data-decision="approve">Разрешить</button>
+            </div>` : ''}
+        </section>`).join('');
         return `<!doctype html>
 <html>
 <head>
@@ -1802,6 +2021,13 @@ body{margin:0;background:#101112;color:#d7d7d7;font:14px/1.48 var(--vscode-font-
 .meta-bottom{margin:8px 0 0;color:#858585}
 .assistant .role{color:#dcdcdc}.system .role{color:#e8b66b}
 pre{margin:0;white-space:pre-wrap;word-wrap:break-word;font:inherit}
+.action{max-width:980px;margin:0 0 14px;padding:10px 12px;background:#202123;border:1px solid #303236;border-radius:10px}
+.action-head{display:flex;align-items:center;justify-content:space-between;gap:12px;color:#e2e2e2;margin-bottom:8px}
+.action-head span{font-size:12px;color:#999}
+.action pre{max-height:220px;overflow:auto;color:#cfcfcf;font:12px/1.45 var(--vscode-editor-font-family, monospace)}
+.action-buttons{display:flex;gap:8px;justify-content:flex-end;margin-top:10px}
+.action-buttons button{border:1px solid #3a3d42;background:#2c2e31;color:#d9d9d9;border-radius:8px;padding:6px 10px;cursor:pointer}
+.action-buttons button:hover{background:#383b3f}
 .composer-wrap{padding:8px min(3.8vw,42px) 14px;background:#101112}
 .composer{max-width:1040px;margin:0 auto;border:1px solid #282a2d;background:#2b2b2d;border-radius:22px;padding:12px 14px 9px;display:flex;flex-direction:column;gap:8px;box-shadow:none}
 .controls{display:flex;gap:8px;align-items:center;min-width:0}
@@ -1844,6 +2070,7 @@ button.send{border:0;border-radius:50%;background:#b7b7b7;color:#111;width:44px;
 </div>
 <main class="messages" id="messages">
 ${rows || '<div class="msg system"><div class="role">Система</div><pre>Жду сообщение с телефона или из VS Code.</pre></div>'}
+${actionRows}
 </main>
 <div class="composer-wrap">
   <form class="composer" id="composer">
@@ -1948,6 +2175,11 @@ document.getElementById('contextToggle').addEventListener('click', () => {
 document.querySelectorAll('[data-action]').forEach(button => {
   button.addEventListener('click', () => {
     vscode.postMessage({ type: 'action', action: button.dataset.action });
+  });
+});
+document.querySelectorAll('[data-action-id]').forEach(button => {
+  button.addEventListener('click', () => {
+    vscode.postMessage({ type: 'actionResponse', actionId: button.dataset.actionId, decision: button.dataset.decision });
   });
 });
 document.getElementById('topRun').addEventListener('click', () => form.requestSubmit());
@@ -2333,25 +2565,23 @@ prompt.addEventListener('keydown', event => {
 
     private async handleCodexEvents(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
         const params = url.parse(req.url || '', true).query;
+        const threadId = (params.threadId as string) || this.currentRemoteThreadId;
         this.jsonResponse(res, 200, {
-            threadId: (params.threadId as string) || '',
-            events: []
+            threadId,
+            events: this.getActionEventsForThread(threadId)
         });
     }
 
     private async handleCodexActionResponse(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
         const body = await this.readBody(req);
-        const { actionId, approve } = JSON.parse(body || '{}');
-        this.broadcast({
-            type: 'codex:action-update',
-            actionId,
-            approve,
-            timestamp: Date.now()
-        });
+        const { actionId, approve, decision } = JSON.parse(body || '{}');
+        const shouldApprove = approve === true || approve === 'true' || decision === 'approve';
+        const event = await this.applyActionResponse(actionId, shouldApprove);
         this.jsonResponse(res, 200, {
-            success: true,
+            success: !!event,
             actionId,
-            status: approve === true || approve === 'true' ? 'approved' : 'denied'
+            status: event?.status || 'missing',
+            error: event ? undefined : 'Action not found'
         });
     }
 
