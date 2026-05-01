@@ -33,6 +33,7 @@ fun RemoteCodeApp(
     Box(
         modifier = Modifier
             .fillMaxSize()
+            .statusBarsPadding()
             .background(DarkBackground)
     ) {
             if (state.isConnected) {
