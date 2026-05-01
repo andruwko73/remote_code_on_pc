@@ -33,6 +33,13 @@ interface CodexChatMessage {
     isStreaming?: boolean;
 }
 
+interface MobileAttachment {
+    name?: string;
+    mimeType?: string;
+    size?: number;
+    base64?: string;
+}
+
 interface DiagnosticItem {
     file: string;
     line: number;
@@ -1147,7 +1154,7 @@ export class RemoteServer {
             let body = '';
             req.on('data', (chunk: string) => {
                 body += chunk;
-                if (body.length > 1024 * 1024) {
+                if (body.length > 40 * 1024 * 1024) {
                     reject(new Error('Request body too large'));
                     req.destroy();
                 }
@@ -1563,7 +1570,7 @@ export class RemoteServer {
     // POST /api/codex/send
     private async handleCodexSendRealtime(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
         const body = await this.readBody(req);
-        const { message, model, threadId } = JSON.parse(body);
+        const { message, model, threadId, attachments } = JSON.parse(body);
 
         if (!message) {
             this.jsonResponse(res, 400, { error: 'Message is required' });
@@ -1578,10 +1585,12 @@ export class RemoteServer {
             }
 
             const modelId = model || undefined;
+            const attachmentFiles = this.saveMobileAttachments(Array.isArray(attachments) ? attachments : []);
+            const messageForCodex = this.withAttachmentInstructions(message, attachmentFiles);
             const userMessage: CodexChatMessage = {
                 id: `codex_user_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
                 role: 'user',
-                content: message,
+                content: messageForCodex,
                 timestamp: Date.now(),
                 model: modelId
             };
@@ -1601,7 +1610,7 @@ export class RemoteServer {
 
             let cmd = `${this.formatCommandExecutable(codexPath)} exec`;
             if (modelId) cmd += ` -m ${this.quoteShellArg(modelId)}`;
-            cmd += ` -- ${JSON.stringify(message)}`;
+            cmd += ` -- ${JSON.stringify(messageForCodex)}`;
 
             const proc = spawn(cmd, {
                 shell: true,
@@ -1642,7 +1651,7 @@ export class RemoteServer {
                 this.broadcast({ type: 'codex:response', message: assistantMessage, timestamp: Date.now() });
             });
 
-            this.broadcast({ type: 'codex:sent', message, model: modelId, threadId, timestamp: Date.now() });
+            this.broadcast({ type: 'codex:sent', message: messageForCodex, model: modelId, threadId, timestamp: Date.now() });
 
             this.jsonResponse(res, 200, {
                 success: true,
@@ -2257,6 +2266,41 @@ export class RemoteServer {
 
     private execSync(cmd: string, timeoutMs?: number): string {
         return execSync(cmd, { encoding: 'utf-8', timeout: timeoutMs || 10000, windowsHide: true }).toString();
+    }
+
+    private saveMobileAttachments(attachments: MobileAttachment[]): Array<{ name: string; path: string; mimeType: string; size: number }> {
+        const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath || this._context.globalStorageUri.fsPath;
+        const uploadDir = path.join(workspaceRoot, '.remote-code-uploads');
+        fs.mkdirSync(uploadDir, { recursive: true });
+
+        const saved: Array<{ name: string; path: string; mimeType: string; size: number }> = [];
+        for (const attachment of attachments.slice(0, 6)) {
+            if (!attachment?.base64) continue;
+            const rawName = attachment.name || 'attachment';
+            const safeName = rawName.replace(/[<>:"/\\|?*\x00-\x1f]/g, '_').slice(0, 120);
+            const fileName = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}_${safeName}`;
+            const filePath = path.join(uploadDir, fileName);
+            const data = Buffer.from(attachment.base64, 'base64');
+            if (data.length > 12 * 1024 * 1024) {
+                throw new Error(`Attachment too large: ${rawName}`);
+            }
+            fs.writeFileSync(filePath, data);
+            saved.push({
+                name: rawName,
+                path: filePath,
+                mimeType: attachment.mimeType || 'application/octet-stream',
+                size: data.length
+            });
+        }
+        return saved;
+    }
+
+    private withAttachmentInstructions(message: string, attachments: Array<{ name: string; path: string; mimeType: string; size: number }>): string {
+        if (attachments.length === 0) return message;
+        const lines = attachments.map((file, index) =>
+            `${index + 1}. ${file.name} (${file.mimeType}, ${file.size} bytes): ${file.path}`
+        );
+        return `${message}\n\nAttached files from Android were saved on this PC. Use these local paths when needed:\n${lines.join('\n')}`;
     }
 
     private formatCommandExecutable(command: string): string {

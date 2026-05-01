@@ -63,6 +63,7 @@ fun ChatScreen(
     Column(
         modifier = Modifier
             .fillMaxSize()
+            .imePadding()
             .background(DarkBackground)
     ) {
         // Верхняя панель

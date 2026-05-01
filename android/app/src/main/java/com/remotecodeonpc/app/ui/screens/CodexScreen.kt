@@ -1,5 +1,13 @@
 package com.remotecodeonpc.app.ui.screens
 
+import android.database.Cursor
+import android.content.Context
+import android.net.Uri
+import android.provider.OpenableColumns
+import android.util.Base64
+import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
@@ -17,6 +25,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
@@ -30,6 +39,7 @@ import com.remotecodeonpc.app.CodexThread
 import com.remotecodeonpc.app.FileContent
 import com.remotecodeonpc.app.FileTreeItem
 import com.remotecodeonpc.app.FoldersResponse
+import com.remotecodeonpc.app.MessageAttachment
 import com.remotecodeonpc.app.ui.theme.*
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -52,7 +62,7 @@ fun CodexScreen(
     fileContent: FileContent?,
     isLoadingFiles: Boolean,
     // Callbacks
-    onSendMessage: (String) -> Unit,
+    onSendMessage: (String, List<MessageAttachment>) -> Unit,
     onSelectModel: (String) -> Unit,
     onLaunchCodex: () -> Unit,
     onLoadThreads: () -> Unit,
@@ -71,6 +81,7 @@ fun CodexScreen(
     Column(
         modifier = Modifier
             .fillMaxSize()
+            .imePadding()
             .background(DarkBackground)
     ) {
         // Top panel (UNIFIED STYLE with VSCodeScreen)
@@ -180,7 +191,7 @@ fun CodexChatTab(
     currentThreadId: String,
     isLoading: Boolean,
     error: String?,
-    onSendMessage: (String) -> Unit,
+    onSendMessage: (String, List<MessageAttachment>) -> Unit,
     onSelectModel: (String) -> Unit,
     onLaunchCodex: () -> Unit,
     onLoadThreads: () -> Unit,
@@ -190,7 +201,30 @@ fun CodexChatTab(
     var messageText by remember { mutableStateOf("") }
     var showModelSelector by remember { mutableStateOf(false) }
     var showThreads by remember { mutableStateOf(false) }
+    var attachments by remember { mutableStateOf<List<MessageAttachment>>(emptyList()) }
     val listState = rememberLazyListState()
+    val context = LocalContext.current
+    val attachmentPicker = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetMultipleContents()
+    ) { uris ->
+        val next = uris.mapNotNull { uri ->
+            runCatching { context.readMessageAttachment(uri) }
+                .onFailure {
+                    Toast.makeText(context, "Не удалось прикрепить файл: ${it.message}", Toast.LENGTH_LONG).show()
+                }
+                .getOrNull()
+        }
+        if (next.isNotEmpty()) {
+            attachments = (attachments + next).takeLast(6)
+        }
+    }
+
+    fun submitMessage() {
+        if (messageText.isBlank() && attachments.isEmpty()) return
+        onSendMessage(messageText.ifBlank { "Посмотри вложение." }, attachments)
+        messageText = ""
+        attachments = emptyList()
+    }
 
     LaunchedEffect(chatHistory.size, chatHistory.lastOrNull()?.content) {
         if (chatHistory.isNotEmpty()) {
@@ -201,6 +235,7 @@ fun CodexChatTab(
     Column(
         modifier = Modifier
             .fillMaxSize()
+            .imePadding()
             .background(DarkBackground)
     ) {
         // Model selector + Codex status bar
@@ -430,65 +465,106 @@ fun CodexChatTab(
             }
         }
 
-        // Input field (same style as ChatScreen)
+        // Input field
         Surface(
             modifier = Modifier.fillMaxWidth(),
             color = DarkSurface,
             shadowElevation = 8.dp
         ) {
-            Row(
+            Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(8.dp),
-                verticalAlignment = Alignment.CenterVertically
+                    .padding(horizontal = 8.dp, vertical = 10.dp)
             ) {
-                OutlinedTextField(
-                    value = messageText,
-                    onValueChange = { messageText = it },
-                    placeholder = { Text("Запрос в Codex...", color = TextSecondary) },
-                    modifier = Modifier.weight(1f),
-                    maxLines = 4,
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedTextColor = TextPrimary,
-                        unfocusedTextColor = TextPrimary,
-                        focusedBorderColor = AccentBlue,
-                        unfocusedBorderColor = DividerColor,
-                        cursorColor = AccentBlue,
-                        focusedContainerColor = DarkSurfaceVariant,
-                        unfocusedContainerColor = DarkSurfaceVariant
-                    ),
-                    shape = RoundedCornerShape(20.dp),
-                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
-                    keyboardActions = KeyboardActions(onSend = {
-                        if (messageText.isNotBlank()) {
-                            onSendMessage(messageText)
-                            messageText = ""
+                if (attachments.isNotEmpty()) {
+                    LazyColumn(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(max = 92.dp),
+                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        items(attachments) { attachment ->
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .background(DarkSurfaceVariant, RoundedCornerShape(8.dp))
+                                    .padding(horizontal = 10.dp, vertical = 6.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(Icons.Default.AttachFile, contentDescription = null, tint = AccentBlue, modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(
+                                    attachment.name,
+                                    color = TextPrimary,
+                                    fontSize = 12.sp,
+                                    modifier = Modifier.weight(1f),
+                                    maxLines = 1
+                                )
+                                IconButton(
+                                    onClick = { attachments = attachments - attachment },
+                                    modifier = Modifier.size(28.dp)
+                                ) {
+                                    Icon(Icons.Default.Close, contentDescription = "Убрать вложение", tint = TextSecondary, modifier = Modifier.size(16.dp))
+                                }
+                            }
                         }
-                    })
-                )
-                Spacer(modifier = Modifier.width(8.dp))
-                FilledIconButton(
-                    onClick = {
-                        if (messageText.isNotBlank()) {
-                            onSendMessage(messageText)
-                            messageText = ""
-                        }
-                    },
-                    enabled = messageText.isNotBlank() && !isLoading,
-                    colors = IconButtonDefaults.filledIconButtonColors(
-                        containerColor = AccentBlue,
-                        disabledContainerColor = AccentBlue.copy(alpha = 0.3f)
-                    ),
-                    modifier = Modifier.size(48.dp)
+                    }
+                    Spacer(modifier = Modifier.height(6.dp))
+                }
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    if (isLoading) {
-                        Text("⏳", fontSize = 18.sp)
-                    } else {
+                    IconButton(
+                        onClick = { attachmentPicker.launch("*/*") },
+                        enabled = !isLoading,
+                        modifier = Modifier.size(44.dp)
+                    ) {
                         Icon(
-                            Icons.AutoMirrored.Filled.Send,
-                            contentDescription = "Отправить",
-                            tint = TextBright
+                            Icons.Default.AttachFile,
+                            contentDescription = "Прикрепить файл",
+                            tint = if (isLoading) TextSecondary.copy(alpha = 0.5f) else AccentBlue
                         )
+                    }
+                    Spacer(modifier = Modifier.width(4.dp))
+                    OutlinedTextField(
+                        value = messageText,
+                        onValueChange = { messageText = it },
+                        placeholder = { Text("Запрос в VS Code...", color = TextSecondary) },
+                        modifier = Modifier.weight(1f),
+                        maxLines = 4,
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedTextColor = TextPrimary,
+                            unfocusedTextColor = TextPrimary,
+                            focusedBorderColor = AccentBlue,
+                            unfocusedBorderColor = DividerColor,
+                            cursorColor = AccentBlue,
+                            focusedContainerColor = DarkSurfaceVariant,
+                            unfocusedContainerColor = DarkSurfaceVariant
+                        ),
+                        shape = RoundedCornerShape(20.dp),
+                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
+                        keyboardActions = KeyboardActions(onSend = { submitMessage() })
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    FilledIconButton(
+                        onClick = { submitMessage() },
+                        enabled = (messageText.isNotBlank() || attachments.isNotEmpty()) && !isLoading,
+                        colors = IconButtonDefaults.filledIconButtonColors(
+                            containerColor = AccentBlue,
+                            disabledContainerColor = AccentBlue.copy(alpha = 0.3f)
+                        ),
+                        modifier = Modifier.size(48.dp)
+                    ) {
+                        if (isLoading) {
+                            Text("вЏі", fontSize = 18.sp)
+                        } else {
+                            Icon(
+                                Icons.AutoMirrored.Filled.Send,
+                                contentDescription = "Отправить",
+                                tint = TextBright
+                            )
+                        }
                     }
                 }
             }
@@ -658,4 +734,32 @@ private fun CodexModelChip(
             )
         }
     }
+}
+
+private fun Context.readMessageAttachment(uri: Uri): MessageAttachment {
+    val resolver = contentResolver
+    val mimeType = resolver.getType(uri) ?: "application/octet-stream"
+    var name = "attachment"
+    var size = 0L
+
+    resolver.query(uri, null, null, null, null)?.use { cursor: Cursor ->
+        val nameIndex = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+        val sizeIndex = cursor.getColumnIndex(OpenableColumns.SIZE)
+        if (cursor.moveToFirst()) {
+            if (nameIndex >= 0) name = cursor.getString(nameIndex) ?: name
+            if (sizeIndex >= 0) size = cursor.getLong(sizeIndex)
+        }
+    }
+
+    val bytes = resolver.openInputStream(uri)?.use { it.readBytes() }
+        ?: throw IllegalStateException("Файл недоступен")
+    if (bytes.size > 12 * 1024 * 1024) {
+        throw IllegalStateException("Файл больше 12 MB")
+    }
+    return MessageAttachment(
+        name = name,
+        mimeType = mimeType,
+        size = if (size > 0) size else bytes.size.toLong(),
+        base64 = Base64.encodeToString(bytes, Base64.NO_WRAP)
+    )
 }

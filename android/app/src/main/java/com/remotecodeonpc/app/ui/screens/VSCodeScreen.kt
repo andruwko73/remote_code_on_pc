@@ -45,7 +45,7 @@ fun VSCodeScreen(
     currentCodexThreadId: String,
     isCodexLoading: Boolean,
     codexError: String?,
-    onSendCodexMessage: (String) -> Unit,
+    onSendCodexMessage: (String, List<MessageAttachment>) -> Unit,
     onSelectCodexModel: (String) -> Unit,
     onLaunchCodex: () -> Unit,
     onLoadCodexThreads: () -> Unit,

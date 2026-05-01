@@ -175,6 +175,13 @@ data class CodexSendResponse(
     val error: String? = null
 )
 
+data class MessageAttachment(
+    val name: String = "",
+    val mimeType: String = "application/octet-stream",
+    val size: Long = 0,
+    val base64: String = ""
+)
+
 data class CodexChatMessage(
     val id: String = "",
     val role: String = "",

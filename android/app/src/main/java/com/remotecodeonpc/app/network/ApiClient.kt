@@ -62,7 +62,7 @@ interface RemoteCodeApi {
     suspend fun getCodexStatus(): Response<CodexStatus>
 
     @POST("/api/codex/send")
-    suspend fun sendCodexMessage(@Body body: Map<String, String>): Response<CodexSendResponse>
+    suspend fun sendCodexMessage(@Body body: Map<String, @JvmSuppressWildcards Any>): Response<CodexSendResponse>
 
     @GET("/api/codex/history")
     suspend fun getCodexHistory(@Query("threadId") threadId: String? = null): Response<CodexHistoryResponse>

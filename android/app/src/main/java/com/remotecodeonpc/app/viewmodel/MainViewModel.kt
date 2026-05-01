@@ -794,16 +794,19 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun sendCodexMessage(text: String) {
+    fun sendCodexMessage(text: String, attachments: List<MessageAttachment> = emptyList()) {
         _uiState.value = _uiState.value.copy(isCodexLoading = true, codexError = null)
         viewModelScope.launch {
             try {
                 val api = ApiClient.getApi(_uiState.value.serverConfig)
-                val response = api.sendCodexMessage(mapOf(
-                    "message" to text,
-                    "model" to _uiState.value.codexSelectedModel,
-                    "threadId" to _uiState.value.currentCodexThreadId
-                ))
+                val response = api.sendCodexMessage(
+                    mapOf(
+                        "message" to text,
+                        "model" to _uiState.value.codexSelectedModel,
+                        "threadId" to _uiState.value.currentCodexThreadId,
+                        "attachments" to attachments
+                    )
+                )
                 if (response.isSuccessful) {
                     val body = response.body()
                     _uiState.value = _uiState.value.copy(
