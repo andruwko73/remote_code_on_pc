@@ -73,6 +73,8 @@ export class RemoteServer {
     private selectedAgent: string = 'gpt-5.5';
     private selectedReasoningEffort: string = 'medium';
     private selectedIncludeContext: boolean = true;
+    private selectedWorkMode: string = 'local';
+    private selectedProfile: string = 'user';
     private agentCache?: { timestamp: number; agents: ChatAgent[] };
     private codexHistory: CodexChatMessage[] = [];
     private currentRemoteThreadId: string = 'remote-code-default';
@@ -1313,12 +1315,16 @@ export class RemoteServer {
             const savedAgent = this._context.globalState.get<string>('remote_code_selected_agent', this.selectedAgent);
             const savedEffort = this._context.globalState.get<string>('remote_code_reasoning_effort', this.selectedReasoningEffort);
             const savedIncludeContext = this._context.globalState.get<boolean>('remote_code_include_context', this.selectedIncludeContext);
+            const savedWorkMode = this._context.globalState.get<string>('remote_code_work_mode', this.selectedWorkMode);
+            const savedProfile = this._context.globalState.get<string>('remote_code_profile', this.selectedProfile);
             const allowedModelIds = new Set(this.getDefaultCodexModels().map(model => model.id));
             this.codexHistory = Array.isArray(savedHistory) ? savedHistory.slice(-200) : [];
             this.currentRemoteThreadId = savedThreadId || 'remote-code-default';
             this.selectedAgent = allowedModelIds.has(savedAgent) ? savedAgent : 'gpt-5.5';
             this.selectedReasoningEffort = savedEffort || this.selectedReasoningEffort;
             this.selectedIncludeContext = savedIncludeContext !== false;
+            this.selectedWorkMode = savedWorkMode === 'workspace' ? 'workspace' : 'local';
+            this.selectedProfile = ['user', 'review', 'fast'].includes(savedProfile || '') ? savedProfile : 'user';
             if (this.codexHistory.length === 0) {
                 this.codexHistory.push({
                     id: `remote_system_${Date.now()}`,
@@ -1340,6 +1346,8 @@ export class RemoteServer {
         void this._context.globalState.update('remote_code_selected_agent', this.selectedAgent);
         void this._context.globalState.update('remote_code_reasoning_effort', this.selectedReasoningEffort);
         void this._context.globalState.update('remote_code_include_context', this.selectedIncludeContext);
+        void this._context.globalState.update('remote_code_work_mode', this.selectedWorkMode);
+        void this._context.globalState.update('remote_code_profile', this.selectedProfile);
     }
 
     private getRemoteCodeThreads(): RemoteCodeThreadSummary[] {
@@ -1494,7 +1502,7 @@ export class RemoteServer {
         this.broadcast({ type: 'codex:message', message: thinking, threadId, timestamp: Date.now() });
 
         const response = await this.sendToChatStreaming(
-            `${message}\n\nReasoning effort: ${this.reasoningEffortLabel(effort)} (${effort}).`,
+            `${message}\n\nReasoning effort: ${this.reasoningEffortLabel(effort)} (${effort}).\nProfile: ${this.selectedProfile}.\nWork mode: ${this.selectedWorkMode}.`,
             model || this.selectedAgent || 'auto',
             (content) => {
             thinking.content = content || '...';
@@ -1594,6 +1602,8 @@ export class RemoteServer {
         );
         this.pcChatPanel.webview.onDidReceiveMessage(async msg => {
             if (msg?.type === 'send' && typeof msg.message === 'string' && msg.message.trim()) {
+                if (typeof msg.profile === 'string') this.selectedProfile = msg.profile;
+                if (typeof msg.workMode === 'string') this.selectedWorkMode = msg.workMode;
                 await this.enqueueRemoteCodeMessage(
                     msg.message,
                     typeof msg.model === 'string' ? msg.model : this.selectedAgent,
@@ -1602,6 +1612,8 @@ export class RemoteServer {
                     typeof msg.reasoningEffort === 'string' ? msg.reasoningEffort : this.selectedReasoningEffort,
                     msg.includeContext !== false
                 );
+            } else if (msg?.type === 'action' && typeof msg.action === 'string') {
+                await this.handlePcChatAction(msg.action, msg);
             }
         });
         this.pcChatPanel.onDidDispose(() => {
@@ -1618,14 +1630,104 @@ export class RemoteServer {
         this.pcChatPanel.webview.html = this.renderPcChatHtml(messages);
     }
 
+    private async handlePcChatAction(action: string, msg: any): Promise<void> {
+        switch (action) {
+            case 'addFile': {
+                const uris = await vscode.window.showOpenDialog({
+                    canSelectFiles: true,
+                    canSelectFolders: false,
+                    canSelectMany: true,
+                    title: 'Add files to Remote Code prompt'
+                });
+                if (!uris || uris.length === 0) return;
+                const text = uris.map(uri => `@${uri.fsPath}`).join('\n');
+                await this.pcChatPanel?.webview.postMessage({ type: 'appendPrompt', text: `${text}\n` });
+                return;
+            }
+            case 'newChat':
+                this.currentRemoteThreadId = `remote-code-${Date.now()}`;
+                this.saveRemoteCodeState();
+                this.refreshPcChatPanel();
+                this.broadcast({ type: 'codex:threads-update', threads: this.getRemoteCodeThreads(), timestamp: Date.now() });
+                return;
+            case 'clearChat':
+                this.codexHistory = this.codexHistory.filter(message => message.threadId !== this.currentRemoteThreadId);
+                this.saveRemoteCodeState();
+                this.refreshPcChatPanel();
+                return;
+            case 'openTerminal':
+                (vscode.window.activeTerminal || vscode.window.createTerminal('Remote Code')).show();
+                return;
+            case 'openSettings':
+                await vscode.commands.executeCommand('workbench.action.openSettings', 'remoteCodeOnPC');
+                return;
+            case 'selectProfile':
+                if (typeof msg.profile === 'string' && ['user', 'review', 'fast'].includes(msg.profile)) {
+                    this.selectedProfile = msg.profile;
+                    this.saveRemoteCodeState();
+                    this.refreshPcChatPanel();
+                }
+                return;
+            case 'selectWorkMode':
+                if (typeof msg.mode === 'string' && ['local', 'workspace'].includes(msg.mode)) {
+                    this.selectedWorkMode = msg.mode;
+                    this.saveRemoteCodeState();
+                    this.refreshPcChatPanel();
+                }
+                return;
+            case 'showBranch':
+                await vscode.window.showInformationMessage(`Remote Code branch: ${this.getGitBranchLabel()}`);
+                return;
+            default:
+                await vscode.window.showInformationMessage(`Remote Code: ${action}`);
+        }
+    }
+
+    private getCurrentThreadTitle(): string {
+        const firstUserMessage = this.codexHistory.find(message =>
+            (message.threadId || this.currentRemoteThreadId) === this.currentRemoteThreadId &&
+            message.role === 'user' &&
+            message.content.trim()
+        );
+        return firstUserMessage?.content.replace(/\s+/g, ' ').slice(0, 80) || 'Remote Code';
+    }
+
+    private getGitBranchLabel(): string {
+        try {
+            const folder = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+            if (!folder) return 'No branch';
+            const branch = execSync('git branch --show-current', {
+                cwd: folder,
+                encoding: 'utf8',
+                timeout: 1500,
+                windowsHide: true
+            }).trim();
+            return branch || 'detached';
+        } catch {
+            return 'No branch';
+        }
+    }
+
     private renderPcChatHtml(messages: CodexChatMessage[]): string {
         const modelOptions = this.getDefaultCodexModels();
         const selectedModel = modelOptions.some(model => model.id === this.selectedAgent) ? this.selectedAgent : 'gpt-5.5';
+        const workspaceName = vscode.workspace.workspaceFolders?.[0]?.name || 'No workspace';
+        const branchLabel = this.getGitBranchLabel();
+        const title = this.getCurrentThreadTitle();
         const effortOptions = [
             { id: 'medium', name: 'Medium' },
             { id: 'low', name: 'Low' },
             { id: 'high', name: 'High' },
             { id: 'xhigh', name: 'Very high' }
+        ];
+        const profileOptions = [
+            { id: 'user', name: 'User' },
+            { id: 'review', name: 'Review' },
+            { id: 'fast', name: 'Fast' }
+        ];
+        const workModeOptions = [
+            { id: 'local', name: 'Work locally' },
+            { id: 'workspace', name: workspaceName }
         ];
         const selectedEffort = effortOptions.some(option => option.id === this.selectedReasoningEffort)
             ? this.selectedReasoningEffort
@@ -1649,9 +1751,17 @@ export class RemoteServer {
 <style>
 html,body{height:100%}
 body{margin:0;background:#101112;color:#d7d7d7;font:14px/1.55 var(--vscode-font-family);display:flex;flex-direction:column}
-.top{border-bottom:1px solid #222426;padding:10px 18px;background:#121314;display:flex;gap:28px;align-items:center}
-.title{font-size:12px;color:#d8d8d8;text-transform:uppercase;letter-spacing:.08em;border-bottom:1px solid #33a3ff;padding-bottom:8px}
-.tab{font-size:12px;color:#8e8e8e;text-transform:uppercase;letter-spacing:.08em}
+.top{border-bottom:1px solid #242628;background:#101112;display:flex;flex-direction:column}
+.tabs{height:34px;padding:0 16px;display:flex;gap:26px;align-items:end}
+.tab-title{font-size:12px;color:#d8d8d8;text-transform:uppercase;letter-spacing:.08em;border-bottom:1px solid #33a3ff;padding:0 0 7px}
+.tab{font-size:12px;color:#8e8e8e;text-transform:uppercase;letter-spacing:.08em;padding-bottom:8px}
+.toolbar{height:42px;padding:0 18px;display:flex;align-items:center;gap:10px}
+.thread-title{font-size:15px;color:#ececec;font-weight:600;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.toolbar-spacer{flex:1}
+.icon-btn{width:30px;height:30px;border:0;border-radius:7px;background:transparent;color:#aaa;font:inherit;font-size:17px;display:inline-flex;align-items:center;justify-content:center;cursor:pointer}
+.icon-btn:hover{background:#1f2123;color:#e7e7e7}
+.pill-btn{height:30px;border:1px solid #2b2d30;border-radius:8px;background:#17191b;color:#bdbdbd;padding:0 9px;font:inherit;cursor:pointer}
+.pill-btn:hover{background:#222426;color:#e5e5e5}
 .messages{flex:1;overflow:auto;padding:22px min(5vw,48px) 18px}
 .msg{padding:8px 0 18px;margin:0 0 8px;background:transparent;border:0}
 .msg.user{max-width:780px;margin-left:auto;color:#f0f0f0}
@@ -1662,13 +1772,16 @@ body{margin:0;background:#101112;color:#d7d7d7;font:14px/1.55 var(--vscode-font-
 .assistant .role{color:#7bd88f}.system .role{color:#e8b66b}
 pre{margin:0;white-space:pre-wrap;word-wrap:break-word;font:inherit}
 .composer-wrap{padding:12px min(5vw,48px) 18px;background:#101112}
-.composer{max-width:1100px;margin:0 auto;border:1px solid #24272a;background:#131516;border-radius:20px;padding:14px 16px 12px;display:flex;flex-direction:column;gap:10px;box-shadow:0 8px 24px rgba(0,0,0,.22)}
+.composer{max-width:1100px;margin:0 auto;border:1px solid #24272a;background:#18191a;border-radius:22px;padding:14px 16px 10px;display:flex;flex-direction:column;gap:10px;box-shadow:0 8px 24px rgba(0,0,0,.22)}
 .controls{display:flex;gap:10px;align-items:center;min-width:0}
-.plus{font-size:25px;line-height:1;color:#b8b8b8;background:transparent;border:0;width:34px;padding:0}
+.subcontrols{display:flex;gap:18px;align-items:center;margin:4px auto 0;max-width:1100px;color:#8e8e8e}
+.plus{font-size:25px;line-height:1;color:#b8b8b8;background:transparent;border:0;width:34px;padding:0;cursor:pointer}
 textarea{width:100%;box-sizing:border-box;resize:none;min-height:72px;max-height:180px;border:0;background:transparent;color:#e8e8e8;padding:2px 0;font:inherit;font-size:15px;outline:none}
 textarea::placeholder{color:#666}
 .dropdown{position:relative;flex:0 1 174px;min-width:0}
 .dropdown.effort{flex-basis:145px}
+.dropdown.profile{flex-basis:150px}
+.dropdown.workmode{flex:0 1 190px}
 .dropdown-btn{height:34px;width:100%;border:0;background:transparent;color:#bdbdbd;padding:0 8px;font:inherit;display:flex;align-items:center;justify-content:space-between;gap:8px;border-radius:8px;cursor:pointer}
 .dropdown-btn:hover,.dropdown.open .dropdown-btn{background:#1d1f20;color:#e0e0e0}
 .chev{font-size:16px;color:#9a9a9a}
@@ -1680,12 +1793,27 @@ textarea::placeholder{color:#666}
 .context{margin-left:auto;color:#4bb4ff;font-weight:500;white-space:nowrap;border:0;background:transparent;font:inherit;cursor:pointer;border-radius:8px;padding:7px 8px}
 .context.off{color:#8e8e8e}
 .context:hover{background:#1d1f20}
+.context .spark{padding-right:4px}
 button.send{border:0;border-radius:50%;background:#8e8e8e;color:#111;width:44px;height:44px;font-size:22px;font-weight:700;cursor:pointer;white-space:nowrap}
-@media (max-width: 680px){.messages{padding-left:18px;padding-right:18px}.composer-wrap{padding-left:12px;padding-right:12px}.controls{flex-wrap:wrap}.context{margin-left:0}button.send{margin-left:auto}}
+.link-btn{border:0;background:transparent;color:#8e8e8e;font:inherit;cursor:pointer;padding:4px 0}
+.link-btn:hover{color:#d0d0d0}
+@media (max-width: 680px){.messages{padding-left:18px;padding-right:18px}.composer-wrap{padding-left:12px;padding-right:12px}.controls{flex-wrap:wrap}.context{margin-left:0}button.send{margin-left:auto}.toolbar{padding:0 10px}.subcontrols{gap:10px;flex-wrap:wrap}}
 </style>
 </head>
 <body>
-<div class="top"><div class="title">CODEX</div><div class="tab">CHAT</div></div>
+<div class="top">
+  <div class="tabs"><div class="tab-title">CODEX</div><div class="tab">CHAT</div></div>
+  <div class="toolbar">
+    <button class="icon-btn" type="button" data-action="newChat" title="New chat">+</button>
+    <div class="thread-title">${this.escapeHtml(title)}</div>
+    <button class="icon-btn" type="button" data-action="clearChat" title="Clear chat">...</button>
+    <div class="toolbar-spacer"></div>
+    <button class="icon-btn" type="button" id="topRun" title="Run prompt">&triangleright;</button>
+    <button class="pill-btn" type="button" title="VS Code context">VS Code</button>
+    <button class="icon-btn" type="button" data-action="openTerminal" title="Terminal">&#9633;</button>
+    <button class="icon-btn" type="button" data-action="openSettings" title="Settings">&#9881;</button>
+  </div>
+</div>
 <main class="messages" id="messages">
 ${rows || '<div class="msg system"><div class="role">System</div><pre>Waiting for a message from Android or VS Code.</pre></div>'}
 </main>
@@ -1693,19 +1821,30 @@ ${rows || '<div class="msg system"><div class="role">System</div><pre>Waiting fo
   <form class="composer" id="composer">
     <textarea id="prompt" placeholder="Ask for additional changes"></textarea>
     <div class="controls">
-      <button class="plus" type="button" title="Add">+</button>
+      <button class="plus" type="button" data-action="addFile" title="Add file">+</button>
+      <div class="dropdown profile" id="profileDrop">
+        <button class="dropdown-btn" type="button"><span>&#9881;</span><span id="profileLabel"></span><span class="chev">&#8964;</span></button>
+        <div class="menu" id="profileMenu"></div>
+      </div>
       <div class="dropdown" id="modelDrop">
-        <button class="dropdown-btn" type="button"><span id="modelLabel"></span><span class="chev">⌄</span></button>
+        <button class="dropdown-btn" type="button"><span id="modelLabel"></span><span class="chev">&#8964;</span></button>
         <div class="menu" id="modelMenu"></div>
       </div>
       <div class="dropdown effort" id="effortDrop">
-        <button class="dropdown-btn" type="button"><span id="effortLabel"></span><span class="chev">⌄</span></button>
+        <button class="dropdown-btn" type="button"><span id="effortLabel"></span><span class="chev">&#8964;</span></button>
         <div class="menu" id="effortMenu"></div>
       </div>
-      <button class="context" id="contextToggle" type="button">Context IDE</button>
+      <button class="context" id="contextToggle" type="button"><span class="spark">*</span>Context IDE</button>
       <button class="send" id="send" type="submit">&uarr;</button>
     </div>
   </form>
+  <div class="subcontrols">
+    <div class="dropdown workmode" id="workModeDrop">
+      <button class="dropdown-btn" type="button"><span id="workModeLabel"></span><span class="chev">&#8964;</span></button>
+      <div class="menu" id="workModeMenu"></div>
+    </div>
+    <button class="link-btn" type="button" data-action="showBranch">branch ${this.escapeHtml(branchLabel)}</button>
+  </div>
 </div>
 <script>
 const vscode = acquireVsCodeApi();
@@ -1714,8 +1853,12 @@ const prompt = document.getElementById('prompt');
 const messages = document.getElementById('messages');
 const modelOptions = ${JSON.stringify(modelOptions)};
 const effortOptions = ${JSON.stringify(effortOptions)};
+const profileOptions = ${JSON.stringify(profileOptions)};
+const workModeOptions = ${JSON.stringify(workModeOptions)};
 let selectedModel = ${JSON.stringify(selectedModel)};
 let selectedEffort = ${JSON.stringify(selectedEffort)};
+let selectedProfile = ${JSON.stringify(this.selectedProfile)};
+let selectedWorkMode = ${JSON.stringify(this.selectedWorkMode)};
 let includeContext = ${JSON.stringify(this.selectedIncludeContext)};
 function renderDropdown(rootId, menuId, labelId, options, selected, onSelect) {
   const root = document.getElementById(rootId);
@@ -1745,6 +1888,16 @@ function refreshControls() {
     selectedEffort = value;
     refreshControls();
   });
+  renderDropdown('profileDrop', 'profileMenu', 'profileLabel', profileOptions, selectedProfile, value => {
+    selectedProfile = value;
+    vscode.postMessage({ type: 'action', action: 'selectProfile', profile: selectedProfile });
+    refreshControls();
+  });
+  renderDropdown('workModeDrop', 'workModeMenu', 'workModeLabel', workModeOptions, selectedWorkMode, value => {
+    selectedWorkMode = value;
+    vscode.postMessage({ type: 'action', action: 'selectWorkMode', mode: selectedWorkMode });
+    refreshControls();
+  });
   document.getElementById('contextToggle').classList.toggle('off', !includeContext);
 }
 document.querySelectorAll('.dropdown-btn').forEach(button => {
@@ -1764,13 +1917,26 @@ document.getElementById('contextToggle').addEventListener('click', () => {
   includeContext = !includeContext;
   refreshControls();
 });
+document.querySelectorAll('[data-action]').forEach(button => {
+  button.addEventListener('click', () => {
+    vscode.postMessage({ type: 'action', action: button.dataset.action });
+  });
+});
+document.getElementById('topRun').addEventListener('click', () => form.requestSubmit());
+window.addEventListener('message', event => {
+  const data = event.data || {};
+  if (data.type === 'appendPrompt' && typeof data.text === 'string') {
+    prompt.value = prompt.value ? prompt.value + '\\n' + data.text : data.text;
+    prompt.focus();
+  }
+});
 refreshControls();
 messages.scrollTop = messages.scrollHeight;
 form.addEventListener('submit', event => {
   event.preventDefault();
   const message = prompt.value.trim();
   if (!message) return;
-  vscode.postMessage({ type: 'send', message, model: selectedModel, reasoningEffort: selectedEffort, includeContext });
+  vscode.postMessage({ type: 'send', message, model: selectedModel, reasoningEffort: selectedEffort, includeContext, profile: selectedProfile, workMode: selectedWorkMode });
   prompt.value = '';
 });
 prompt.addEventListener('keydown', event => {
