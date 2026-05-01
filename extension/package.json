@@ -13,11 +13,16 @@
   ],
   "activationEvents": [
     "onStartupFinished",
-    "onCommand:remoteCodeOnPC.start"
+    "onCommand:remoteCodeOnPC.start",
+    "onCommand:remoteCodeOnPC.openChat"
   ],
   "main": "./out/extension.js",
   "contributes": {
     "commands": [
+      {
+        "command": "remoteCodeOnPC.openChat",
+        "title": "Remote Code on PC: Open Chat"
+      },
       {
         "command": "remoteCodeOnPC.start",
         "title": "Remote Code on PC: Запустить сервер"

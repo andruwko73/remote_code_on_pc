@@ -86,6 +86,7 @@ export class RemoteServer {
     get isRunning() { return this._isRunning; }
     get tunnelUrl() { return this._tunnelUrl; }
     get localIp() { return this._localIp; }
+    get authToken() { return this._authToken; }
 
     /** Публичный запуск туннеля */
     async startTunnelPublic(): Promise<string> {
@@ -270,6 +271,10 @@ export class RemoteServer {
                     return this.handleCodexSendRealtime(req, res);
                 case pathname === '/api/codex/history':
                     return this.handleCodexHistoryFromFiles(req, res);
+                case pathname === '/api/codex/events':
+                    return this.handleCodexEvents(req, res);
+                case pathname === '/api/codex/actions':
+                    return this.handleCodexActionResponse(req, res);
                 case pathname === '/api/codex/models' && req.method === 'GET':
                     return this.handleCodexModels(req, res);
                 case pathname === '/api/codex/models' && req.method === 'POST':
@@ -1123,8 +1128,9 @@ export class RemoteServer {
     private checkAuth(req: http.IncomingMessage): boolean {
         if (!this._authToken) return true;
         const authHeader = req.headers['authorization'];
-        if (!authHeader) return false;
-        return authHeader === `Bearer ${this._authToken}`;
+        if (authHeader === `Bearer ${this._authToken}`) return true;
+        const parsed = url.parse(req.url || '/', true);
+        return parsed.query.token === this._authToken;
     }
 
     private jsonResponse(res: http.ServerResponse, status: number, data: any): void {
@@ -1564,6 +1570,30 @@ export class RemoteServer {
             threadId: selected.id,
             title: selected.title,
             messages: selected.messages
+        });
+    }
+
+    private async handleCodexEvents(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
+        const params = url.parse(req.url || '', true).query;
+        this.jsonResponse(res, 200, {
+            threadId: (params.threadId as string) || '',
+            events: []
+        });
+    }
+
+    private async handleCodexActionResponse(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
+        const body = await this.readBody(req);
+        const { actionId, approve } = JSON.parse(body || '{}');
+        this.broadcast({
+            type: 'codex:action-update',
+            actionId,
+            approve,
+            timestamp: Date.now()
+        });
+        this.jsonResponse(res, 200, {
+            success: true,
+            actionId,
+            status: approve === true || approve === 'true' ? 'approved' : 'denied'
         });
     }
 

@@ -34,6 +34,7 @@ const path = require('path');
 const requiredFiles = [
     'src/server.ts',
     'src/extension.ts',
+    'src/panel.ts',
     'package.json',
     'tsconfig.json',
 ];
@@ -72,6 +73,8 @@ const routes = [
     '/api/codex/status',
     '/api/codex/send',
     '/api/codex/history',
+    '/api/codex/events',
+    '/api/codex/actions',
     '/api/codex/models',
     '/api/codex/threads',
     '/api/codex/launch',
@@ -106,6 +109,8 @@ const handlers = [
     'handleCodexStatus',
     'handleCodexSend',
     'handleCodexHistory',
+    'handleCodexEvents',
+    'handleCodexActionResponse',
     'handleCodexModels',
     'handleCodexSelectModel',
     'handleCodexThreads',
@@ -146,6 +151,8 @@ assert(extContent.includes('remoteCodeOnPC.start'), 'start команда', 'Н�
 assert(extContent.includes('remoteCodeOnPC.stop'), 'stop команда', 'Не найдена');
 assert(extContent.includes('remoteCodeOnPC.tunnel'), 'tunnel команда', 'Не найдена');
 assert(extContent.includes('remoteCodeOnPC.status'), 'status команда', 'Не найдена');
+assert(extContent.includes('remoteCodeOnPC.openChat'), 'openChat команда', 'Не найдена');
+assert(extContent.includes('RemoteChatPanel'), 'RemoteChatPanel интеграция', 'Не найдена');
 assert(extContent.includes('updateStatusBar'), 'updateStatusBar функция', 'Не найдена');
 
 // ===== Тест 8: Проверка package.json =====
@@ -158,6 +165,7 @@ const cmds = pkg.contributes.commands.map(c => c.command);
 assert(cmds.includes('remoteCodeOnPC.start'), 'start в commands', 'Нет');
 assert(cmds.includes('remoteCodeOnPC.stop'), 'stop в commands', 'Нет');
 assert(cmds.includes('remoteCodeOnPC.tunnel'), 'tunnel в commands', 'Нет');
+assert(cmds.includes('remoteCodeOnPC.openChat'), 'openChat в commands', 'Нет');
 
 // ===== Тест 9: Проверка Android файлов =====
 console.log('\n🤖 Тест 9: Проверка Android проекта');

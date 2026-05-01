@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 import { RemoteServer } from './server';
+import { RemoteChatPanel } from './panel';
 
 let server: RemoteServer | undefined;
 let statusBarItem: vscode.StatusBarItem | undefined;
@@ -14,7 +15,7 @@ export function activate(context: vscode.ExtensionContext) {
 
     // Статус бар
     statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
-    statusBarItem.command = 'remoteCodeOnPC.status';
+    statusBarItem.command = 'remoteCodeOnPC.openChat';
     context.subscriptions.push(statusBarItem);
 
     // Автозапуск сервера
@@ -45,6 +46,23 @@ export function activate(context: vscode.ExtensionContext) {
             vscode.window.showErrorMessage(`❌ Ошибка запуска: ${err.message}`);
             server = undefined;
         }
+    });
+
+    const openChatCmd = vscode.commands.registerCommand('remoteCodeOnPC.openChat', async () => {
+        if (!server) {
+            server = new RemoteServer(context);
+        }
+        if (!server.isRunning) {
+            try {
+                await server.start();
+                updateStatusBar();
+            } catch (err: any) {
+                vscode.window.showErrorMessage(`Remote Code server failed: ${err.message}`);
+                server = undefined;
+                return;
+            }
+        }
+        RemoteChatPanel.show(context, server);
     });
 
     const stopCmd = vscode.commands.registerCommand('remoteCodeOnPC.stop', async () => {
@@ -97,7 +115,7 @@ export function activate(context: vscode.ExtensionContext) {
         vscode.window.showInformationMessage(msg);
     });
 
-    context.subscriptions.push(startCmd, stopCmd, tunnelCmd, statusCmd);
+    context.subscriptions.push(startCmd, stopCmd, tunnelCmd, statusCmd, openChatCmd);
 }
 
 function updateStatusBar() {
