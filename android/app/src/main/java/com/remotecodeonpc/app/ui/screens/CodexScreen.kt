@@ -58,6 +58,7 @@ fun CodexScreen(
     models: List<CodexModel>,
     selectedModel: String,
     selectedReasoningEffort: String,
+    includeContext: Boolean,
     chatHistory: List<CodexChatMessage>,
     actionEvents: List<CodexActionEvent>,
     sendResult: CodexSendResponse?,
@@ -74,6 +75,7 @@ fun CodexScreen(
     onSendMessage: (String, List<MessageAttachment>) -> Unit,
     onSelectModel: (String) -> Unit,
     onSelectReasoningEffort: (String) -> Unit,
+    onToggleContext: () -> Unit,
     onLaunchCodex: () -> Unit,
     onLoadThreads: () -> Unit,
     onSwitchThread: (String) -> Unit,
@@ -161,6 +163,7 @@ fun CodexScreen(
                 models = models,
                 selectedModel = selectedModel,
                 selectedReasoningEffort = selectedReasoningEffort,
+                includeContext = includeContext,
                 chatHistory = chatHistory,
                 actionEvents = actionEvents,
                 sendResult = sendResult,
@@ -171,6 +174,7 @@ fun CodexScreen(
                 onSendMessage = onSendMessage,
                 onSelectModel = onSelectModel,
                 onSelectReasoningEffort = onSelectReasoningEffort,
+                onToggleContext = onToggleContext,
                 onLaunchCodex = onLaunchCodex,
                 onLoadThreads = onLoadThreads,
                 onSwitchThread = onSwitchThread,
@@ -197,6 +201,7 @@ fun CodexChatTab(
     models: List<CodexModel>,
     selectedModel: String,
     selectedReasoningEffort: String,
+    includeContext: Boolean,
     chatHistory: List<CodexChatMessage>,
     actionEvents: List<CodexActionEvent>,
     sendResult: CodexSendResponse?,
@@ -207,6 +212,7 @@ fun CodexChatTab(
     onSendMessage: (String, List<MessageAttachment>) -> Unit,
     onSelectModel: (String) -> Unit,
     onSelectReasoningEffort: (String) -> Unit,
+    onToggleContext: () -> Unit,
     onLaunchCodex: () -> Unit,
     onLoadThreads: () -> Unit,
     onSwitchThread: (String) -> Unit,
@@ -408,8 +414,13 @@ fun CodexChatTab(
                         }
                     }
                     Spacer(modifier = Modifier.weight(1f))
-                    IconButton(onClick = onLaunchCodex, modifier = Modifier.size(40.dp)) {
-                        Icon(Icons.Default.AutoAwesome, contentDescription = "\u041A\u043E\u043D\u0442\u0435\u043A\u0441\u0442 IDE", tint = AccentBlue, modifier = Modifier.size(20.dp))
+                    IconButton(onClick = onToggleContext, modifier = Modifier.size(40.dp)) {
+                        Icon(
+                            Icons.Default.AutoAwesome,
+                            contentDescription = "\u041A\u043E\u043D\u0442\u0435\u043A\u0441\u0442 IDE",
+                            tint = if (includeContext) AccentBlue else TextSecondary,
+                            modifier = Modifier.size(20.dp)
+                        )
                     }
                     FilledIconButton(onClick = { submitMessage() }, enabled = messageText.isNotBlank() || attachments.isNotEmpty(), shape = CircleShape, colors = IconButtonDefaults.filledIconButtonColors(containerColor = Color(0xFF8E8E8E), disabledContainerColor = Color(0xFF3A3A3A)), modifier = Modifier.size(44.dp)) {
                         if (isLoading) Text("...", color = Color.Black) else Icon(Icons.AutoMirrored.Filled.Send, contentDescription = "\u041E\u0442\u043F\u0440\u0430\u0432\u0438\u0442\u044C", tint = Color.Black)

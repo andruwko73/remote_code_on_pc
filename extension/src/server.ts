@@ -31,6 +31,7 @@ interface CodexChatMessage {
     timestamp: number;
     model?: string;
     reasoningEffort?: string;
+    includeContext?: boolean;
     isStreaming?: boolean;
     threadId?: string;
 }
@@ -69,8 +70,9 @@ export class RemoteServer {
 
     private chatHistory: Map<string, ChatMessage[]> = new Map();
     private currentChatId: string = 'default';
-    private selectedAgent: string = 'auto';
+    private selectedAgent: string = 'gpt-5.5';
     private selectedReasoningEffort: string = 'medium';
+    private selectedIncludeContext: boolean = true;
     private agentCache?: { timestamp: number; agents: ChatAgent[] };
     private codexHistory: CodexChatMessage[] = [];
     private currentRemoteThreadId: string = 'remote-code-default';
@@ -437,10 +439,9 @@ export class RemoteServer {
         const agents: ChatAgent[] = [
             { name: 'codex', displayName: 'Codex', vendor: 'openai', model: 'Codex', isDefault: true }
         ];
-        this.selectedAgent = 'codex';
         this.jsonResponse(res, 200, {
             agents,
-            selected: this.selectedAgent,
+            selected: 'codex',
             currentChatId: this.currentChatId
         });
     }
@@ -1299,7 +1300,7 @@ export class RemoteServer {
 
     private ensureRemoteCodeSelectedAgent(agents: ChatAgent[]): string {
         if (!agents.find(agent => agent.name === this.selectedAgent)) {
-            this.selectedAgent = agents[0]?.name || 'gpt-5.5';
+            this.selectedAgent = 'gpt-5.5';
             this.saveRemoteCodeState();
         }
         return this.selectedAgent;
@@ -1311,10 +1312,13 @@ export class RemoteServer {
             const savedThreadId = this._context.globalState.get<string>('remote_code_current_thread_id', 'remote-code-default');
             const savedAgent = this._context.globalState.get<string>('remote_code_selected_agent', this.selectedAgent);
             const savedEffort = this._context.globalState.get<string>('remote_code_reasoning_effort', this.selectedReasoningEffort);
+            const savedIncludeContext = this._context.globalState.get<boolean>('remote_code_include_context', this.selectedIncludeContext);
+            const allowedModelIds = new Set(this.getDefaultCodexModels().map(model => model.id));
             this.codexHistory = Array.isArray(savedHistory) ? savedHistory.slice(-200) : [];
             this.currentRemoteThreadId = savedThreadId || 'remote-code-default';
-            this.selectedAgent = savedAgent || this.selectedAgent;
+            this.selectedAgent = allowedModelIds.has(savedAgent) ? savedAgent : 'gpt-5.5';
             this.selectedReasoningEffort = savedEffort || this.selectedReasoningEffort;
+            this.selectedIncludeContext = savedIncludeContext !== false;
             if (this.codexHistory.length === 0) {
                 this.codexHistory.push({
                     id: `remote_system_${Date.now()}`,
@@ -1335,6 +1339,7 @@ export class RemoteServer {
         void this._context.globalState.update('remote_code_current_thread_id', this.currentRemoteThreadId);
         void this._context.globalState.update('remote_code_selected_agent', this.selectedAgent);
         void this._context.globalState.update('remote_code_reasoning_effort', this.selectedReasoningEffort);
+        void this._context.globalState.update('remote_code_include_context', this.selectedIncludeContext);
     }
 
     private getRemoteCodeThreads(): RemoteCodeThreadSummary[] {
@@ -1380,7 +1385,8 @@ export class RemoteServer {
     private async sendToChatStreaming(
         message: string,
         agentName: string,
-        onChunk?: (content: string) => void
+        onChunk?: (content: string) => void,
+        includeContext: boolean = true
     ): Promise<string> {
         // Используем VS Code LanguageModel API для отправки в Copilot Chat
         try {
@@ -1428,10 +1434,13 @@ export class RemoteServer {
                 if (found) model = found;
             }
 
+            const prompt = includeContext
+                ? `${this.getWorkspaceContextForPrompt()}\n\nUser request:\n${message}`
+                : message;
             const messages = [
                 new vscode.LanguageModelChatMessage(
                     vscode.LanguageModelChatMessageRole.User,
-                    `${this.getWorkspaceContextForPrompt()}\n\nUser request:\n${message}`
+                    prompt
                 )
             ];
 
@@ -1465,7 +1474,7 @@ export class RemoteServer {
         }
     }
 
-    private async answerInPcMirror(message: string, threadId: string, model?: string, reasoningEffort?: string): Promise<void> {
+    private async answerInPcMirror(message: string, threadId: string, model?: string, reasoningEffort?: string, includeContext: boolean = true): Promise<void> {
         const effort = this.normalizeReasoningEffort(reasoningEffort || this.selectedReasoningEffort);
         const thinking: CodexChatMessage = {
             id: `codex_assistant_thinking_${Date.now()}`,
@@ -1474,6 +1483,7 @@ export class RemoteServer {
             timestamp: Date.now(),
             model: typeof model === 'string' && model ? model : undefined,
             reasoningEffort: effort,
+            includeContext,
             isStreaming: true,
             threadId
         };
@@ -1499,7 +1509,9 @@ export class RemoteServer {
                 threadId,
                 timestamp: thinking.timestamp
             });
-        });
+        },
+            includeContext
+        );
         const done: CodexChatMessage = {
             ...thinking,
             id: `codex_assistant_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
@@ -1518,12 +1530,14 @@ export class RemoteServer {
         model: string,
         threadId: string,
         attachments: MobileAttachment[],
-        reasoningEffort?: string
+        reasoningEffort?: string,
+        includeContext?: boolean
     ): Promise<string> {
         const targetThreadId = threadId.trim() || this.currentRemoteThreadId || 'remote-code-default';
         this.currentRemoteThreadId = targetThreadId;
         const effort = this.normalizeReasoningEffort(reasoningEffort || this.selectedReasoningEffort);
         this.selectedReasoningEffort = effort;
+        this.selectedIncludeContext = includeContext !== false;
         if (model) this.selectedAgent = model;
         const attachmentFiles = this.saveMobileAttachments(attachments);
         const messageForAgent = this.withAttachmentInstructions(message, attachmentFiles);
@@ -1534,6 +1548,7 @@ export class RemoteServer {
             timestamp: Date.now(),
             model: model || undefined,
             reasoningEffort: effort,
+            includeContext: this.selectedIncludeContext,
             threadId: targetThreadId
         };
         this.codexHistory.push(userMessage);
@@ -1542,10 +1557,10 @@ export class RemoteServer {
         this.openPcChatPanel();
         this.refreshPcChatPanel();
         this.broadcast({ type: 'codex:message', message: userMessage, threadId: targetThreadId, timestamp: Date.now() });
-        this.broadcast({ type: 'codex:sent', message: messageForAgent, model, reasoningEffort: effort, threadId: targetThreadId, timestamp: Date.now() });
+        this.broadcast({ type: 'codex:sent', message: messageForAgent, model, reasoningEffort: effort, includeContext: this.selectedIncludeContext, threadId: targetThreadId, timestamp: Date.now() });
         this.broadcast({ type: 'codex:threads-update', threads: this.getRemoteCodeThreads(), timestamp: Date.now() });
 
-        this.answerInPcMirror(messageForAgent, targetThreadId, model, effort).catch(err => {
+        this.answerInPcMirror(messageForAgent, targetThreadId, model, effort, this.selectedIncludeContext).catch(err => {
             const errorMessage: CodexChatMessage = {
                 id: `remote_assistant_error_${Date.now()}`,
                 role: 'assistant',
@@ -1584,7 +1599,8 @@ export class RemoteServer {
                     typeof msg.model === 'string' ? msg.model : this.selectedAgent,
                     '',
                     [],
-                    typeof msg.reasoningEffort === 'string' ? msg.reasoningEffort : this.selectedReasoningEffort
+                    typeof msg.reasoningEffort === 'string' ? msg.reasoningEffort : this.selectedReasoningEffort,
+                    msg.includeContext !== false
                 );
             }
         });
@@ -1603,6 +1619,17 @@ export class RemoteServer {
     }
 
     private renderPcChatHtml(messages: CodexChatMessage[]): string {
+        const modelOptions = this.getDefaultCodexModels();
+        const selectedModel = modelOptions.some(model => model.id === this.selectedAgent) ? this.selectedAgent : 'gpt-5.5';
+        const effortOptions = [
+            { id: 'medium', name: 'Medium' },
+            { id: 'low', name: 'Low' },
+            { id: 'high', name: 'High' },
+            { id: 'xhigh', name: 'Very high' }
+        ];
+        const selectedEffort = effortOptions.some(option => option.id === this.selectedReasoningEffort)
+            ? this.selectedReasoningEffort
+            : 'medium';
         const rows = messages.map(message => {
             const role = message.role === 'user' ? 'You' : message.role === 'assistant' ? 'Codex' : 'System';
             const cls = message.role === 'user' ? 'user' : message.role === 'assistant' ? 'assistant' : 'system';
@@ -1640,10 +1667,19 @@ pre{margin:0;white-space:pre-wrap;word-wrap:break-word;font:inherit}
 .plus{font-size:25px;line-height:1;color:#b8b8b8;background:transparent;border:0;width:34px;padding:0}
 textarea{width:100%;box-sizing:border-box;resize:none;min-height:72px;max-height:180px;border:0;background:transparent;color:#e8e8e8;padding:2px 0;font:inherit;font-size:15px;outline:none}
 textarea::placeholder{color:#666}
-select{height:34px;min-width:0;border:0;border-radius:8px;background:transparent;color:#bdbdbd;padding:0 4px;font:inherit}
-#model{flex:0 1 170px}
-#effort{flex:0 1 145px}
-.context{margin-left:auto;color:#4bb4ff;font-weight:500;white-space:nowrap}
+.dropdown{position:relative;flex:0 1 174px;min-width:0}
+.dropdown.effort{flex-basis:145px}
+.dropdown-btn{height:34px;width:100%;border:0;background:transparent;color:#bdbdbd;padding:0 8px;font:inherit;display:flex;align-items:center;justify-content:space-between;gap:8px;border-radius:8px;cursor:pointer}
+.dropdown-btn:hover,.dropdown.open .dropdown-btn{background:#1d1f20;color:#e0e0e0}
+.chev{font-size:16px;color:#9a9a9a}
+.menu{display:none;position:absolute;left:0;bottom:40px;min-width:100%;max-height:260px;overflow:auto;background:#252526;border:1px solid #3a3a3a;border-radius:10px;padding:6px;box-shadow:0 10px 30px rgba(0,0,0,.45);z-index:5}
+.dropdown.open .menu{display:block}
+.item{width:100%;text-align:left;border:0;background:transparent;color:#d7d7d7;padding:8px 10px;border-radius:7px;font:inherit;cursor:pointer;white-space:nowrap}
+.item:hover{background:#343638}
+.item.selected{color:#f1f1f1;background:#313438}
+.context{margin-left:auto;color:#4bb4ff;font-weight:500;white-space:nowrap;border:0;background:transparent;font:inherit;cursor:pointer;border-radius:8px;padding:7px 8px}
+.context.off{color:#8e8e8e}
+.context:hover{background:#1d1f20}
 button.send{border:0;border-radius:50%;background:#8e8e8e;color:#111;width:44px;height:44px;font-size:22px;font-weight:700;cursor:pointer;white-space:nowrap}
 @media (max-width: 680px){.messages{padding-left:18px;padding-right:18px}.composer-wrap{padding-left:12px;padding-right:12px}.controls{flex-wrap:wrap}.context{margin-left:0}button.send{margin-left:auto}}
 </style>
@@ -1658,21 +1694,15 @@ ${rows || '<div class="msg system"><div class="role">System</div><pre>Waiting fo
     <textarea id="prompt" placeholder="Ask for additional changes"></textarea>
     <div class="controls">
       <button class="plus" type="button" title="Add">+</button>
-      <select id="model">
-        <option value="gpt-5.5">GPT-5.5</option>
-        <option value="gpt-5.4">GPT-5.4</option>
-        <option value="gpt-5.4-mini">GPT-5.4-Mini</option>
-        <option value="gpt-5.3-codex">GPT-5.3-Codex</option>
-        <option value="gpt-5.3-codex-spark">GPT-5.3-Codex-Spark</option>
-        <option value="gpt-5.2">GPT-5.2</option>
-      </select>
-      <select id="effort">
-        <option value="medium">Medium</option>
-        <option value="low">Low</option>
-        <option value="high">High</option>
-        <option value="xhigh">Very high</option>
-      </select>
-      <span class="context">Context IDE</span>
+      <div class="dropdown" id="modelDrop">
+        <button class="dropdown-btn" type="button"><span id="modelLabel"></span><span class="chev">⌄</span></button>
+        <div class="menu" id="modelMenu"></div>
+      </div>
+      <div class="dropdown effort" id="effortDrop">
+        <button class="dropdown-btn" type="button"><span id="effortLabel"></span><span class="chev">⌄</span></button>
+        <div class="menu" id="effortMenu"></div>
+      </div>
+      <button class="context" id="contextToggle" type="button">Context IDE</button>
       <button class="send" id="send" type="submit">&uarr;</button>
     </div>
   </form>
@@ -1682,16 +1712,65 @@ const vscode = acquireVsCodeApi();
 const form = document.getElementById('composer');
 const prompt = document.getElementById('prompt');
 const messages = document.getElementById('messages');
-const model = document.getElementById('model');
-const effort = document.getElementById('effort');
-model.value = ${JSON.stringify(this.selectedAgent)};
-effort.value = ${JSON.stringify(this.selectedReasoningEffort)};
+const modelOptions = ${JSON.stringify(modelOptions)};
+const effortOptions = ${JSON.stringify(effortOptions)};
+let selectedModel = ${JSON.stringify(selectedModel)};
+let selectedEffort = ${JSON.stringify(selectedEffort)};
+let includeContext = ${JSON.stringify(this.selectedIncludeContext)};
+function renderDropdown(rootId, menuId, labelId, options, selected, onSelect) {
+  const root = document.getElementById(rootId);
+  const menu = document.getElementById(menuId);
+  const label = document.getElementById(labelId);
+  const selectedOption = options.find(option => option.id === selected) || options[0];
+  label.textContent = selectedOption ? selectedOption.name : '';
+  menu.innerHTML = '';
+  options.forEach(option => {
+    const item = document.createElement('button');
+    item.type = 'button';
+    item.className = 'item' + (option.id === selected ? ' selected' : '');
+    item.textContent = option.name;
+    item.addEventListener('click', () => {
+      onSelect(option.id);
+      root.classList.remove('open');
+    });
+    menu.appendChild(item);
+  });
+}
+function refreshControls() {
+  renderDropdown('modelDrop', 'modelMenu', 'modelLabel', modelOptions, selectedModel, value => {
+    selectedModel = value;
+    refreshControls();
+  });
+  renderDropdown('effortDrop', 'effortMenu', 'effortLabel', effortOptions, selectedEffort, value => {
+    selectedEffort = value;
+    refreshControls();
+  });
+  document.getElementById('contextToggle').classList.toggle('off', !includeContext);
+}
+document.querySelectorAll('.dropdown-btn').forEach(button => {
+  button.addEventListener('click', event => {
+    const root = event.currentTarget.closest('.dropdown');
+    const isOpen = root.classList.contains('open');
+    document.querySelectorAll('.dropdown.open').forEach(drop => drop.classList.remove('open'));
+    if (!isOpen) root.classList.add('open');
+  });
+});
+document.addEventListener('click', event => {
+  if (!event.target.closest('.dropdown')) {
+    document.querySelectorAll('.dropdown.open').forEach(drop => drop.classList.remove('open'));
+  }
+});
+document.getElementById('contextToggle').addEventListener('click', () => {
+  includeContext = !includeContext;
+  refreshControls();
+});
+refreshControls();
 messages.scrollTop = messages.scrollHeight;
 form.addEventListener('submit', event => {
   event.preventDefault();
   const message = prompt.value.trim();
   if (!message) return;
-  vscode.postMessage({ type: 'send', message, model: model.value, reasoningEffort: effort.value });
+  vscode.postMessage({ type: 'send', message, model: selectedModel, reasoningEffort: selectedEffort, includeContext });
   prompt.value = '';
 });
 prompt.addEventListener('keydown', event => {
@@ -1738,8 +1817,7 @@ prompt.addEventListener('keydown', event => {
             this.currentChatId = savedChatId;
 
             // Восстанавливаем последний выбранный агент
-            const savedAgent = this._context.globalState.get<string>('selected_agent', 'default');
-            this.selectedAgent = savedAgent;
+            // Legacy chat selection is intentionally not copied into the Remote Code model.
 
             for (const key of chatKeys) {
                 const chatId = key.replace('chat_history_', '');
@@ -2086,7 +2164,7 @@ prompt.addEventListener('keydown', event => {
     // POST /api/codex/send
     private async handleCodexSendRealtime(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
         const body = await this.readBody(req);
-        const { message, model, threadId, attachments, reasoningEffort } = JSON.parse(body);
+        const { message, model, threadId, attachments, reasoningEffort, includeContext } = JSON.parse(body);
 
         if (!message) {
             this.jsonResponse(res, 400, { error: 'Message is required' });
@@ -2099,7 +2177,8 @@ prompt.addEventListener('keydown', event => {
                 typeof model === 'string' ? model : '',
                 typeof threadId === 'string' ? threadId : '',
                 Array.isArray(attachments) ? attachments : [],
-                typeof reasoningEffort === 'string' ? reasoningEffort : undefined
+                typeof reasoningEffort === 'string' ? reasoningEffort : undefined,
+                includeContext !== false
             );
 
             this.jsonResponse(res, 200, {
@@ -2108,6 +2187,7 @@ prompt.addEventListener('keydown', event => {
                 message: 'Sent to Remote Code Agent',
                 threadId: targetThreadId,
                 reasoningEffort: this.selectedReasoningEffort,
+                includeContext: this.selectedIncludeContext,
                 note: 'Remote Code Agent owns this cross-device chat.'
             });
         } catch (err: any) {

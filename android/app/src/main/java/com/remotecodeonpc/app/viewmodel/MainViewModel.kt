@@ -61,8 +61,9 @@ data class AppUiState(
     // Codex
     val codexStatus: CodexStatus? = null,
     val codexModels: List<CodexModel> = emptyList(),
-    val codexSelectedModel: String = "",
+    val codexSelectedModel: String = "gpt-5.5",
     val codexReasoningEffort: String = "medium",
+    val codexIncludeContext: Boolean = true,
     val codexChatHistory: List<CodexChatMessage> = emptyList(),
     val codexActionEvents: List<CodexActionEvent> = emptyList(),
     val codexSendResult: CodexSendResponse? = null,
@@ -801,7 +802,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     val body = response.body()
                     _uiState.value = _uiState.value.copy(
                         codexModels = body?.models ?: emptyList(),
-                        codexSelectedModel = body?.selected ?: "",
+                        codexSelectedModel = body?.selected?.takeIf { it.isNotBlank() } ?: "gpt-5.5",
                         codexReasoningEffort = body?.reasoningEffort ?: _uiState.value.codexReasoningEffort
                     )
                 }
@@ -831,6 +832,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _uiState.value = _uiState.value.copy(codexReasoningEffort = normalized)
     }
 
+    fun toggleCodexContext() {
+        _uiState.value = _uiState.value.copy(codexIncludeContext = !_uiState.value.codexIncludeContext)
+    }
+
     fun sendCodexMessage(text: String, attachments: List<MessageAttachment> = emptyList()) {
         val sentAt = System.currentTimeMillis()
         val optimisticMessage = CodexChatMessage(
@@ -839,7 +844,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             content = text,
             timestamp = sentAt,
             model = _uiState.value.codexSelectedModel.takeIf { it.isNotBlank() },
-            reasoningEffort = _uiState.value.codexReasoningEffort
+            reasoningEffort = _uiState.value.codexReasoningEffort,
+            includeContext = _uiState.value.codexIncludeContext
         )
         _uiState.value = _uiState.value.copy(
             isCodexLoading = true,
@@ -857,6 +863,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         "message" to text,
                         "model" to _uiState.value.codexSelectedModel,
                         "reasoningEffort" to _uiState.value.codexReasoningEffort,
+                        "includeContext" to _uiState.value.codexIncludeContext,
                         "threadId" to threadId,
                         "attachments" to attachments
                     )

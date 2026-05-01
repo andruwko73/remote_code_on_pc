@@ -173,6 +173,7 @@ data class CodexSendResponse(
     val command: String = "",
     val threadId: String = "",
     val reasoningEffort: String = "",
+    val includeContext: Boolean = true,
     val note: String? = null,
     val error: String? = null
 )
@@ -191,6 +192,7 @@ data class CodexChatMessage(
     val timestamp: Long = 0,
     val model: String? = null,
     val reasoningEffort: String? = null,
+    val includeContext: Boolean? = null,
     val isStreaming: Boolean = false
 )
 
