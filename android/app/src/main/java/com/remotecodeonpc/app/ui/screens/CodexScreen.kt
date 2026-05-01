@@ -347,12 +347,32 @@ fun CodexChatTab(
                     keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
                     keyboardActions = KeyboardActions(onSend = { submitMessage() })
                 )
-                Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                    IconButton(onClick = { attachmentPicker.launch("*/*") }, modifier = Modifier.size(42.dp)) { Icon(Icons.Default.Add, contentDescription = "\u0414\u043E\u0431\u0430\u0432\u0438\u0442\u044C", tint = TextSecondary) }
-                    IconButton(onClick = { showModelSelector = true }, modifier = Modifier.size(38.dp)) { Icon(Icons.Outlined.Settings, contentDescription = "\u041D\u0430\u0441\u0442\u0440\u043E\u0439\u043A\u0438", tint = TextSecondary, modifier = Modifier.size(20.dp)) }
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(min = 44.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    IconButton(
+                        onClick = { attachmentPicker.launch("*/*") },
+                        modifier = Modifier.size(42.dp)
+                    ) {
+                        Icon(Icons.Default.Add, contentDescription = "\u0414\u043E\u0431\u0430\u0432\u0438\u0442\u044C", tint = TextSecondary)
+                    }
                     Box {
-                        TextButton(onClick = { showModelSelector = true }, contentPadding = PaddingValues(horizontal = 6.dp)) {
-                            Text(modelLabel, color = TextSecondary, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        TextButton(
+                            onClick = { showModelSelector = true },
+                            contentPadding = PaddingValues(horizontal = 6.dp),
+                            modifier = Modifier.widthIn(min = 92.dp, max = 156.dp)
+                        ) {
+                            Text(
+                                modelLabel,
+                                color = TextSecondary,
+                                fontSize = 13.sp,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.weight(1f, fill = false)
+                            )
                             Icon(Icons.Default.ArrowDropDown, contentDescription = null, tint = TextSecondary, modifier = Modifier.size(18.dp))
                         }
                         DropdownMenu(expanded = showModelSelector, onDismissRequest = { showModelSelector = false }, modifier = Modifier.background(Color(0xFF202123))) {
@@ -360,8 +380,19 @@ fun CodexChatTab(
                         }
                     }
                     Box {
-                        TextButton(onClick = { showReasoningSelector = true }, contentPadding = PaddingValues(horizontal = 6.dp)) {
-                            Text(reasoningLabel, color = TextSecondary, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        TextButton(
+                            onClick = { showReasoningSelector = true },
+                            contentPadding = PaddingValues(horizontal = 6.dp),
+                            modifier = Modifier.widthIn(min = 82.dp, max = 134.dp)
+                        ) {
+                            Text(
+                                reasoningLabel,
+                                color = TextSecondary,
+                                fontSize = 13.sp,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.weight(1f, fill = false)
+                            )
                             Icon(Icons.Default.ArrowDropDown, contentDescription = null, tint = TextSecondary, modifier = Modifier.size(18.dp))
                         }
                         DropdownMenu(expanded = showReasoningSelector, onDismissRequest = { showReasoningSelector = false }, modifier = Modifier.background(Color(0xFF202123))) {
@@ -377,10 +408,8 @@ fun CodexChatTab(
                         }
                     }
                     Spacer(modifier = Modifier.weight(1f))
-                    TextButton(onClick = onLaunchCodex, contentPadding = PaddingValues(horizontal = 6.dp)) {
-                        Icon(Icons.Default.AutoAwesome, contentDescription = null, tint = AccentBlue, modifier = Modifier.size(16.dp))
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text("\u041A\u043E\u043D\u0442\u0435\u043A\u0441\u0442 IDE", color = AccentBlue, fontSize = 13.sp)
+                    IconButton(onClick = onLaunchCodex, modifier = Modifier.size(40.dp)) {
+                        Icon(Icons.Default.AutoAwesome, contentDescription = "\u041A\u043E\u043D\u0442\u0435\u043A\u0441\u0442 IDE", tint = AccentBlue, modifier = Modifier.size(20.dp))
                     }
                     FilledIconButton(onClick = { submitMessage() }, enabled = messageText.isNotBlank() || attachments.isNotEmpty(), shape = CircleShape, colors = IconButtonDefaults.filledIconButtonColors(containerColor = Color(0xFF8E8E8E), disabledContainerColor = Color(0xFF3A3A3A)), modifier = Modifier.size(44.dp)) {
                         if (isLoading) Text("...", color = Color.Black) else Icon(Icons.AutoMirrored.Filled.Send, contentDescription = "\u041E\u0442\u043F\u0440\u0430\u0432\u0438\u0442\u044C", tint = Color.Black)

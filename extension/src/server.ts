@@ -1632,11 +1632,15 @@ body{margin:0;background:#151617;color:#d7d7d7;font:14px/1.55 var(--vscode-font-
 .meta{font-size:12px;color:#8e8e8e;margin:-2px 0 8px}
 .assistant .role{color:#7bd88f}.system .role{color:#e8b66b}
 pre{margin:0;white-space:pre-wrap;word-wrap:break-word;font:inherit}
-.composer{border-top:1px solid #282b2e;background:#181a1c;padding:12px;display:flex;gap:10px;align-items:flex-end}
-textarea{flex:1;resize:vertical;min-height:48px;max-height:180px;border:1px solid #34383d;border-radius:8px;background:#111315;color:#e8e8e8;padding:10px;font:inherit;outline:none}
+.composer{border-top:1px solid #282b2e;background:#181a1c;padding:12px;display:flex;flex-direction:column;gap:10px}
+.controls{display:flex;gap:8px;align-items:center;min-width:0}
+textarea{width:100%;box-sizing:border-box;resize:vertical;min-height:64px;max-height:180px;border:1px solid #34383d;border-radius:8px;background:#111315;color:#e8e8e8;padding:10px;font:inherit;outline:none}
 textarea:focus{border-color:#1492e6}
-select{height:42px;border:1px solid #34383d;border-radius:8px;background:#111315;color:#e8e8e8;padding:0 8px;font:inherit}
-button{border:0;border-radius:8px;background:#1492e6;color:white;padding:0 16px;height:42px;font-weight:600;cursor:pointer}
+select{height:38px;min-width:0;border:1px solid #34383d;border-radius:8px;background:#111315;color:#e8e8e8;padding:0 8px;font:inherit}
+#model{flex:1 1 180px}
+#effort{flex:0 1 150px}
+button{border:0;border-radius:8px;background:#1492e6;color:white;padding:0 16px;height:38px;font-weight:600;cursor:pointer;white-space:nowrap}
+@media (max-width: 560px){.controls{flex-wrap:wrap}#model,#effort{flex:1 1 45%}button{flex:1 1 100%}}
 </style>
 </head>
 <body>
@@ -1646,21 +1650,23 @@ ${rows || '<div class="msg system"><div class="role">System</div><pre>Waiting fo
 </main>
 <form class="composer" id="composer">
   <textarea id="prompt" placeholder="Ask Remote Code..."></textarea>
-  <select id="model">
-    <option value="gpt-5.5">GPT-5.5</option>
-    <option value="gpt-5.4">GPT-5.4</option>
-    <option value="gpt-5.4-mini">GPT-5.4-Mini</option>
-    <option value="gpt-5.3-codex">GPT-5.3-Codex</option>
-    <option value="gpt-5.3-codex-spark">GPT-5.3-Codex-Spark</option>
-    <option value="gpt-5.2">GPT-5.2</option>
-  </select>
-  <select id="effort">
-    <option value="medium">Средний</option>
-    <option value="low">Низкий</option>
-    <option value="high">Высокий</option>
-    <option value="xhigh">Очень высокий</option>
-  </select>
-  <button id="send" type="submit">Send</button>
+  <div class="controls">
+    <select id="model">
+      <option value="gpt-5.5">GPT-5.5</option>
+      <option value="gpt-5.4">GPT-5.4</option>
+      <option value="gpt-5.4-mini">GPT-5.4-Mini</option>
+      <option value="gpt-5.3-codex">GPT-5.3-Codex</option>
+      <option value="gpt-5.3-codex-spark">GPT-5.3-Codex-Spark</option>
+      <option value="gpt-5.2">GPT-5.2</option>
+    </select>
+    <select id="effort">
+      <option value="medium">???????</option>
+      <option value="low">??????</option>
+      <option value="high">???????</option>
+      <option value="xhigh">????? ???????</option>
+    </select>
+    <button id="send" type="submit">Send</button>
+  </div>
 </form>
 <script>
 const vscode = acquireVsCodeApi();
