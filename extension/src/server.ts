@@ -1335,7 +1335,7 @@ export class RemoteServer {
         } finally {
             setTimeout(() => {
                 vscode.env.clipboard.writeText(previousClipboard).then(undefined, () => undefined);
-            }, 1500);
+            }, 5000);
         }
     }
 
@@ -1350,9 +1350,32 @@ export class RemoteServer {
                 .map((key, index) => `$wshell.SendKeys('${key}')${index < keys.length - 1 ? '\nStart-Sleep -Milliseconds 150' : ''}`)
                 .join('\n');
             const script = [
+                "Add-Type -TypeDefinition @'",
+                'using System;',
+                'using System.Runtime.InteropServices;',
+                'public struct RECT { public int Left; public int Top; public int Right; public int Bottom; }',
+                'public static class NativeWin {',
+                '  [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();',
+                '  [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr hWnd, out RECT rect);',
+                '  [DllImport("user32.dll")] public static extern bool SetCursorPos(int X, int Y);',
+                '  [DllImport("user32.dll")] public static extern void mouse_event(uint flags, uint dx, uint dy, uint data, UIntPtr extra);',
+                '}',
+                "'@",
                 'Start-Sleep -Milliseconds 350',
                 '$wshell = New-Object -ComObject WScript.Shell',
-                "$null = $wshell.AppActivate('Visual Studio Code')",
+                "$activated = $wshell.AppActivate('Visual Studio Code')",
+                'if (-not $activated) { throw "Could not activate Visual Studio Code window" }',
+                'Start-Sleep -Milliseconds 700',
+                '$hwnd = [NativeWin]::GetForegroundWindow()',
+                '$rect = New-Object RECT',
+                'if ([NativeWin]::GetWindowRect($hwnd, [ref]$rect)) {',
+                '  $x = [int]($rect.Left + (($rect.Right - $rect.Left) * 0.72))',
+                '  $y = [int]($rect.Bottom - 110)',
+                '  [NativeWin]::SetCursorPos($x, $y) | Out-Null',
+                '  Start-Sleep -Milliseconds 120',
+                '  [NativeWin]::mouse_event(0x0002, 0, 0, 0, [UIntPtr]::Zero)',
+                '  [NativeWin]::mouse_event(0x0004, 0, 0, 0, [UIntPtr]::Zero)',
+                '}',
                 'Start-Sleep -Milliseconds 350',
                 sendKeys
             ].join('\n');

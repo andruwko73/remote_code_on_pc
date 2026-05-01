@@ -229,7 +229,15 @@ fun CodexChatTab(
         }
     }
 
-    val currentModel = models.find { it.id == selectedModel }
+    val displayModels = models.ifEmpty {
+        listOf(
+            CodexModel("gpt-5.5", "GPT-5.5"),
+            CodexModel("gpt-5.5-medium", "5.5 \u0421\u0440\u0435\u0434\u043D\u0438\u0439"),
+            CodexModel("gpt-5.5-high", "5.5 High"),
+            CodexModel("o4-mini", "o4-mini")
+        )
+    }
+    val currentModel = displayModels.find { it.id == selectedModel }
     val modelLabel = currentModel?.name ?: selectedModel.ifBlank { "5.5 \u0421\u0440\u0435\u0434\u043D\u0438\u0439" }
     val currentThread = threads.find { it.id == currentThreadId }
 
@@ -333,7 +341,7 @@ fun CodexChatTab(
                         }
                         DropdownMenu(expanded = showModelSelector, onDismissRequest = { showModelSelector = false }, modifier = Modifier.background(Color(0xFF202123))) {
                             DropdownMenuItem(text = { Text("5.5 \u0421\u0440\u0435\u0434\u043D\u0438\u0439", color = TextPrimary) }, onClick = { onSelectModel(""); showModelSelector = false })
-                            models.forEach { model -> DropdownMenuItem(text = { Text(model.name, color = if (model.id == selectedModel) AccentBlue else TextPrimary) }, onClick = { onSelectModel(model.id); showModelSelector = false }) }
+                            displayModels.forEach { model -> DropdownMenuItem(text = { Text(model.name, color = if (model.id == selectedModel) AccentBlue else TextPrimary) }, onClick = { onSelectModel(model.id); showModelSelector = false }) }
                         }
                     }
                     Spacer(modifier = Modifier.weight(1f))

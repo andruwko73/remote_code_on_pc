@@ -167,6 +167,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     // Heavy history scans are loaded on demand to keep first paint fast.
                     loadDiagnostics()
                     loadCodexStatus()
+                    loadCodexModels()
                     loadCodexThreads(loadCurrent = false)
                 } else {
                     CrashLogger.w("ViewModel", "getStatus failed: code=${response.code()}, message=${response.message()}")
@@ -199,6 +200,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     // Heavy history scans are loaded on demand to keep first paint fast.
                     loadDiagnostics()
                     loadCodexStatus()
+                    loadCodexModels()
                     loadCodexThreads(loadCurrent = false)
                 } catch (fallbackError: Exception) {
                     CrashLogger.e("ViewModel", "simple HTTP fallback failed", fallbackError)
