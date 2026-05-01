@@ -1733,7 +1733,7 @@ export class RemoteServer {
             ? this.selectedReasoningEffort
             : 'medium';
         const rows = messages.map(message => {
-            const role = message.role === 'user' ? 'You' : message.role === 'assistant' ? 'Codex' : 'System';
+            const role = message.role === 'user' ? 'You' : message.role === 'assistant' ? 'Remote Code' : 'System';
             const cls = message.role === 'user' ? 'user' : message.role === 'assistant' ? 'assistant' : 'system';
             const meta = [message.model, message.reasoningEffort ? this.reasoningEffortLabel(message.reasoningEffort) : '']
                 .filter(Boolean)
@@ -1751,39 +1751,37 @@ export class RemoteServer {
 <style>
 html,body{height:100%}
 body{margin:0;background:#101112;color:#d7d7d7;font:14px/1.55 var(--vscode-font-family);display:flex;flex-direction:column}
-.top{border-bottom:1px solid #242628;background:#101112;display:flex;flex-direction:column}
-.tabs{height:34px;padding:0 16px;display:flex;gap:26px;align-items:end}
-.tab-title{font-size:12px;color:#d8d8d8;text-transform:uppercase;letter-spacing:.08em;border-bottom:1px solid #33a3ff;padding:0 0 7px}
-.tab{font-size:12px;color:#8e8e8e;text-transform:uppercase;letter-spacing:.08em;padding-bottom:8px}
-.toolbar{height:42px;padding:0 18px;display:flex;align-items:center;gap:10px}
-.thread-title{font-size:15px;color:#ececec;font-weight:600;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.top{height:46px;border-bottom:1px solid #202224;background:#101112;display:flex;align-items:center;gap:12px;padding:0 18px}
+.edit-icon{color:#9a9a9a;font-size:20px}
+.thread-title{font-size:15px;color:#f0f0f0;font-weight:700;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .toolbar-spacer{flex:1}
 .icon-btn{width:30px;height:30px;border:0;border-radius:7px;background:transparent;color:#aaa;font:inherit;font-size:17px;display:inline-flex;align-items:center;justify-content:center;cursor:pointer}
 .icon-btn:hover{background:#1f2123;color:#e7e7e7}
-.pill-btn{height:30px;border:1px solid #2b2d30;border-radius:8px;background:#17191b;color:#bdbdbd;padding:0 9px;font:inherit;cursor:pointer}
+.pill-btn{height:30px;border:1px solid #2b2d30;border-radius:9px;background:#17191b;color:#bdbdbd;padding:0 10px;font:inherit;cursor:pointer}
 .pill-btn:hover{background:#222426;color:#e5e5e5}
-.messages{flex:1;overflow:auto;padding:22px min(5vw,48px) 18px}
-.msg{padding:8px 0 18px;margin:0 0 8px;background:transparent;border:0}
-.msg.user{max-width:780px;margin-left:auto;color:#f0f0f0}
-.msg.user pre{background:#12324a;border:1px solid #194866;border-radius:8px;padding:12px 14px}
+.messages{flex:1;overflow:auto;padding:26px min(6vw,72px) 18px}
+.msg{padding:7px 0 20px;margin:0;background:transparent;border:0;max-width:960px}
+.msg.user{max-width:760px;margin-left:auto;color:#f0f0f0}
+.msg.user .role,.msg.user .meta{display:none}
+.msg.user pre{background:#2a2b2d;border:1px solid #303235;border-radius:18px;padding:12px 16px}
 .msg.system pre{color:#aeb0b3}
-.role{font-weight:600;color:#55b4ff;margin-bottom:7px}
+.role{font-weight:600;color:#dcdcdc;margin-bottom:7px}
 .meta{font-size:12px;color:#8e8e8e;margin:-2px 0 8px}
-.assistant .role{color:#7bd88f}.system .role{color:#e8b66b}
+.assistant .role{color:#dcdcdc}.system .role{color:#e8b66b}
 pre{margin:0;white-space:pre-wrap;word-wrap:break-word;font:inherit}
-.composer-wrap{padding:12px min(5vw,48px) 18px;background:#101112}
-.composer{max-width:1100px;margin:0 auto;border:1px solid #24272a;background:#18191a;border-radius:22px;padding:14px 16px 10px;display:flex;flex-direction:column;gap:10px;box-shadow:0 8px 24px rgba(0,0,0,.22)}
+.composer-wrap{padding:12px min(6vw,72px) 18px;background:#101112}
+.composer{max-width:1100px;margin:0 auto;border:1px solid #282a2d;background:#2b2b2d;border-radius:22px;padding:14px 16px 10px;display:flex;flex-direction:column;gap:10px;box-shadow:none}
 .controls{display:flex;gap:10px;align-items:center;min-width:0}
 .subcontrols{display:flex;gap:18px;align-items:center;margin:4px auto 0;max-width:1100px;color:#8e8e8e}
 .plus{font-size:25px;line-height:1;color:#b8b8b8;background:transparent;border:0;width:34px;padding:0;cursor:pointer}
 textarea{width:100%;box-sizing:border-box;resize:none;min-height:72px;max-height:180px;border:0;background:transparent;color:#e8e8e8;padding:2px 0;font:inherit;font-size:15px;outline:none}
-textarea::placeholder{color:#666}
+textarea::placeholder{color:#707070}
 .dropdown{position:relative;flex:0 1 174px;min-width:0}
 .dropdown.effort{flex-basis:145px}
 .dropdown.profile{flex-basis:150px}
 .dropdown.workmode{flex:0 1 190px}
 .dropdown-btn{height:34px;width:100%;border:0;background:transparent;color:#bdbdbd;padding:0 8px;font:inherit;display:flex;align-items:center;justify-content:space-between;gap:8px;border-radius:8px;cursor:pointer}
-.dropdown-btn:hover,.dropdown.open .dropdown-btn{background:#1d1f20;color:#e0e0e0}
+.dropdown-btn:hover,.dropdown.open .dropdown-btn{background:#343537;color:#e0e0e0}
 .chev{font-size:16px;color:#9a9a9a}
 .menu{display:none;position:absolute;left:0;bottom:40px;min-width:100%;max-height:260px;overflow:auto;background:#252526;border:1px solid #3a3a3a;border-radius:10px;padding:6px;box-shadow:0 10px 30px rgba(0,0,0,.45);z-index:5}
 .dropdown.open .menu{display:block}
@@ -1792,9 +1790,9 @@ textarea::placeholder{color:#666}
 .item.selected{color:#f1f1f1;background:#313438}
 .context{margin-left:auto;color:#4bb4ff;font-weight:500;white-space:nowrap;border:0;background:transparent;font:inherit;cursor:pointer;border-radius:8px;padding:7px 8px}
 .context.off{color:#8e8e8e}
-.context:hover{background:#1d1f20}
+.context:hover{background:#343537}
 .context .spark{padding-right:4px}
-button.send{border:0;border-radius:50%;background:#8e8e8e;color:#111;width:44px;height:44px;font-size:22px;font-weight:700;cursor:pointer;white-space:nowrap}
+button.send{border:0;border-radius:50%;background:#b7b7b7;color:#111;width:44px;height:44px;font-size:22px;font-weight:700;cursor:pointer;white-space:nowrap}
 .link-btn{border:0;background:transparent;color:#8e8e8e;font:inherit;cursor:pointer;padding:4px 0}
 .link-btn:hover{color:#d0d0d0}
 @media (max-width: 680px){.messages{padding-left:18px;padding-right:18px}.composer-wrap{padding-left:12px;padding-right:12px}.controls{flex-wrap:wrap}.context{margin-left:0}button.send{margin-left:auto}.toolbar{padding:0 10px}.subcontrols{gap:10px;flex-wrap:wrap}}
@@ -1802,17 +1800,14 @@ button.send{border:0;border-radius:50%;background:#8e8e8e;color:#111;width:44px;
 </head>
 <body>
 <div class="top">
-  <div class="tabs"><div class="tab-title">CODEX</div><div class="tab">CHAT</div></div>
-  <div class="toolbar">
-    <button class="icon-btn" type="button" data-action="newChat" title="New chat">+</button>
-    <div class="thread-title">${this.escapeHtml(title)}</div>
-    <button class="icon-btn" type="button" data-action="clearChat" title="Clear chat">...</button>
-    <div class="toolbar-spacer"></div>
-    <button class="icon-btn" type="button" id="topRun" title="Run prompt">&triangleright;</button>
-    <button class="pill-btn" type="button" title="VS Code context">VS Code</button>
-    <button class="icon-btn" type="button" data-action="openTerminal" title="Terminal">&#9633;</button>
-    <button class="icon-btn" type="button" data-action="openSettings" title="Settings">&#9881;</button>
-  </div>
+  <button class="icon-btn edit-icon" type="button" data-action="newChat" title="New chat">&#9633;</button>
+  <div class="thread-title">${this.escapeHtml(title)}</div>
+  <button class="icon-btn" type="button" data-action="clearChat" title="Clear chat">...</button>
+  <div class="toolbar-spacer"></div>
+  <button class="icon-btn" type="button" id="topRun" title="Run prompt">&triangleright;</button>
+  <button class="pill-btn" type="button" title="VS Code context">VS Code</button>
+  <button class="icon-btn" type="button" data-action="openTerminal" title="Terminal">&#9633;</button>
+  <button class="icon-btn" type="button" data-action="openSettings" title="Settings">&#9881;</button>
 </div>
 <main class="messages" id="messages">
 ${rows || '<div class="msg system"><div class="role">System</div><pre>Waiting for a message from Android or VS Code.</pre></div>'}

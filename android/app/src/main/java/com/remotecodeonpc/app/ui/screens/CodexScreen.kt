@@ -88,70 +88,62 @@ fun CodexScreen(
     onNavigateToSettings: () -> Unit = {}
 ) {
     var selectedTab by remember { mutableStateOf(0) }
-    val tabs = listOf("\u0427\u0430\u0442", "\u0424\u0430\u0439\u043B\u044B")
-
     Column(
         modifier = Modifier
             .fillMaxSize()
             .imePadding()
             .background(DarkBackground)
     ) {
-        // Top panel (UNIFIED STYLE with VSCodeScreen)
         Surface(
             color = DarkSurface,
-            shadowElevation = 2.dp
+            shadowElevation = 1.dp
         ) {
-            Column(modifier = Modifier.fillMaxWidth()) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 12.dp, vertical = 8.dp),
-                    verticalAlignment = Alignment.CenterVertically
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(46.dp)
+                    .padding(horizontal = 8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                TextButton(
+                    onClick = { selectedTab = 0 },
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp)
                 ) {
-                    Icon(
-                        Icons.Default.SmartToy,
-                        contentDescription = "Codex CLI",
-                        tint = AccentBlue,
-                        modifier = Modifier.size(24.dp)
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
                     Text(
-                        "Codex CLI",
-                        color = TextBright,
-                        fontSize = 18.sp,
-                        fontWeight = FontWeight.Bold
+                        "CODEX",
+                        color = if (selectedTab == 0) AccentBlue else TextSecondary,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.SemiBold
                     )
-                    Spacer(modifier = Modifier.weight(1f))
-                    // Settings button
-                    IconButton(onClick = onNavigateToSettings) {
-                        Icon(
-                            Icons.Outlined.Settings,
-                            contentDescription = "\u041D\u0430\u0441\u0442\u0440\u043E\u0439\u043A\u0438",
-                            tint = TextSecondary
-                        )
-                    }
                 }
-                // Tabs (same as VSCodeScreen)
-                TabRow(
-                    selectedTabIndex = selectedTab,
-                    containerColor = DarkSurface,
-                    contentColor = AccentBlue,
-                    divider = {}
+                TextButton(
+                    onClick = { selectedTab = 0 },
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp)
                 ) {
-                    tabs.forEachIndexed { index, title ->
-                        Tab(
-                            selected = selectedTab == index,
-                            onClick = { selectedTab = index },
-                            text = {
-                                Text(
-                                    title,
-                                    color = if (selectedTab == index) AccentBlue else TextSecondary,
-                                    fontWeight = if (selectedTab == index) FontWeight.SemiBold else FontWeight.Normal,
-                                    fontSize = 14.sp
-                                )
-                            }
-                        )
-                    }
+                    Text(
+                        "\u0427\u0410\u0422",
+                        color = if (selectedTab == 0) TextBright else TextSecondary,
+                        fontSize = 13.sp
+                    )
+                }
+                TextButton(
+                    onClick = { selectedTab = 1 },
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp)
+                ) {
+                    Text(
+                        "\u0424\u0410\u0419\u041B\u042B",
+                        color = if (selectedTab == 1) TextBright else TextSecondary,
+                        fontSize = 13.sp
+                    )
+                }
+                Spacer(modifier = Modifier.weight(1f))
+                IconButton(onClick = onNavigateToSettings, modifier = Modifier.size(38.dp)) {
+                    Icon(
+                        Icons.Outlined.Settings,
+                        contentDescription = "\u041D\u0430\u0441\u0442\u0440\u043E\u0439\u043A\u0438",
+                        tint = TextSecondary,
+                        modifier = Modifier.size(22.dp)
+                    )
                 }
             }
         }
@@ -275,19 +267,21 @@ fun CodexChatTab(
     }
 
     Column(modifier = Modifier.fillMaxSize().imePadding().background(Color(0xFF151617))) {
-        Row(modifier = Modifier.fillMaxWidth().height(42.dp).padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-            Text("CODEX", color = TextBright, fontSize = 13.sp, fontWeight = FontWeight.Medium)
-            Spacer(modifier = Modifier.width(22.dp))
-            Text("\u0427\u0410\u0422", color = TextSecondary, fontSize = 13.sp)
-            Spacer(modifier = Modifier.weight(1f))
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(42.dp)
+                .padding(horizontal = 12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(currentThread?.title ?: "\u0414\u043E\u0440\u0430\u0431\u043E\u0442\u0430\u0442\u044C \u0443\u0434\u0430\u043B\u0451\u043D\u043D\u044B\u0439 \u0434\u043E\u0441\u0442\u0443\u043F", color = TextBright, fontSize = 16.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
             IconButton(onClick = { onLoadThreads(); showThreads = true }, modifier = Modifier.size(36.dp)) {
-                Icon(Icons.Default.History, contentDescription = "\u0418\u0441\u0442\u043E\u0440\u0438\u044F", tint = TextSecondary, modifier = Modifier.size(20.dp))
+                Icon(Icons.Default.MoreHoriz, contentDescription = "\u0418\u0441\u0442\u043E\u0440\u0438\u044F", tint = TextSecondary, modifier = Modifier.size(22.dp))
             }
             IconButton(onClick = onLaunchCodex, modifier = Modifier.size(36.dp)) {
-                Icon(Icons.Outlined.Edit, contentDescription = "\u041E\u0442\u043A\u0440\u044B\u0442\u044C Codex", tint = TextSecondary, modifier = Modifier.size(20.dp))
+                Icon(Icons.Outlined.Edit, contentDescription = "\u041D\u043E\u0432\u044B\u0439 \u0447\u0430\u0442", tint = TextSecondary, modifier = Modifier.size(20.dp))
             }
         }
-        Box(modifier = Modifier.padding(start = 8.dp).width(62.dp).height(1.dp).background(AccentBlue))
 
         if (showThreads) {
             AlertDialog(
