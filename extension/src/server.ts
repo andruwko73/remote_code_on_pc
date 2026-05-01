@@ -1347,6 +1347,50 @@ export class RemoteServer {
         this.broadcast({ type: 'codex:message', message: done, threadId, timestamp: Date.now() });
     }
 
+    private async enqueueRemoteCodeMessage(
+        message: string,
+        model: string,
+        threadId: string,
+        attachments: MobileAttachment[]
+    ): Promise<string> {
+        const targetThreadId = threadId.trim() || this.getCodexThreadSummariesFast()[0]?.id || 'remote-code';
+        const attachmentFiles = this.saveMobileAttachments(attachments);
+        const messageForAgent = this.withAttachmentInstructions(message, attachmentFiles);
+        const userMessage: CodexChatMessage = {
+            id: `remote_user_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+            role: 'user',
+            content: messageForAgent,
+            timestamp: Date.now(),
+            model: model || undefined,
+            threadId: targetThreadId
+        };
+        this.codexHistory.push(userMessage);
+        this.codexHistory = this.codexHistory.slice(-100);
+        this.openPcChatPanel();
+        this.refreshPcChatPanel();
+        this.broadcast({ type: 'codex:message', message: userMessage, threadId: targetThreadId, timestamp: Date.now() });
+        this.broadcast({ type: 'codex:sent', message: messageForAgent, model, threadId: targetThreadId, timestamp: Date.now() });
+
+        this.answerInPcMirror(messageForAgent, targetThreadId, model).catch(err => {
+            const errorMessage: CodexChatMessage = {
+                id: `remote_assistant_error_${Date.now()}`,
+                role: 'assistant',
+                content: `Remote Code Agent error: ${err?.message || String(err)}`,
+                timestamp: Date.now(),
+                threadId: targetThreadId
+            };
+            this.codexHistory.push(errorMessage);
+            this.codexHistory = this.codexHistory.slice(-100);
+            this.refreshPcChatPanel();
+            this.broadcast({ type: 'codex:message', message: errorMessage, threadId: targetThreadId, timestamp: Date.now() });
+        });
+        return targetThreadId;
+    }
+
+    public openRemoteCodeChat(): void {
+        this.openPcChatPanel();
+    }
+
     private openPcChatPanel(): void {
         if (this.pcChatPanel) {
             this.pcChatPanel.reveal(vscode.ViewColumn.Beside, true);
@@ -1354,10 +1398,15 @@ export class RemoteServer {
         }
         this.pcChatPanel = vscode.window.createWebviewPanel(
             'remoteCodePcChat',
-            'Remote Code Chat',
+            'Remote Code',
             vscode.ViewColumn.Beside,
-            { enableScripts: false, retainContextWhenHidden: true }
+            { enableScripts: true, retainContextWhenHidden: true }
         );
+        this.pcChatPanel.webview.onDidReceiveMessage(async msg => {
+            if (msg?.type === 'send' && typeof msg.message === 'string' && msg.message.trim()) {
+                await this.enqueueRemoteCodeMessage(msg.message, typeof msg.model === 'string' ? msg.model : '', '', []);
+            }
+        });
         this.pcChatPanel.onDidDispose(() => {
             this.pcChatPanel = undefined;
         });
@@ -1371,7 +1420,7 @@ export class RemoteServer {
 
     private renderPcChatHtml(messages: CodexChatMessage[]): string {
         const rows = messages.map(message => {
-            const role = message.role === 'user' ? 'Вы' : message.role === 'assistant' ? 'Codex' : 'Система';
+            const role = message.role === 'user' ? 'You' : message.role === 'assistant' ? 'Remote Code' : 'System';
             const cls = message.role === 'user' ? 'user' : message.role === 'assistant' ? 'assistant' : 'system';
             return `<section class="msg ${cls}">
                 <div class="role">${this.escapeHtml(role)}</div>
@@ -1383,19 +1432,51 @@ export class RemoteServer {
 <head>
 <meta charset="UTF-8">
 <style>
-body{margin:0;background:#151617;color:#d7d7d7;font:14px/1.55 var(--vscode-font-family);padding:18px}
-.title{font-size:13px;color:#8e8e8e;text-transform:uppercase;letter-spacing:.08em;margin-bottom:16px}
+html,body{height:100%}
+body{margin:0;background:#151617;color:#d7d7d7;font:14px/1.55 var(--vscode-font-family);display:flex;flex-direction:column}
+.top{border-bottom:1px solid #282b2e;padding:12px 16px;background:#1b1d1f}
+.title{font-size:13px;color:#8e8e8e;text-transform:uppercase;letter-spacing:.08em}
+.messages{flex:1;overflow:auto;padding:18px 18px 8px}
 .msg{border:1px solid #2a2d2f;border-radius:8px;padding:12px 14px;margin:0 0 12px;background:#1d1f20}
 .msg.user{background:#10283a;border-color:#16415d}
 .msg.system{background:#2a2118;border-color:#4b3624}
 .role{font-weight:600;color:#55b4ff;margin-bottom:7px}
 .assistant .role{color:#7bd88f}.system .role{color:#e8b66b}
 pre{margin:0;white-space:pre-wrap;word-wrap:break-word;font:inherit}
+.composer{border-top:1px solid #282b2e;background:#181a1c;padding:12px;display:flex;gap:10px;align-items:flex-end}
+textarea{flex:1;resize:vertical;min-height:48px;max-height:180px;border:1px solid #34383d;border-radius:8px;background:#111315;color:#e8e8e8;padding:10px;font:inherit;outline:none}
+textarea:focus{border-color:#1492e6}
+button{border:0;border-radius:8px;background:#1492e6;color:white;padding:0 16px;height:42px;font-weight:600;cursor:pointer}
 </style>
 </head>
 <body>
-<div class="title">Remote Code Chat Mirror</div>
-${rows || '<div class="msg system"><div class="role">Система</div><pre>Ожидаю сообщение с телефона.</pre></div>'}
+<div class="top"><div class="title">Remote Code Agent</div></div>
+<main class="messages" id="messages">
+${rows || '<div class="msg system"><div class="role">System</div><pre>Waiting for a message from Android or VS Code.</pre></div>'}
+</main>
+<form class="composer" id="composer">
+  <textarea id="prompt" placeholder="Ask Remote Code..."></textarea>
+  <button id="send" type="submit">Send</button>
+</form>
+<script>
+const vscode = acquireVsCodeApi();
+const form = document.getElementById('composer');
+const prompt = document.getElementById('prompt');
+const messages = document.getElementById('messages');
+messages.scrollTop = messages.scrollHeight;
+form.addEventListener('submit', event => {
+  event.preventDefault();
+  const message = prompt.value.trim();
+  if (!message) return;
+  vscode.postMessage({ type: 'send', message });
+  prompt.value = '';
+});
+prompt.addEventListener('keydown', event => {
+  if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) {
+    form.requestSubmit();
+  }
+});
+</script>
 </body>
 </html>`;
     }
@@ -1856,60 +1937,19 @@ ${rows || '<div class="msg system"><div class="role">Система</div><pre>О
         }
 
         try {
-            const targetThreadId = typeof threadId === 'string' && threadId.trim()
-                ? threadId.trim()
-                : (this.getCodexThreadSummariesFast()[0]?.id || '');
-            const attachmentFiles = this.saveMobileAttachments(Array.isArray(attachments) ? attachments : []);
-            const messageForCodex = this.withAttachmentInstructions(message, attachmentFiles);
-            const userMessage: CodexChatMessage = {
-                id: `codex_user_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
-                role: 'user',
-                content: messageForCodex,
-                timestamp: Date.now(),
-                model: typeof model === 'string' && model ? model : undefined,
-                threadId: targetThreadId
-            };
-            this.codexHistory.push(userMessage);
-            this.codexHistory = this.codexHistory.slice(-100);
-            this.openPcChatPanel();
-            this.refreshPcChatPanel();
-            this.broadcast({ type: 'codex:message', message: userMessage, threadId: targetThreadId, timestamp: Date.now() });
-            this.broadcast({ type: 'codex:sent', message: messageForCodex, model, threadId: targetThreadId, timestamp: Date.now() });
-
-            this.sendToOfficialCodexComposer(messageForCodex).catch(err => {
-                const warningMessage: CodexChatMessage = {
-                    id: `codex_system_${Date.now()}`,
-                    role: 'system',
-                    content: `Official Codex UI automation failed: ${err?.message || String(err)}`,
-                    timestamp: Date.now(),
-                    threadId: targetThreadId
-                };
-                this.codexHistory.push(warningMessage);
-                this.codexHistory = this.codexHistory.slice(-100);
-                this.refreshPcChatPanel();
-                this.broadcast({ type: 'codex:message', message: warningMessage, threadId: targetThreadId, timestamp: Date.now() });
-            });
-
-            this.answerInPcMirror(messageForCodex, targetThreadId, model).catch(err => {
-                const errorMessage: CodexChatMessage = {
-                    id: `codex_assistant_error_${Date.now()}`,
-                    role: 'assistant',
-                    content: `Remote Code mirror error: ${err?.message || String(err)}`,
-                    timestamp: Date.now(),
-                    threadId: targetThreadId
-                };
-                this.codexHistory.push(errorMessage);
-                this.codexHistory = this.codexHistory.slice(-100);
-                this.refreshPcChatPanel();
-                this.broadcast({ type: 'codex:message', message: errorMessage, threadId: targetThreadId, timestamp: Date.now() });
-            });
+            const targetThreadId = await this.enqueueRemoteCodeMessage(
+                message,
+                typeof model === 'string' ? model : '',
+                typeof threadId === 'string' ? threadId : '',
+                Array.isArray(attachments) ? attachments : []
+            );
 
             this.jsonResponse(res, 200, {
                 success: true,
-                method: 'remote-code-pc-mirror',
-                message: 'Sent to Remote Code PC mirror and queued for Codex UI automation',
+                method: 'remote-code-agent',
+                message: 'Sent to Remote Code Agent',
                 threadId: targetThreadId,
-                note: 'Official Codex webview has no public API for direct thread injection; Remote Code mirrors the phone chat in VS Code.'
+                note: 'Remote Code Agent owns this cross-device chat.'
             });
         } catch (err: any) {
             this.jsonResponse(res, 500, { error: err.message });

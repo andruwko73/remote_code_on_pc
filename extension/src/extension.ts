@@ -61,7 +61,7 @@ export function activate(context: vscode.ExtensionContext) {
                 return;
             }
         }
-        await server.openOfficialCodex();
+        server.openRemoteCodeChat();
     });
 
     const stopCmd = vscode.commands.registerCommand('remoteCodeOnPC.stop', async () => {
