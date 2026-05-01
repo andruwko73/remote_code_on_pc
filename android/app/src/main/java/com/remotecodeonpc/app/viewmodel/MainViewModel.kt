@@ -333,10 +333,18 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     }
                     "codex:approval-request", "codex:action-update" -> {
                         val threadId = data["threadId"] as? String
-                        viewModelScope.launch {
-                            loadCodexEvents(threadId)
-                            loadCodexHistory(threadId)
+                        val event = (data["event"] as? Map<*, *>)?.toCodexActionEvent()
+                        @Suppress("UNCHECKED_CAST")
+                        val events = (data["events"] as? List<Map<*, *>>)?.mapNotNull { it.toCodexActionEvent() }
+                        when {
+                            events != null -> _uiState.value = _uiState.value.copy(
+                                currentCodexThreadId = threadId ?: _uiState.value.currentCodexThreadId,
+                                codexActionEvents = events
+                            )
+                            event != null -> upsertCodexActionEvent(event, threadId)
+                            else -> viewModelScope.launch { loadCodexEvents(threadId) }
                         }
+                        viewModelScope.launch { loadCodexHistory(threadId) }
                     }
                     "codex:managed-status" -> {
                         viewModelScope.launch {
@@ -685,6 +693,36 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         )
     }
 
+    private fun Map<*, *>.toCodexActionEvent(): CodexActionEvent? {
+        val id = this["id"] as? String ?: return null
+        return CodexActionEvent(
+            id = id,
+            type = this["type"] as? String ?: "",
+            title = this["title"] as? String ?: "",
+            detail = this["detail"] as? String ?: this["diff"] as? String ?: "",
+            status = this["status"] as? String ?: "",
+            timestamp = (this["timestamp"] as? Double)?.toLong()
+                ?: (this["timestamp"] as? Long)
+                ?: System.currentTimeMillis(),
+            callId = this["callId"] as? String,
+            source = this["source"] as? String,
+            actionable = this["actionable"] as? Boolean ?: false
+        )
+    }
+
+    private fun upsertCodexActionEvent(event: CodexActionEvent, threadId: String?) {
+        val current = _uiState.value.codexActionEvents
+        val next = if (current.any { it.id == event.id }) {
+            current.map { if (it.id == event.id) event else it }
+        } else {
+            current + event
+        }.takeLast(80)
+        _uiState.value = _uiState.value.copy(
+            currentCodexThreadId = threadId ?: _uiState.value.currentCodexThreadId,
+            codexActionEvents = next
+        )
+    }
+
     // ===== TERMINAL =====
 
     fun clearTerminal() {
@@ -950,6 +988,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     )
                 } else {
                     loadCodexEvents()
+                    loadCodexHistory()
                 }
             } catch (e: Exception) {
                 _uiState.value = _uiState.value.copy(codexError = e.message)

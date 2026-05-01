@@ -1531,7 +1531,7 @@ export class RemoteServer {
             `${message}\n\nReasoning effort: ${this.reasoningEffortLabel(effort)} (${effort}).\nProfile: ${this.selectedProfile}.\nWork mode: ${this.selectedWorkMode}.`,
             model || this.selectedAgent || 'auto',
             (content) => {
-            thinking.content = content || '...';
+            thinking.content = this.stripActionDirectives(content || '...');
             thinking.timestamp = Date.now();
             this.codexHistory = this.codexHistory.map(m => m.id === thinking.id ? { ...thinking } : m);
             this.saveRemoteCodeState();
@@ -1546,10 +1546,11 @@ export class RemoteServer {
         },
             includeContext
         );
+        const cleanResponse = this.stripActionDirectives(response);
         const done: CodexChatMessage = {
             ...thinking,
             id: `codex_assistant_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
-            content: response,
+            content: cleanResponse,
             timestamp: Date.now(),
             isStreaming: false
         };
@@ -1897,6 +1898,14 @@ export class RemoteServer {
                 timestamp: Date.now()
             });
         }
+    }
+
+    private stripActionDirectives(content: string): string {
+        return content
+            .replace(/::run-command\{[^\n]+\}/g, '')
+            .replace(/::write-file\{[^\n]+\}/g, '')
+            .replace(/\n{3,}/g, '\n\n')
+            .trim() || 'Готово. Ожидаю подтверждение действия.';
     }
 
     private createSimpleDiff(filePath: string, before: string, after: string): string {
