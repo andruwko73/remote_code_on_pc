@@ -434,12 +434,10 @@ export class RemoteServer {
 
     // GET /api/chat/agents
     private async handleGetAgents(_req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
-        // Получаем доступные chat-агенты из VS Code
-        const agents = await this.getAvailableAgents();
-        const chats = this.getAllVSCodeChats();
-        if (this.currentChatId === 'default' && chats.length > 0) {
-            this.currentChatId = chats[0].id;
-        }
+        const agents: ChatAgent[] = [
+            { name: 'codex', displayName: 'Codex', vendor: 'openai', model: 'Codex', isDefault: true }
+        ];
+        this.selectedAgent = 'codex';
         this.jsonResponse(res, 200, {
             agents,
             selected: this.selectedAgent,

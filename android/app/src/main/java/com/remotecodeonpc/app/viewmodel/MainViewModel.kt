@@ -1063,9 +1063,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         // Р—Р°РіСЂСѓР¶Р°РµРј РґР°РЅРЅС‹Рµ РїСЂРё РїРµСЂРµС…РѕРґРµ
         when (screen) {
             "vscode" -> {
-                loadChatAgents()
-                loadChatHistory()
-                loadConversations()
                 loadFolders()
                 loadCodexStatus()
                 loadCodexModels()

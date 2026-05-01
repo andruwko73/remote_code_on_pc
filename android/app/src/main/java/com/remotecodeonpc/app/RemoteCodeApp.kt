@@ -53,7 +53,7 @@ fun RemoteCodeApp(
                         currentFiles = state.currentFiles,
                         fileContent = state.fileContent,
                         isLoadingFiles = state.isLoadingFiles,
-                        onSendMessage = { viewModel.sendChatMessage(it) },
+                        onSendMessage = { viewModel.sendCodexMessage(it) },
                         onSelectAgent = { viewModel.selectAgent(it) },
                         onNewChat = { viewModel.newChat() },
                         onSwitchChat = { viewModel.switchToChat(it) },
