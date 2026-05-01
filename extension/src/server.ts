@@ -2142,11 +2142,11 @@ prompt.addEventListener('keydown', event => {
     // POST /api/codex/launch
     private async handleCodexLaunch(_req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
         try {
-            await this.openOfficialCodex();
+            this.openRemoteCodeChat();
             this.jsonResponse(res, 200, {
                 success: true,
-                method: 'official-vscode-codex',
-                note: 'Official Codex Sidebar opened in VS Code'
+                method: 'remote-code-agent',
+                note: 'Remote Code Agent chat opened in VS Code'
             });
         } catch (err: any) {
             this.jsonResponse(res, 500, { error: err.message });

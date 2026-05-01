@@ -24,6 +24,7 @@ export function activate(context: vscode.ExtensionContext) {
     server.start().then(() => {
         console.log(`[RemoteCodeOnPC] Сервер автозапущен на порту ${port}`);
         updateStatusBar();
+        server?.openRemoteCodeChat();
     }).catch(err => {
         console.error('[RemoteCodeOnPC] Ошибка автозапуска:', err.message);
         server = undefined;
