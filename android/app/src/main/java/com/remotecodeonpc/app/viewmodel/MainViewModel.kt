@@ -130,7 +130,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun connect() {
         val config = _uiState.value.serverConfig
         if (config.host.isBlank()) {
-            _uiState.value = _uiState.value.copy(connectionError = "Введите IP адрес ПК")
+            _uiState.value = _uiState.value.copy(connectionError = "Р’РІРµРґРёС‚Рµ IP Р°РґСЂРµСЃ РџРљ")
             return
         }
 
@@ -172,7 +172,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     CrashLogger.w("ViewModel", "getStatus failed: code=${response.code()}, message=${response.message()}")
                     _uiState.value = _uiState.value.copy(
                         isConnecting = false,
-                        connectionError = "Ошибка ${response.code()}: ${response.message()}"
+                        connectionError = "РћС€РёР±РєР° ${response.code()}: ${response.message()}"
                     )
                 }
             } catch (e: Exception) {
@@ -222,9 +222,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             }
 
             override fun onDisconnected() {
-                // WebSocket может переподключаться — не сбрасываем isConnected
+                // WebSocket РјРѕР¶РµС‚ РїРµСЂРµРїРѕРґРєР»СЋС‡Р°С‚СЊСЃСЏ вЂ” РЅРµ СЃР±СЂР°СЃС‹РІР°РµРј isConnected
                 _uiState.value = _uiState.value.copy(isWebSocketConnected = false)
-                // Останавливаем health-check на время реконнекта
+                // РћСЃС‚Р°РЅР°РІР»РёРІР°РµРј health-check РЅР° РІСЂРµРјСЏ СЂРµРєРѕРЅРЅРµРєС‚Р°
                 healthCheckJob?.cancel()
                 healthCheckJob = null
             }
@@ -262,7 +262,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         _uiState.value = _uiState.value.copy(
                             status = _uiState.value.status?.copy(
                                 workspace = _uiState.value.status?.workspace?.copy(
-                                    activeFile = activeFile ?: "—"
+                                    activeFile = activeFile ?: "вЂ”"
                                 )
                             )
                         )
@@ -271,13 +271,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         viewModelScope.launch { loadFolders() }
                     }
                     "chat:sessions-update" -> {
-                        // VS Code чаты изменились на ПК — обновляем список и историю
+                        // VS Code С‡Р°С‚С‹ РёР·РјРµРЅРёР»РёСЃСЊ РЅР° РџРљ вЂ” РѕР±РЅРѕРІР»СЏРµРј СЃРїРёСЃРѕРє Рё РёСЃС‚РѕСЂРёСЋ
                         viewModelScope.launch {
                             loadConversations()
                         }
                     }
                     "codex:sent" -> {
-                        // Codex запрос отправлен — можем обновить статус
+                        // Codex Р·Р°РїСЂРѕСЃ РѕС‚РїСЂР°РІР»РµРЅ вЂ” РјРѕР¶РµРј РѕР±РЅРѕРІРёС‚СЊ СЃС‚Р°С‚СѓСЃ
                         val threadId = data["threadId"] as? String
                         viewModelScope.launch {
                             loadCodexStatus()
@@ -359,7 +359,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             }
 
             override fun onError(error: String) {
-                // WebSocket ошибка — логируем
+                // WebSocket РѕС€РёР±РєР° вЂ” Р»РѕРіРёСЂСѓРµРј
                 android.util.Log.d("WSClient", "WS error: $error")
             }
 
@@ -372,7 +372,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun disconnect() {
-        val savedConfig = _uiState.value.serverConfig // сохраняем конфиг
+        val savedConfig = _uiState.value.serverConfig // СЃРѕС…СЂР°РЅСЏРµРј РєРѕРЅС„РёРі
         healthCheckJob?.cancel()
         healthCheckJob = null
         wsClient?.disconnect()
@@ -405,7 +405,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private fun onHealthCheckFailed() {
-        if (!_uiState.value.isConnected) return // уже на экране коннекта
+        if (!_uiState.value.isConnected) return // СѓР¶Рµ РЅР° СЌРєСЂР°РЅРµ РєРѕРЅРЅРµРєС‚Р°
         healthCheckFailures++
         CrashLogger.w("ViewModel", "Health-check failure $healthCheckFailures; keeping current screen")
         _uiState.value = _uiState.value.copy(isWebSocketConnected = false)
@@ -564,12 +564,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     loadChatHistory()
                 } else {
                     _uiState.value = _uiState.value.copy(
-                        chatError = "Ошибка ${response.code()}"
+                        chatError = "РћС€РёР±РєР° ${response.code()}"
                     )
                 }
             } catch (e: Exception) {
                 _uiState.value = _uiState.value.copy(
-                    chatError = "Ошибка: ${e.message}"
+                    chatError = "РћС€РёР±РєР°: ${e.message}"
                 )
             } finally {
                 _uiState.value = _uiState.value.copy(isChatLoading = false)
@@ -691,7 +691,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 val response = api.execTerminal(mapOf("command" to command))
                 if (response.isSuccessful) {
                     val body = response.body()
-                    val output = body?.get("output") as? String ?: "✅ Команда отправлена: $command"
+                    val output = body?.get("output") as? String ?: "вњ… РљРѕРјР°РЅРґР° РѕС‚РїСЂР°РІР»РµРЅР°: $command"
                     val currentOutput = _uiState.value.terminalOutput
                     _uiState.value = _uiState.value.copy(
                         terminalOutput = currentOutput + "\n> $command\n$output\n",
@@ -700,14 +700,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 } else {
                     val currentOutput = _uiState.value.terminalOutput
                     _uiState.value = _uiState.value.copy(
-                        terminalOutput = currentOutput + "\n> $command\n❌ Ошибка ${response.code()}\n",
+                        terminalOutput = currentOutput + "\n> $command\nвќЊ РћС€РёР±РєР° ${response.code()}\n",
                         isTerminalRunning = false
                     )
                 }
             } catch (e: Exception) {
                 val currentOutput = _uiState.value.terminalOutput
                 _uiState.value = _uiState.value.copy(
-                    terminalOutput = currentOutput + "\n> $command\n❌ Ошибка: ${e.message}\n",
+                    terminalOutput = currentOutput + "\n> $command\nвќЊ РћС€РёР±РєР°: ${e.message}\n",
                     isTerminalRunning = false
                 )
             }
@@ -807,26 +807,42 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun sendCodexMessage(text: String, attachments: List<MessageAttachment> = emptyList()) {
-        _uiState.value = _uiState.value.copy(isCodexLoading = true, codexError = null)
+        val sentAt = System.currentTimeMillis()
+        val optimisticMessage = CodexChatMessage(
+            id = "mobile_user_$sentAt",
+            role = "user",
+            content = text,
+            timestamp = sentAt,
+            model = _uiState.value.codexSelectedModel.takeIf { it.isNotBlank() }
+        )
+        _uiState.value = _uiState.value.copy(
+            isCodexLoading = true,
+            codexError = null,
+            codexChatHistory = (_uiState.value.codexChatHistory + optimisticMessage).takeLast(120)
+        )
         viewModelScope.launch {
             try {
                 val api = ApiClient.getApi(_uiState.value.serverConfig)
+                val threadId = _uiState.value.currentCodexThreadId
                 val response = api.sendCodexMessage(
                     mapOf(
                         "message" to text,
                         "model" to _uiState.value.codexSelectedModel,
-                        "threadId" to _uiState.value.currentCodexThreadId,
+                        "threadId" to threadId,
                         "attachments" to attachments
                     )
                 )
                 if (response.isSuccessful) {
                     val body = response.body()
+                    val nextThreadId = body?.threadId?.takeIf { it.isNotBlank() } ?: threadId
                     _uiState.value = _uiState.value.copy(
                         codexSendResult = body,
-                        currentCodexThreadId = body?.threadId?.takeIf { it.isNotBlank() }
-                            ?: _uiState.value.currentCodexThreadId,
+                        currentCodexThreadId = nextThreadId,
                         isCodexLoading = false
                     )
+                    loadCodexThreads()
+                    loadCodexHistory(nextThreadId)
+                    loadCodexEvents(nextThreadId)
                 } else {
                     _uiState.value = _uiState.value.copy(
                         codexError = "Ошибка ${response.code()}",
@@ -841,7 +857,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             }
         }
     }
-
     fun loadCodexThreads() {
         viewModelScope.launch {
             try {
@@ -931,7 +946,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         localIp = body?.localIp ?: "",
                         tunnelError = null
                     )
-                    // Если туннель активен — обновляем конфиг для Android
+                    // Р•СЃР»Рё С‚СѓРЅРЅРµР»СЊ Р°РєС‚РёРІРµРЅ вЂ” РѕР±РЅРѕРІР»СЏРµРј РєРѕРЅС„РёРі РґР»СЏ Android
                     if (body?.tunnelActive == true && body.tunnelUrl != null) {
                         val updatedConfig = _uiState.value.serverConfig.copy(
                             tunnelUrl = body.tunnelUrl,
@@ -961,26 +976,26 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         isTunnelStarting = false,
                         tunnelError = null
                     )
-                    // Автоматически переключаем Android на туннель
+                    // РђРІС‚РѕРјР°С‚РёС‡РµСЃРєРё РїРµСЂРµРєР»СЋС‡Р°РµРј Android РЅР° С‚СѓРЅРЅРµР»СЊ
                     if (url != null) {
                         val updatedConfig = _uiState.value.serverConfig.copy(
                             useTunnel = true,
                             tunnelUrl = url
                         )
                         _uiState.value = _uiState.value.copy(serverConfig = updatedConfig)
-                        // Переподключаем WebSocket через туннель
+                        // РџРµСЂРµРїРѕРґРєР»СЋС‡Р°РµРј WebSocket С‡РµСЂРµР· С‚СѓРЅРЅРµР»СЊ
                         connectWebSocket()
                     }
                 } else {
                     _uiState.value = _uiState.value.copy(
                         isTunnelStarting = false,
-                        tunnelError = "Ошибка ${response.code()}"
+                        tunnelError = "РћС€РёР±РєР° ${response.code()}"
                     )
                 }
             } catch (e: Exception) {
                 _uiState.value = _uiState.value.copy(
                     isTunnelStarting = false,
-                    tunnelError = "Ошибка: ${e.message}"
+                    tunnelError = "РћС€РёР±РєР°: ${e.message}"
                 )
             }
         }
@@ -1001,7 +1016,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         tunnelUrl = ""
                     )
                 )
-                // Переподключаем WebSocket обратно на LAN
+                // РџРµСЂРµРїРѕРґРєР»СЋС‡Р°РµРј WebSocket РѕР±СЂР°С‚РЅРѕ РЅР° LAN
                 connectWebSocket()
             } catch (e: Exception) {
                 _uiState.value = _uiState.value.copy(tunnelError = e.message)
@@ -1016,7 +1031,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 tunnelUrl = _uiState.value.tunnelUrl ?: ""
             )
             _uiState.value = _uiState.value.copy(serverConfig = updatedConfig)
-            // Сбросим API, чтобы пересоздать с новым URL
+            // РЎР±СЂРѕСЃРёРј API, С‡С‚РѕР±С‹ РїРµСЂРµСЃРѕР·РґР°С‚СЊ СЃ РЅРѕРІС‹Рј URL
             ApiClient.reset()
             connectWebSocket()
         } else if (!useTunnel) {
@@ -1034,7 +1049,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun navigateTo(screen: String) {
         _uiState.value = _uiState.value.copy(currentScreen = screen)
-        // Загружаем данные при переходе
+        // Р—Р°РіСЂСѓР¶Р°РµРј РґР°РЅРЅС‹Рµ РїСЂРё РїРµСЂРµС…РѕРґРµ
         when (screen) {
             "vscode" -> {
                 loadChatAgents()
@@ -1049,7 +1064,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             "files" -> loadFolders()
             "diagnostics" -> loadDiagnostics()
             "codex" -> { loadCodexStatus(); loadCodexModels(); loadCodexThreads() }
-            "terminal" -> { /* ничего не загружаем - терминал лёгкий */ }
+            "terminal" -> { /* РЅРёС‡РµРіРѕ РЅРµ Р·Р°РіСЂСѓР¶Р°РµРј - С‚РµСЂРјРёРЅР°Р» Р»С‘РіРєРёР№ */ }
             "settings" -> loadTunnelStatus()
         }
     }

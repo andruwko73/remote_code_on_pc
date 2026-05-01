@@ -1743,6 +1743,9 @@ export class RemoteServer {
         }
 
         try {
+            const targetThreadId = typeof threadId === 'string' && threadId.trim()
+                ? threadId.trim()
+                : (this.getCodexThreadSummariesFast()[0]?.id || '');
             const attachmentFiles = this.saveMobileAttachments(Array.isArray(attachments) ? attachments : []);
             const messageForCodex = this.withAttachmentInstructions(message, attachmentFiles);
             await this.sendToOfficialCodexComposer(messageForCodex);
@@ -1756,13 +1759,14 @@ export class RemoteServer {
             };
             this.codexHistory.push(userMessage);
             this.codexHistory = this.codexHistory.slice(-100);
-            this.broadcast({ type: 'codex:message', message: userMessage, threadId, timestamp: Date.now() });
-            this.broadcast({ type: 'codex:sent', message: messageForCodex, model, threadId, timestamp: Date.now() });
+            this.broadcast({ type: 'codex:message', message: userMessage, threadId: targetThreadId, timestamp: Date.now() });
+            this.broadcast({ type: 'codex:sent', message: messageForCodex, model, threadId: targetThreadId, timestamp: Date.now() });
 
             this.jsonResponse(res, 200, {
                 success: true,
                 method: 'official-vscode-codex-ui',
                 message: 'Sent to the official Codex VS Code extension',
+                threadId: targetThreadId,
                 note: 'Response streaming is owned by the official Codex sidebar.'
             });
         } catch (err: any) {

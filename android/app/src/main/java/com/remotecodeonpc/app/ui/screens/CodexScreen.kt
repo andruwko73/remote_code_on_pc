@@ -324,7 +324,7 @@ fun CodexChatTab(
                     keyboardActions = KeyboardActions(onSend = { submitMessage() })
                 )
                 Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                    IconButton(onClick = { attachmentPicker.launch("*/*") }, enabled = !isLoading, modifier = Modifier.size(38.dp)) { Icon(Icons.Default.Add, contentDescription = "\u0414\u043E\u0431\u0430\u0432\u0438\u0442\u044C", tint = TextSecondary) }
+                    IconButton(onClick = { attachmentPicker.launch("*/*") }, modifier = Modifier.size(42.dp)) { Icon(Icons.Default.Add, contentDescription = "\u0414\u043E\u0431\u0430\u0432\u0438\u0442\u044C", tint = TextSecondary) }
                     IconButton(onClick = { showModelSelector = true }, modifier = Modifier.size(38.dp)) { Icon(Icons.Outlined.Settings, contentDescription = "\u041D\u0430\u0441\u0442\u0440\u043E\u0439\u043A\u0438", tint = TextSecondary, modifier = Modifier.size(20.dp)) }
                     Box {
                         TextButton(onClick = { showModelSelector = true }, contentPadding = PaddingValues(horizontal = 6.dp)) {
@@ -342,7 +342,7 @@ fun CodexChatTab(
                         Spacer(modifier = Modifier.width(4.dp))
                         Text("\u041A\u043E\u043D\u0442\u0435\u043A\u0441\u0442 IDE", color = AccentBlue, fontSize = 13.sp)
                     }
-                    FilledIconButton(onClick = { submitMessage() }, enabled = (messageText.isNotBlank() || attachments.isNotEmpty()) && !isLoading, shape = CircleShape, colors = IconButtonDefaults.filledIconButtonColors(containerColor = Color(0xFF8E8E8E), disabledContainerColor = Color(0xFF3A3A3A)), modifier = Modifier.size(44.dp)) {
+                    FilledIconButton(onClick = { submitMessage() }, enabled = messageText.isNotBlank() || attachments.isNotEmpty(), shape = CircleShape, colors = IconButtonDefaults.filledIconButtonColors(containerColor = Color(0xFF8E8E8E), disabledContainerColor = Color(0xFF3A3A3A)), modifier = Modifier.size(44.dp)) {
                         if (isLoading) Text("...", color = Color.Black) else Icon(Icons.AutoMirrored.Filled.Send, contentDescription = "\u041E\u0442\u043F\u0440\u0430\u0432\u0438\u0442\u044C", tint = Color.Black)
                     }
                 }
