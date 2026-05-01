@@ -28,7 +28,7 @@ import com.remotecodeonpc.app.viewmodel.MainViewModel
 fun RemoteCodeApp(
     viewModel: MainViewModel = viewModel(),
     onShareLogs: () -> Unit = {},
-    onUpdateApp: () -> Unit = {}
+    onUpdateApp: (ServerConfig) -> Unit = {}
 ) {
     val state by viewModel.uiState.collectAsState()
 
@@ -226,7 +226,7 @@ fun RemoteCodeApp(
                         onStartTunnel = { viewModel.startTunnel() },
                         onStopTunnel = { viewModel.stopTunnel() },
                         onToggleTunnelMode = { viewModel.toggleTunnelMode(it) },
-                        onUpdateApp = onUpdateApp
+                        onUpdateApp = { onUpdateApp(state.serverConfig) }
                     )
                 }
             } else {
@@ -253,7 +253,7 @@ private fun ConnectionScreen(
     onUpdateConfig: (ServerConfig) -> Unit,
     onConnect: () -> Unit,
     onShareLogs: () -> Unit = {},
-    onUpdateApp: () -> Unit = {}
+    onUpdateApp: (ServerConfig) -> Unit = {}
 ) {
     var host by remember { mutableStateOf(serverConfig.host) }
     var port by remember { mutableStateOf(serverConfig.port.toString()) }
@@ -398,7 +398,15 @@ private fun ConnectionScreen(
 
         Spacer(modifier = Modifier.height(8.dp))
         OutlinedButton(
-            onClick = onUpdateApp,
+            onClick = {
+                onUpdateApp(
+                    serverConfig.copy(
+                        host = host,
+                        port = port.toIntOrNull() ?: 8799,
+                        authToken = authToken
+                    )
+                )
+            },
             modifier = Modifier.fillMaxWidth(),
             colors = ButtonDefaults.outlinedButtonColors(contentColor = AccentBlue),
             shape = androidx.compose.foundation.shape.RoundedCornerShape(12.dp)

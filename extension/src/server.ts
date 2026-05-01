@@ -223,6 +223,8 @@ export class RemoteServer {
                     return this.handleFileTree(req, res);
                 case pathname === '/api/workspace/read-file':
                     return this.handleReadFile(req, res);
+                case pathname === '/api/app/apk':
+                    return this.handleAppApk(req, res);
 
                 // ---- Chat ----
                 case pathname === '/api/chat/agents':
@@ -1121,6 +1123,23 @@ export class RemoteServer {
     private jsonResponse(res: http.ServerResponse, status: number, data: any): void {
         res.writeHead(status, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify(data));
+    }
+
+    private async handleAppApk(_req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
+        const apkPath = path.resolve(__dirname, '..', '..', 'apk', 'app-debug.apk');
+        if (!fs.existsSync(apkPath)) {
+            this.jsonResponse(res, 404, { error: 'APK not found', path: apkPath });
+            return;
+        }
+
+        const stat = fs.statSync(apkPath);
+        res.writeHead(200, {
+            'Content-Type': 'application/vnd.android.package-archive',
+            'Content-Length': stat.size,
+            'Content-Disposition': 'attachment; filename="remote-code-on-pc.apk"',
+            'Cache-Control': 'no-store'
+        });
+        fs.createReadStream(apkPath).pipe(res);
     }
 
     private readBody(req: http.IncomingMessage): Promise<string> {

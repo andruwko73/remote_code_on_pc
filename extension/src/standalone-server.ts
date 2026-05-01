@@ -198,6 +198,10 @@ export class StandaloneRemoteServer {
             this.sendJson(res, 200, this.readFile(requestUrl.searchParams.get('path') || ''));
             return;
         }
+        if (req.method === 'GET' && pathname === '/api/app/apk') {
+            this.sendApk(res);
+            return;
+        }
         if (req.method === 'GET' && pathname === '/api/chat/agents') {
             const chats = this.getAllVSCodeChats();
             if ((this.currentChatId === 'standalone' || !chats.some(chat => chat.id === this.currentChatId)) && chats.length > 0) {
@@ -1854,6 +1858,24 @@ export class StandaloneRemoteServer {
             'Content-Length': Buffer.byteLength(json)
         });
         res.end(json);
+    }
+
+    private sendApk(res: http.ServerResponse): void {
+        const apkPath = path.join(this.workspaceRoot, 'apk', 'app-debug.apk');
+        if (!fs.existsSync(apkPath)) {
+            this.sendJson(res, 404, { error: 'APK not found', path: apkPath });
+            return;
+        }
+
+        const stat = fs.statSync(apkPath);
+        this.setCors(res);
+        res.writeHead(200, {
+            'Content-Type': 'application/vnd.android.package-archive',
+            'Content-Length': stat.size,
+            'Content-Disposition': 'attachment; filename="remote-code-on-pc.apk"',
+            'Cache-Control': 'no-store'
+        });
+        fs.createReadStream(apkPath).pipe(res);
     }
 
     private setCors(res: http.ServerResponse): void {

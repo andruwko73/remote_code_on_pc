@@ -21,13 +21,13 @@ import java.io.File
 import java.util.concurrent.TimeUnit
 
 class MainActivity : ComponentActivity() {
-    private val updateUrl = "https://raw.githubusercontent.com/andruwko73/remote_code_on_pc/main/apk/app-debug.apk"
+    private val publicUpdateUrl = "https://raw.githubusercontent.com/andruwko73/remote_code_on_pc/main/apk/app-debug.apk"
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
         CrashLogger.init(applicationContext)
-        CrashLogger.i("MainActivity", "App started, version=1.0.1")
+        CrashLogger.i("MainActivity", "App started, version=1.0.2")
 
         val defaultCrashHandler = Thread.getDefaultUncaughtExceptionHandler()
         Thread.setDefaultUncaughtExceptionHandler { thread, throwable ->
@@ -44,7 +44,7 @@ class MainActivity : ComponentActivity() {
                 ) {
                     RemoteCodeApp(
                         onShareLogs = { shareLogs() },
-                        onUpdateApp = { downloadAndInstallUpdate() }
+                        onUpdateApp = { config -> downloadAndInstallUpdate(config) }
                     )
                 }
             }
@@ -60,7 +60,13 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    private fun downloadAndInstallUpdate() {
+    private fun downloadAndInstallUpdate(config: ServerConfig) {
+        val updateUrl = buildUpdateUrl(config)
+        if (updateUrl == null) {
+            Toast.makeText(this, "Enter PC IP first", Toast.LENGTH_LONG).show()
+            return
+        }
+
         Toast.makeText(this, "Downloading update...", Toast.LENGTH_SHORT).show()
         Thread {
             try {
@@ -71,6 +77,11 @@ class MainActivity : ComponentActivity() {
                 val request = Request.Builder()
                     .url(updateUrl)
                     .header("Cache-Control", "no-cache")
+                    .apply {
+                        if (config.authToken.isNotBlank() && updateUrl != publicUpdateUrl) {
+                            header("Authorization", "Bearer ${config.authToken}")
+                        }
+                    }
                     .build()
                 client.newCall(request).execute().use { response ->
                     if (!response.isSuccessful) {
@@ -93,6 +104,16 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }.start()
+    }
+
+    private fun buildUpdateUrl(config: ServerConfig): String? {
+        if (config.useTunnel && config.tunnelUrl.isNotBlank()) {
+            return "${config.tunnelUrl.trimEnd('/')}/api/app/apk"
+        }
+        if (config.host.isNotBlank()) {
+            return "http://${config.host}:${config.port}/api/app/apk"
+        }
+        return null
     }
 
     private fun installApk(apkFile: File) {
