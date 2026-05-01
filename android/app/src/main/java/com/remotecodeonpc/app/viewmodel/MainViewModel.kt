@@ -170,7 +170,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     loadDiagnostics()
                     loadCodexStatus()
                     loadCodexModels()
-                    loadCodexThreads(loadCurrent = false)
+                    loadCodexThreads(loadCurrent = true)
                 } else {
                     CrashLogger.w("ViewModel", "getStatus failed: code=${response.code()}, message=${response.message()}")
                     _uiState.value = _uiState.value.copy(
@@ -203,7 +203,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     loadDiagnostics()
                     loadCodexStatus()
                     loadCodexModels()
-                    loadCodexThreads(loadCurrent = false)
+                    loadCodexThreads(loadCurrent = true)
                 } catch (fallbackError: Exception) {
                     CrashLogger.e("ViewModel", "simple HTTP fallback failed", fallbackError)
                     _uiState.value = _uiState.value.copy(
@@ -366,7 +366,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                             viewModelScope.launch {
                                 loadFolders()
                                 loadCodexStatus()
-                                loadCodexThreads(loadCurrent = false)
+                                loadCodexThreads(loadCurrent = true)
                             }
                         }
                     }
@@ -971,6 +971,30 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         )
         loadCodexHistory(threadId)
         loadCodexEvents(threadId)
+    }
+
+    fun newCodexThread() {
+        viewModelScope.launch {
+            try {
+                val api = ApiClient.getApi(_uiState.value.serverConfig)
+                val response = api.newCodexThread()
+                if (response.isSuccessful) {
+                    val body = response.body()
+                    _uiState.value = _uiState.value.copy(
+                        currentCodexThreadId = body?.threadId.orEmpty(),
+                        codexChatHistory = body?.messages ?: emptyList(),
+                        codexActionEvents = emptyList(),
+                        codexSendResult = null,
+                        codexError = null
+                    )
+                    loadCodexThreads(loadCurrent = false)
+                } else {
+                    _uiState.value = _uiState.value.copy(codexError = "New chat failed: ${response.code()}")
+                }
+            } catch (e: Exception) {
+                _uiState.value = _uiState.value.copy(codexError = e.message)
+            }
+        }
     }
 
     fun respondToCodexAction(actionId: String, approve: Boolean) {

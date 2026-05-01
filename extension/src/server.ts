@@ -336,6 +336,8 @@ export class RemoteServer {
                     return this.handleCodexSelectModel(req, res);
                 case pathname === '/api/codex/threads':
                     return this.handleRemoteCodeThreads(req, res);
+                case pathname === '/api/codex/new':
+                    return this.handleRemoteCodeNewThread(req, res);
                 case pathname === '/api/codex/launch':
                     return this.handleCodexLaunch(req, res);
 
@@ -1394,6 +1396,25 @@ export class RemoteServer {
         return Array.from(byThread.values()).sort((a, b) => b.timestamp - a.timestamp);
     }
 
+    private createRemoteCodeThread(): string {
+        const threadId = `remote-code-${Date.now()}`;
+        this.currentRemoteThreadId = threadId;
+        this.codexHistory.push({
+            id: `remote_system_${Date.now()}`,
+            role: 'system',
+            content: 'Запросите изменения, проверку или работу с файлами.',
+            timestamp: Date.now(),
+            threadId
+        });
+        this.codexHistory = this.codexHistory.slice(-200);
+        this.codexActionEvents = this.codexActionEvents.filter(event => event.threadId !== threadId);
+        this.saveRemoteCodeState();
+        this.refreshPcChatPanel();
+        this.broadcast({ type: 'codex:threads-update', threads: this.getRemoteCodeThreads(), timestamp: Date.now() });
+        this.broadcast({ type: 'codex:message', message: this.codexHistory[this.codexHistory.length - 1], threadId, timestamp: Date.now() });
+        return threadId;
+    }
+
     private getWorkspaceContextForPrompt(): string {
         const folders = vscode.workspace.workspaceFolders?.map(f => f.uri.fsPath).join('\n') || 'No workspace folder is open.';
         const active = vscode.window.activeTextEditor;
@@ -1676,10 +1697,7 @@ export class RemoteServer {
                 return;
             }
             case 'newChat':
-                this.currentRemoteThreadId = `remote-code-${Date.now()}`;
-                this.saveRemoteCodeState();
-                this.refreshPcChatPanel();
-                this.broadcast({ type: 'codex:threads-update', threads: this.getRemoteCodeThreads(), timestamp: Date.now() });
+                this.createRemoteCodeThread();
                 return;
             case 'clearChat':
                 this.codexHistory = this.codexHistory.filter(message => message.threadId !== this.currentRemoteThreadId);
@@ -1728,20 +1746,20 @@ export class RemoteServer {
         } catch {
             models = [];
         }
-        const workspace = vscode.workspace.workspaceFolders?.[0]?.name || '??? ??????? ?????';
+        const workspace = vscode.workspace.workspaceFolders?.[0]?.name || 'нет рабочей папки';
         const modelNames = models
             .map((model: any) => model.name || model.id || model.family || '')
             .filter(Boolean)
             .slice(0, 6)
-            .join(', ') || '??? ????????? ??????? VS Code LM';
+            .join(', ') || 'нет доступных моделей VS Code LM';
         await vscode.window.showInformationMessage(
             [
-                '?????: ???????? ????????',
+                'Режим: работать локально',
                 `Workspace: ${workspace}`,
-                `?????: ${this.getGitBranchLabel()}`,
-                `??????? ??????: ${this.selectedAgent}`,
-                `????????? ??????: ${modelNames}`,
-                '??????: VS Code API ?? ????????????? ?????? ??????? ???????; ???????? ??????????? ??????? ? ?????? ????????.'
+                `Ветка: ${this.getGitBranchLabel()}`,
+                `Текущая модель: ${this.selectedAgent}`,
+                `Доступные модели: ${modelNames}`,
+                'Лимиты: VS Code API не отдаёт остаток лимитов модели; проверяйте лимиты в аккаунте/официальном интерфейсе.'
             ].join('\n'),
             { modal: true }
         );
@@ -1985,7 +2003,7 @@ export class RemoteServer {
             ? this.selectedReasoningEffort
             : 'medium';
         const rows = messages.map(message => {
-            const role = message.role === 'user' ? '??' : message.role === 'assistant' ? '' : '???????';
+            const role = message.role === 'system' ? 'Система' : '';
             const cls = message.role === 'user' ? 'user' : message.role === 'assistant' ? 'assistant' : 'system';
             const meta = [message.model, message.reasoningEffort ? this.reasoningEffortLabel(message.reasoningEffort) : '']
                 .filter(Boolean)
@@ -2010,39 +2028,39 @@ export class RemoteServer {
 <meta charset="UTF-8">
 <style>
 html,body{height:100%}
-body{margin:0;background:#101112;color:#d7d7d7;font:14px/1.48 var(--vscode-font-family);display:flex;flex-direction:column}
-.top{height:44px;border-bottom:1px solid #202224;background:#101112;display:flex;align-items:center;gap:10px;padding:0 16px}
+body{margin:0;background:#111213;color:#d8d8d8;font:15px/1.55 var(--vscode-font-family);display:flex;flex-direction:column}
+.top{height:46px;border-bottom:1px solid #222426;background:#111213;display:flex;align-items:center;gap:10px;padding:0 min(3.8vw,42px)}
 .edit-icon{color:#9a9a9a;font-size:18px}
-.thread-title{font-size:16px;color:#f0f0f0;font-weight:700;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.thread-title{font-size:16px;color:#f0f0f0;font-weight:700;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:560px}
 .toolbar-spacer{flex:1}
 .icon-btn{width:28px;height:28px;border:0;border-radius:7px;background:transparent;color:#aaa;font:inherit;font-size:16px;display:inline-flex;align-items:center;justify-content:center;cursor:pointer}
 .icon-btn:hover{background:#1f2123;color:#e7e7e7}
 .pill-btn{height:30px;border:1px solid #2b2d30;border-radius:9px;background:#17191b;color:#bdbdbd;padding:0 10px;font:inherit;cursor:pointer}
 .pill-btn:hover{background:#222426;color:#e5e5e5}
-.messages{flex:1;overflow:auto;padding:18px min(3.8vw,42px) 12px}
-.msg{padding:4px 0 16px;margin:0;background:transparent;border:0;max-width:1040px}
-.msg.user{max-width:620px;margin-left:auto;color:#f0f0f0}
+.messages{flex:1;overflow:auto;padding:20px min(3.8vw,42px) 14px}
+.msg{padding:3px 0 18px;margin:0 auto;background:transparent;border:0;max-width:920px}
+.msg.user{max-width:620px;margin-left:auto;margin-right:min(3vw,28px);color:#f0f0f0}
 .msg.user .role,.msg.user .meta{display:none}
-.msg.user pre{background:#2a2b2d;border:1px solid #303235;border-radius:18px;padding:12px 16px}
+.msg.user pre{background:#2b2c2e;border:1px solid #303235;border-radius:18px;padding:12px 16px}
 .msg.system pre{color:#aeb0b3}
 .role{font-weight:600;color:#dcdcdc;margin-bottom:5px}
 .meta{font-size:12px;color:#8e8e8e;margin:-1px 0 6px}
 .meta-bottom{margin:8px 0 0;color:#858585}
 .assistant .role{color:#dcdcdc}.system .role{color:#e8b66b}
 pre{margin:0;white-space:pre-wrap;word-wrap:break-word;font:inherit}
-.action{max-width:980px;margin:0 0 14px;padding:10px 12px;background:#202123;border:1px solid #303236;border-radius:10px}
+.action{max-width:920px;margin:0 auto 14px;padding:10px 12px;background:#222325;border:1px solid #303236;border-radius:10px}
 .action-head{display:flex;align-items:center;justify-content:space-between;gap:12px;color:#e2e2e2;margin-bottom:8px}
 .action-head span{font-size:12px;color:#999}
 .action pre{max-height:220px;overflow:auto;color:#cfcfcf;font:12px/1.45 var(--vscode-editor-font-family, monospace)}
 .action-buttons{display:flex;gap:8px;justify-content:flex-end;margin-top:10px}
 .action-buttons button{border:1px solid #3a3d42;background:#2c2e31;color:#d9d9d9;border-radius:8px;padding:6px 10px;cursor:pointer}
 .action-buttons button:hover{background:#383b3f}
-.composer-wrap{padding:8px min(3.8vw,42px) 14px;background:#101112}
-.composer{max-width:1040px;margin:0 auto;border:1px solid #282a2d;background:#2b2b2d;border-radius:22px;padding:12px 14px 9px;display:flex;flex-direction:column;gap:8px;box-shadow:none}
-.controls{display:flex;gap:8px;align-items:center;min-width:0}
-.subcontrols{display:flex;gap:14px;align-items:center;margin:4px auto 0;max-width:1040px;color:#8e8e8e;font-size:13px}
+.composer-wrap{padding:10px min(3.8vw,42px) 14px;background:#111213}
+.composer{max-width:920px;margin:0 auto;border:1px solid #2b2d30;background:#2c2c2e;border-radius:20px;padding:13px 14px 10px;display:flex;flex-direction:column;gap:8px;box-shadow:0 8px 24px rgba(0,0,0,.16)}
+.controls{display:flex;gap:10px;align-items:center;min-width:0}
+.subcontrols{display:flex;gap:24px;align-items:center;margin:7px auto 0;max-width:920px;color:#8e8e8e;font-size:13px}
 .plus{font-size:25px;line-height:1;color:#b8b8b8;background:transparent;border:0;width:34px;padding:0;cursor:pointer}
-textarea{width:100%;box-sizing:border-box;resize:none;min-height:58px;max-height:170px;border:0;background:transparent;color:#e8e8e8;padding:2px 0;font:inherit;font-size:14px;outline:none}
+textarea{width:100%;box-sizing:border-box;resize:none;min-height:66px;max-height:190px;border:0;background:transparent;color:#e8e8e8;padding:2px 0;font:inherit;font-size:15px;outline:none}
 textarea::placeholder{color:#707070}
 .dropdown{position:relative;flex:0 1 142px;min-width:0}
 .dropdown.effort{flex-basis:112px}
@@ -2068,13 +2086,13 @@ button.send{border:0;border-radius:50%;background:#b7b7b7;color:#111;width:44px;
 </head>
 <body>
 <div class="top">
-  <button class="icon-btn edit-icon" type="button" data-action="newChat" title="Новый чат">&#9633;</button>
+  <button class="icon-btn edit-icon" type="button" data-action="newChat" title="Новый чат">&#9998;</button>
   <div class="thread-title">${this.escapeHtml(title)}</div>
   <button class="icon-btn" type="button" data-action="clearChat" title="Очистить чат">...</button>
   <div class="toolbar-spacer"></div>
   <button class="icon-btn" type="button" id="topRun" title="Отправить">&triangleright;</button>
-  <button class="pill-btn" type="button" data-action="showUsageStatus" title="?????? ????????? ??????">VS Code</button>
-  <button class="icon-btn" type="button" data-action="openTerminal" title="Терминал">&#9633;</button>
+  <button class="pill-btn" type="button" data-action="showUsageStatus" title="Проверить локальный режим">VS Code</button>
+  <button class="icon-btn" type="button" data-action="openTerminal" title="Терминал">&#9002;</button>
   <button class="icon-btn" type="button" data-action="openSettings" title="Настройки">&#9881;</button>
 </div>
 <main class="messages" id="messages">
@@ -2752,6 +2770,20 @@ prompt.addEventListener('keydown', event => {
             this.jsonResponse(res, 200, { threads: this.getRemoteCodeThreads() });
         } catch (err: any) {
             this.jsonResponse(res, 200, { threads: [], error: err.message });
+        }
+    }
+
+    private async handleRemoteCodeNewThread(_req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
+        try {
+            const threadId = this.createRemoteCodeThread();
+            this.openPcChatPanel();
+            this.jsonResponse(res, 200, {
+                threadId,
+                title: this.getCurrentThreadTitle(),
+                messages: this.codexHistory.filter(m => (m.threadId || threadId) === threadId)
+            });
+        } catch (err: any) {
+            this.jsonResponse(res, 500, { error: err.message });
         }
     }
 

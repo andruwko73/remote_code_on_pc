@@ -84,6 +84,9 @@ interface RemoteCodeApi {
     @GET("/api/codex/threads")
     suspend fun getCodexThreads(): Response<CodexThreadsResponse>
 
+    @POST("/api/codex/new")
+    suspend fun newCodexThread(): Response<CodexHistoryResponse>
+
     @POST("/api/codex/launch")
     suspend fun launchCodex(): Response<CodexLaunchResponse>
 

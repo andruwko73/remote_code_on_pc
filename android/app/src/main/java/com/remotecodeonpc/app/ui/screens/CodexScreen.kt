@@ -77,6 +77,7 @@ fun CodexScreen(
     onSelectReasoningEffort: (String) -> Unit,
     onToggleContext: () -> Unit,
     onLaunchCodex: () -> Unit,
+    onNewThread: () -> Unit,
     onLoadThreads: () -> Unit,
     onSwitchThread: (String) -> Unit,
     onRespondToAction: (String, Boolean) -> Unit,
@@ -105,16 +106,20 @@ fun CodexScreen(
                     .padding(horizontal = 8.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                TextButton(
-                    onClick = { selectedTab = 0 },
-                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp)
-                ) {
-                    Text(
-                        "CODEX",
-                        color = if (selectedTab == 0) AccentBlue else TextSecondary,
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.SemiBold
-                    )
+                Text(
+                    "CODEX",
+                    color = if (selectedTab == 0) AccentBlue else TextSecondary,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier.padding(horizontal = 8.dp)
+                )
+                if (selectedTab != 0) {
+                    TextButton(
+                        onClick = { selectedTab = 0 },
+                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp)
+                    ) {
+                        Text("\u0427\u0410\u0422", color = TextBright, fontSize = 13.sp)
+                    }
                 }
                 TextButton(
                     onClick = { selectedTab = 1 },
@@ -158,6 +163,7 @@ fun CodexScreen(
                 onSelectReasoningEffort = onSelectReasoningEffort,
                 onToggleContext = onToggleContext,
                 onLaunchCodex = onLaunchCodex,
+                onNewThread = onNewThread,
                 onLoadThreads = onLoadThreads,
                 onSwitchThread = onSwitchThread,
                 onRespondToAction = onRespondToAction
@@ -196,6 +202,7 @@ fun CodexChatTab(
     onSelectReasoningEffort: (String) -> Unit,
     onToggleContext: () -> Unit,
     onLaunchCodex: () -> Unit,
+    onNewThread: () -> Unit,
     onLoadThreads: () -> Unit,
     onSwitchThread: (String) -> Unit,
     onRespondToAction: (String, Boolean) -> Unit
@@ -268,7 +275,7 @@ fun CodexChatTab(
             IconButton(onClick = { onLoadThreads(); showThreads = true }, modifier = Modifier.size(36.dp)) {
                 Icon(Icons.Default.MoreHoriz, contentDescription = "\u0418\u0441\u0442\u043E\u0440\u0438\u044F", tint = TextSecondary, modifier = Modifier.size(22.dp))
             }
-            IconButton(onClick = onLaunchCodex, modifier = Modifier.size(36.dp)) {
+            IconButton(onClick = onNewThread, modifier = Modifier.size(36.dp)) {
                 Icon(Icons.Outlined.Edit, contentDescription = "\u041D\u043E\u0432\u044B\u0439 \u0447\u0430\u0442", tint = TextSecondary, modifier = Modifier.size(20.dp))
             }
         }

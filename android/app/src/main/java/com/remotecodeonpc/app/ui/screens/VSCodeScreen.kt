@@ -50,6 +50,7 @@ fun VSCodeScreen(
     onSelectCodexReasoningEffort: (String) -> Unit,
     onToggleCodexContext: () -> Unit,
     onLaunchCodex: () -> Unit,
+    onNewCodexThread: () -> Unit,
     onLoadCodexThreads: () -> Unit,
     onSwitchCodexThread: (String) -> Unit,
     onRespondToCodexAction: (String, Boolean) -> Unit,
@@ -60,7 +61,7 @@ fun VSCodeScreen(
     onNavigateToSettings: () -> Unit = {}
 ) {
     var selectedTab by remember { mutableStateOf(0) }
-    val tabs = listOf("CODEX", "\u0427\u0410\u0422", "\u0424\u0410\u0419\u041B\u042B")
+    val tabs = listOf("CODEX", "\u0424\u0410\u0419\u041B\u042B")
 
     Column(
         modifier = Modifier
@@ -131,25 +132,12 @@ fun VSCodeScreen(
                 onSelectReasoningEffort = onSelectCodexReasoningEffort,
                 onToggleContext = onToggleCodexContext,
                 onLaunchCodex = onLaunchCodex,
+                onNewThread = onNewCodexThread,
                 onLoadThreads = onLoadCodexThreads,
                 onSwitchThread = onSwitchCodexThread,
                 onRespondToAction = onRespondToCodexAction
             )
-            1 -> ChatScreen(
-                agents = agents,
-                selectedAgent = selectedAgent,
-                chatHistory = chatHistory,
-                conversations = conversations,
-                currentChatId = currentChatId,
-                isChatLoading = isChatLoading,
-                chatError = chatError,
-                isThinking = isThinking,
-                onSendMessage = onSendMessage,
-                onSelectAgent = onSelectAgent,
-                onNewChat = onNewChat,
-                onSwitchChat = onSwitchChat
-            )
-            2 -> FilesScreen(
+            1 -> FilesScreen(
                 folders = folders,
                 currentFiles = currentFiles,
                 fileContent = fileContent,
