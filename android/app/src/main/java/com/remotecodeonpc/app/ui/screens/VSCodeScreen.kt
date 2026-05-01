@@ -3,14 +3,12 @@ package com.remotecodeonpc.app.ui.screens
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.DesktopWindows
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.remotecodeonpc.app.*
@@ -58,7 +56,7 @@ fun VSCodeScreen(
     onNavigateToSettings: () -> Unit = {}
 ) {
     var selectedTab by remember { mutableStateOf(0) }
-    val tabs = listOf("Codex", "VS Code", "Файлы")
+    val tabs = listOf("CODEX", "\u0427\u0410\u0422", "\u0424\u0410\u0419\u041B\u042B")
 
     Column(
         modifier = Modifier
@@ -76,29 +74,12 @@ fun VSCodeScreen(
                     .padding(horizontal = 8.dp, vertical = 4.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Icon(
-                    Icons.Filled.DesktopWindows,
-                    contentDescription = "Remote Code",
-                    tint = AccentBlue,
-                    modifier = Modifier.size(20.dp)
-                )
-                Spacer(modifier = Modifier.width(6.dp))
-                Text(
-                    "Remote Code",
-                    color = TextBright,
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.Bold,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.widthIn(max = 112.dp)
-                )
-                Spacer(modifier = Modifier.width(4.dp))
                 tabs.forEachIndexed { index, title ->
                     TextButton(
                         onClick = { selectedTab = index },
                         modifier = Modifier
                             .height(34.dp)
-                            .weight(1f),
+                            .widthIn(min = 72.dp),
                         contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp),
                         colors = ButtonDefaults.textButtonColors(
                             contentColor = if (selectedTab == index) AccentBlue else TextSecondary
@@ -112,6 +93,7 @@ fun VSCodeScreen(
                         )
                     }
                 }
+                Spacer(modifier = Modifier.weight(1f))
                 IconButton(
                     onClick = onNavigateToSettings,
                     modifier = Modifier.size(36.dp)

@@ -9,11 +9,13 @@ import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.*
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
@@ -25,9 +27,12 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.remotecodeonpc.app.CodexModel
@@ -79,7 +84,7 @@ fun CodexScreen(
     onNavigateToSettings: () -> Unit = {}
 ) {
     var selectedTab by remember { mutableStateOf(0) }
-    val tabs = listOf("Чат", "Файлы")
+    val tabs = listOf("\u0427\u0430\u0442", "\u0424\u0430\u0439\u043B\u044B")
 
     Column(
         modifier = Modifier
@@ -117,7 +122,7 @@ fun CodexScreen(
                     IconButton(onClick = onNavigateToSettings) {
                         Icon(
                             Icons.Outlined.Settings,
-                            contentDescription = "Настройки",
+                            contentDescription = "\u041D\u0430\u0441\u0442\u0440\u043E\u0439\u043A\u0438",
                             tint = TextSecondary
                         )
                     }
@@ -208,372 +213,219 @@ fun CodexChatTab(
     val listState = rememberLazyListState()
     val context = LocalContext.current
     val attachmentScope = rememberCoroutineScope()
-    val attachmentPicker = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.GetMultipleContents()
-    ) { uris ->
+    val attachmentPicker = rememberLauncherForActivityResult(contract = ActivityResultContracts.GetMultipleContents()) { uris ->
         if (uris.isEmpty()) return@rememberLauncherForActivityResult
         attachmentScope.launch {
             var errorMessage: String? = null
             val next = withContext(Dispatchers.IO) {
                 uris.take(4).mapNotNull { uri ->
                     runCatching { context.readMessageAttachment(uri) }
-                        .onFailure { errorMessage = "Attachment failed: ${it.message}" }
+                        .onFailure { errorMessage = "Attachment failed: " + it.message }
                         .getOrNull()
                 }
             }
             errorMessage?.let { Toast.makeText(context, it, Toast.LENGTH_LONG).show() }
-            if (next.isNotEmpty()) {
-                attachments = (attachments + next).takeLast(4)
-            }
+            if (next.isNotEmpty()) attachments = (attachments + next).takeLast(4)
         }
     }
 
+    val currentModel = models.find { it.id == selectedModel }
+    val modelLabel = currentModel?.name ?: selectedModel.ifBlank { "5.5 \u0421\u0440\u0435\u0434\u043D\u0438\u0439" }
+    val currentThread = threads.find { it.id == currentThreadId }
+
     fun submitMessage() {
         if (messageText.isBlank() && attachments.isEmpty()) return
-        onSendMessage(messageText.ifBlank { "Посмотри вложение." }, attachments)
+        onSendMessage(messageText.ifBlank { "\u041F\u043E\u0441\u043C\u043E\u0442\u0440\u0438 \u0432\u043B\u043E\u0436\u0435\u043D\u0438\u0435." }, attachments)
         messageText = ""
         attachments = emptyList()
     }
 
     LaunchedEffect(chatHistory.size, chatHistory.lastOrNull()?.content) {
-        if (chatHistory.isNotEmpty()) {
-            listState.animateScrollToItem(chatHistory.size - 1)
-        }
+        if (chatHistory.isNotEmpty()) listState.animateScrollToItem(chatHistory.size - 1)
     }
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .imePadding()
-            .background(DarkBackground)
-    ) {
-        // Model selector + Codex status bar
-        Surface(
-            color = DarkSurface,
-            shadowElevation = 1.dp
-        ) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 12.dp, vertical = 6.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                // Model chip (round button, same style as AgentChip in ChatScreen)
-                Box {
-                    CodexModelChip(
-                        modelName = selectedModel,
-                        models = models,
-                        onClick = { showModelSelector = true }
-                    )
-                    DropdownMenu(
-                        expanded = showModelSelector,
-                        onDismissRequest = { showModelSelector = false },
-                        modifier = Modifier
-                            .background(DarkSurface)
-                            .widthIn(min = 220.dp)
-                            .heightIn(max = 400.dp)
-                    ) {
-                        DropdownMenuItem(
-                            text = { Text("Auto (по умолчанию)", color = if (selectedModel.isEmpty()) AccentBlue else TextPrimary) },
-                            onClick = { onSelectModel(""); showModelSelector = false },
-                            modifier = Modifier.background(DarkSurface)
-                        )
-                        models.forEach { model ->
-                            DropdownMenuItem(
-                                text = {
-                                    Column {
-                                        Text(model.name, color = if (model.id == selectedModel) AccentBlue else TextPrimary,
-                                            fontWeight = if (model.id == selectedModel) FontWeight.Bold else FontWeight.Normal)
-                                        Text(model.id, color = TextSecondary, fontSize = 11.sp)
-                                    }
-                                },
-                                onClick = { onSelectModel(model.id); showModelSelector = false },
-                                modifier = Modifier.background(DarkSurface)
-                            )
-                        }
-                    }
-                }
-
-                Spacer(modifier = Modifier.weight(1f))
-
-                // Codex status (compact)
-                if (status != null) {
-                    Text(
-                        when {
-                            status.installed && status.isRunning -> "●"
-                            status.installed -> "○"
-                            else -> "✕"
-                        },
-                        color = when {
-                            status.installed && status.isRunning -> AccentGreen
-                            status.installed -> AccentYellow
-                            else -> ErrorRed
-                        },
-                        fontSize = 13.sp
-                    )
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text(
-                        when {
-                            status.installed && status.isRunning -> "Запущен"
-                            status.installed -> "Установлен"
-                            else -> "Не установлен"
-                        },
-                        color = TextSecondary,
-                        fontSize = 12.sp
-                    )
-                }
-
-                Spacer(modifier = Modifier.width(4.dp))
-
-                // Кнопка истории
-                IconButton(onClick = { showThreads = true }) {
-                    Icon(Icons.Default.History, contentDescription = "История", tint = TextSecondary)
-                }
-                // Кнопка обновления
-                IconButton(onClick = {
-                    onLaunchCodex()
-                    onLoadThreads()
-                }) {
-                    Icon(Icons.Default.Refresh, contentDescription = "Обновить", tint = TextSecondary)
-                }
+    Column(modifier = Modifier.fillMaxSize().imePadding().background(Color(0xFF151617))) {
+        Row(modifier = Modifier.fillMaxWidth().height(42.dp).padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text("CODEX", color = TextBright, fontSize = 13.sp, fontWeight = FontWeight.Medium)
+            Spacer(modifier = Modifier.width(22.dp))
+            Text("\u0427\u0410\u0422", color = TextSecondary, fontSize = 13.sp)
+            Spacer(modifier = Modifier.weight(1f))
+            IconButton(onClick = { onLoadThreads(); showThreads = true }, modifier = Modifier.size(36.dp)) {
+                Icon(Icons.Default.History, contentDescription = "\u0418\u0441\u0442\u043E\u0440\u0438\u044F", tint = TextSecondary, modifier = Modifier.size(20.dp))
+            }
+            IconButton(onClick = onLaunchCodex, modifier = Modifier.size(36.dp)) {
+                Icon(Icons.Outlined.Edit, contentDescription = "\u041E\u0442\u043A\u0440\u044B\u0442\u044C Codex", tint = TextSecondary, modifier = Modifier.size(20.dp))
             }
         }
+        Box(modifier = Modifier.padding(start = 8.dp).width(62.dp).height(1.dp).background(AccentBlue))
 
-        // Threads dialog (history)
         if (showThreads) {
             AlertDialog(
                 onDismissRequest = { showThreads = false },
-                title = { Text("История Codex", color = TextBright) },
+                title = { Text("\u0418\u0441\u0442\u043E\u0440\u0438\u044F Codex", color = TextBright) },
                 text = {
-                    if (threads.isEmpty()) {
-                        Text("Нет активных тредов", color = TextSecondary)
-                    } else {
-                        LazyColumn {
-                            items(threads) { thread ->
-                                Surface(
-                                    modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
-                                    color = if (thread.id == currentThreadId) AccentBlue.copy(alpha = 0.22f) else DarkSurfaceVariant,
-                                    shape = RoundedCornerShape(8.dp)
-                                    ,
-                                    onClick = {
-                                        onSwitchThread(thread.id)
-                                        showThreads = false
-                                    }
-                                ) {
-                                    Column(modifier = Modifier.padding(12.dp)) {
-                                        Text(thread.title, color = TextBright, fontWeight = FontWeight.Medium)
-                                        Text(thread.id, color = TextSecondary, fontSize = 11.sp)
-                                    }
+                    LazyColumn(modifier = Modifier.heightIn(max = 420.dp)) {
+                        if (threads.isEmpty()) item { Text("\u041D\u0435\u0442 \u0430\u043A\u0442\u0438\u0432\u043D\u044B\u0445 \u0447\u0430\u0442\u043E\u0432", color = TextSecondary) }
+                        else items(threads) { thread ->
+                            Surface(onClick = { onSwitchThread(thread.id); showThreads = false }, color = if (thread.id == currentThreadId) Color(0xFF2A2D2E) else Color.Transparent, shape = RoundedCornerShape(6.dp), modifier = Modifier.fillMaxWidth()) {
+                                Column(modifier = Modifier.padding(10.dp)) {
+                                    Text(thread.title, color = TextPrimary, fontSize = 14.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                                    Text(thread.id, color = TextSecondary, fontSize = 10.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                                 }
                             }
                         }
                     }
                 },
-                confirmButton = {
-                    TextButton(onClick = { showThreads = false }) {
-                        Text("Закрыть", color = AccentBlue)
-                    }
-                },
-                containerColor = DarkSurface
+                confirmButton = { TextButton(onClick = { showThreads = false }) { Text("\u0417\u0430\u043A\u0440\u044B\u0442\u044C") } },
+                containerColor = Color(0xFF202123)
             )
         }
 
-        // Send result
-        if (sendResult != null) {
-            Surface(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 12.dp, vertical = 2.dp),
-                color = DarkSurfaceVariant,
-                shape = RoundedCornerShape(8.dp)
-            ) {
-                Row(
-                    modifier = Modifier.padding(8.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Icon(
-                        if (sendResult.success) Icons.Default.CheckCircle else Icons.Default.Error,
-                        contentDescription = null,
-                        tint = if (sendResult.success) AccentGreen else ErrorRed,
-                        modifier = Modifier.size(16.dp)
-                    )
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text(
-                        if (sendResult.success) "Отправлено" else (sendResult.error ?: "Ошибка"),
-                        color = TextBright,
-                        fontSize = 12.sp
-                    )
+        if (error != null) Text(error, color = ErrorRed, fontSize = 13.sp, modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp))
+
+        LazyColumn(state = listState, modifier = Modifier.fillMaxWidth().weight(1f).padding(horizontal = 12.dp), verticalArrangement = Arrangement.spacedBy(12.dp), contentPadding = PaddingValues(top = 16.dp, bottom = 12.dp)) {
+            item { Text(currentThread?.title ?: "Codex \u0440\u0430\u0431\u043E\u0442\u0430\u0435\u0442 \u0443\u0434\u0430\u043B\u0435\u043D\u043D\u044B\u0439 \u0434\u043E\u0441\u0442\u0443\u043F", color = TextPrimary, fontSize = 15.sp, maxLines = 2, overflow = TextOverflow.Ellipsis) }
+            if (sendResult?.success == true) item { DesktopStatusLine("\u041E\u0442\u043F\u0440\u0430\u0432\u043B\u0435\u043D\u043E", AccentGreen) }
+            items(actionEvents.takeLast(8)) { event -> DesktopToolBlock(event, onRespondToAction) }
+            items(chatHistory) { msg -> CodexMessageBubble(msg) }
+            if (chatHistory.isEmpty() && sendResult == null && actionEvents.isEmpty()) item {
+                Column(modifier = Modifier.padding(top = 32.dp)) {
+                    Text("\u0417\u0430\u043F\u0440\u043E\u0441\u0438\u0442\u0435 \u0438\u0437\u043C\u0435\u043D\u0435\u043D\u0438\u044F, \u043F\u0440\u043E\u0432\u0435\u0440\u043A\u0443 \u0438\u043B\u0438 \u0440\u0430\u0431\u043E\u0442\u0443 \u0441 \u0444\u0430\u0439\u043B\u0430\u043C\u0438.", color = TextSecondary, fontSize = 15.sp)
+                    Spacer(modifier = Modifier.height(10.dp))
+                    Text("\u041A\u043E\u043D\u0442\u0435\u043A\u0441\u0442 IDE \u0438 \u0434\u0435\u0439\u0441\u0442\u0432\u0438\u044F Codex \u0431\u0443\u0434\u0443\u0442 \u0437\u0434\u0435\u0441\u044C, \u043A\u0430\u043A \u043D\u0430 \u041F\u041A.", color = TextSecondary.copy(alpha = 0.75f), fontSize = 13.sp)
                 }
             }
         }
 
-        if (actionEvents.isNotEmpty()) {
-            CodexActionStrip(actionEvents.takeLast(6), onRespondToAction)
-        }
-
-        // Error
-        if (error != null) {
-            Text(
-                error,
-                color = ErrorRed,
-                fontSize = 12.sp,
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
-            )
-        }
-
-        // Chat area
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .weight(1f)
-                .padding(12.dp),
-            contentAlignment = Alignment.Center
-        ) {
-            if (chatHistory.isNotEmpty()) {
-                LazyColumn(
-                    state = listState,
-                    modifier = Modifier.fillMaxSize(),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    items(chatHistory) { msg ->
-                        CodexMessageBubble(msg)
-                    }
-                }
-            } else if (sendResult != null && sendResult.success) {
-                LazyColumn(
-                    modifier = Modifier.fillMaxSize(),
-                    verticalArrangement = Arrangement.spacedBy(4.dp)
-                ) {
-                    item {
-                        Surface(
-                            color = DarkSurfaceVariant,
-                            shape = RoundedCornerShape(12.dp),
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Text(
-                                sendResult.message ?: "Запрос выполнен",
-                                color = TextPrimary,
-                                fontSize = 13.sp,
-                                modifier = Modifier.padding(12.dp)
-                            )
-                        }
-                    }
-                }
-            } else {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Icon(
-                        Icons.Default.SmartToy,
-                        contentDescription = null,
-                        tint = TextSecondary.copy(alpha = 0.2f),
-                        modifier = Modifier.size(64.dp)
-                    )
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Text("Введите запрос для Codex CLI", color = TextSecondary)
-                    Text("Ответ появится здесь", color = TextSecondary.copy(alpha = 0.6f), fontSize = 12.sp)
-                }
-            }
-        }
-
-        // Input field
-        Surface(
-            modifier = Modifier.fillMaxWidth(),
-            color = DarkSurface,
-            shadowElevation = 8.dp
-        ) {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 8.dp, vertical = 10.dp)
-            ) {
+        Surface(modifier = Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 10.dp), color = Color(0xFF18191A), shape = RoundedCornerShape(20.dp), border = BorderStroke(1.dp, Color(0xFF26282A))) {
+            Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp)) {
                 if (attachments.isNotEmpty()) {
-                    LazyColumn(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .heightIn(max = 92.dp),
-                        verticalArrangement = Arrangement.spacedBy(4.dp)
-                    ) {
+                    LazyColumn(modifier = Modifier.heightIn(max = 90.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                         items(attachments) { attachment ->
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .background(DarkSurfaceVariant, RoundedCornerShape(8.dp))
-                                    .padding(horizontal = 10.dp, vertical = 6.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Icon(Icons.Default.AttachFile, contentDescription = null, tint = AccentBlue, modifier = Modifier.size(16.dp))
+                            Row(modifier = Modifier.fillMaxWidth().background(Color(0xFF25272A), RoundedCornerShape(8.dp)).padding(horizontal = 8.dp, vertical = 5.dp), verticalAlignment = Alignment.CenterVertically) {
+                                Icon(Icons.Default.AttachFile, contentDescription = null, tint = TextSecondary, modifier = Modifier.size(16.dp))
                                 Spacer(modifier = Modifier.width(6.dp))
-                                Text(
-                                    attachment.name,
-                                    color = TextPrimary,
-                                    fontSize = 12.sp,
-                                    modifier = Modifier.weight(1f),
-                                    maxLines = 1
-                                )
-                                IconButton(
-                                    onClick = { attachments = attachments - attachment },
-                                    modifier = Modifier.size(28.dp)
-                                ) {
-                                    Icon(Icons.Default.Close, contentDescription = "Убрать вложение", tint = TextSecondary, modifier = Modifier.size(16.dp))
-                                }
+                                Text(attachment.name, color = TextPrimary, fontSize = 12.sp, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                IconButton(onClick = { attachments = attachments - attachment }, modifier = Modifier.size(28.dp)) { Icon(Icons.Default.Close, contentDescription = "\u0423\u0431\u0440\u0430\u0442\u044C", tint = TextSecondary, modifier = Modifier.size(15.dp)) }
                             }
                         }
                     }
                     Spacer(modifier = Modifier.height(6.dp))
                 }
-                Row(
+                OutlinedTextField(
+                    value = messageText,
+                    onValueChange = { messageText = it },
+                    placeholder = { Text("\u0417\u0430\u043F\u0440\u043E\u0441\u0438\u0442\u0435 \u0432\u043D\u0435\u0441\u0435\u043D\u0438\u0435 \u0434\u043E\u043F\u043E\u043B\u043D\u0438\u0442\u0435\u043B\u044C\u043D\u044B\u0445 \u0438\u0437\u043C\u0435\u043D\u0435\u043D\u0438\u0439", color = TextSecondary.copy(alpha = 0.55f)) },
                     modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    IconButton(
-                        onClick = { attachmentPicker.launch("*/*") },
-                        enabled = !isLoading,
-                        modifier = Modifier.size(44.dp)
-                    ) {
-                        Icon(
-                            Icons.Default.AttachFile,
-                            contentDescription = "Прикрепить файл",
-                            tint = if (isLoading) TextSecondary.copy(alpha = 0.5f) else AccentBlue
-                        )
-                    }
-                    Spacer(modifier = Modifier.width(4.dp))
-                    OutlinedTextField(
-                        value = messageText,
-                        onValueChange = { messageText = it },
-                        placeholder = { Text("Запрос в VS Code...", color = TextSecondary) },
-                        modifier = Modifier.weight(1f),
-                        maxLines = 4,
-                        colors = OutlinedTextFieldDefaults.colors(
-                            focusedTextColor = TextPrimary,
-                            unfocusedTextColor = TextPrimary,
-                            focusedBorderColor = AccentBlue,
-                            unfocusedBorderColor = DividerColor,
-                            cursorColor = AccentBlue,
-                            focusedContainerColor = DarkSurfaceVariant,
-                            unfocusedContainerColor = DarkSurfaceVariant
-                        ),
-                        shape = RoundedCornerShape(20.dp),
-                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
-                        keyboardActions = KeyboardActions(onSend = { submitMessage() })
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    FilledIconButton(
-                        onClick = { submitMessage() },
-                        enabled = (messageText.isNotBlank() || attachments.isNotEmpty()) && !isLoading,
-                        colors = IconButtonDefaults.filledIconButtonColors(
-                            containerColor = AccentBlue,
-                            disabledContainerColor = AccentBlue.copy(alpha = 0.3f)
-                        ),
-                        modifier = Modifier.size(48.dp)
-                    ) {
-                        if (isLoading) {
-                            Text("вЏі", fontSize = 18.sp)
-                        } else {
-                            Icon(
-                                Icons.AutoMirrored.Filled.Send,
-                                contentDescription = "Отправить",
-                                tint = TextBright
-                            )
+                    minLines = 2,
+                    maxLines = 5,
+                    colors = OutlinedTextFieldDefaults.colors(focusedTextColor = TextPrimary, unfocusedTextColor = TextPrimary, focusedBorderColor = Color.Transparent, unfocusedBorderColor = Color.Transparent, focusedContainerColor = Color.Transparent, unfocusedContainerColor = Color.Transparent, cursorColor = TextPrimary),
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
+                    keyboardActions = KeyboardActions(onSend = { submitMessage() })
+                )
+                Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    IconButton(onClick = { attachmentPicker.launch("*/*") }, enabled = !isLoading, modifier = Modifier.size(38.dp)) { Icon(Icons.Default.Add, contentDescription = "\u0414\u043E\u0431\u0430\u0432\u0438\u0442\u044C", tint = TextSecondary) }
+                    IconButton(onClick = { showModelSelector = true }, modifier = Modifier.size(38.dp)) { Icon(Icons.Outlined.Settings, contentDescription = "\u041D\u0430\u0441\u0442\u0440\u043E\u0439\u043A\u0438", tint = TextSecondary, modifier = Modifier.size(20.dp)) }
+                    Box {
+                        TextButton(onClick = { showModelSelector = true }, contentPadding = PaddingValues(horizontal = 6.dp)) {
+                            Text(modelLabel, color = TextSecondary, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            Icon(Icons.Default.ArrowDropDown, contentDescription = null, tint = TextSecondary, modifier = Modifier.size(18.dp))
                         }
+                        DropdownMenu(expanded = showModelSelector, onDismissRequest = { showModelSelector = false }, modifier = Modifier.background(Color(0xFF202123))) {
+                            DropdownMenuItem(text = { Text("5.5 \u0421\u0440\u0435\u0434\u043D\u0438\u0439", color = TextPrimary) }, onClick = { onSelectModel(""); showModelSelector = false })
+                            models.forEach { model -> DropdownMenuItem(text = { Text(model.name, color = if (model.id == selectedModel) AccentBlue else TextPrimary) }, onClick = { onSelectModel(model.id); showModelSelector = false }) }
+                        }
+                    }
+                    Spacer(modifier = Modifier.weight(1f))
+                    TextButton(onClick = onLaunchCodex, contentPadding = PaddingValues(horizontal = 6.dp)) {
+                        Icon(Icons.Default.AutoAwesome, contentDescription = null, tint = AccentBlue, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("\u041A\u043E\u043D\u0442\u0435\u043A\u0441\u0442 IDE", color = AccentBlue, fontSize = 13.sp)
+                    }
+                    FilledIconButton(onClick = { submitMessage() }, enabled = (messageText.isNotBlank() || attachments.isNotEmpty()) && !isLoading, shape = CircleShape, colors = IconButtonDefaults.filledIconButtonColors(containerColor = Color(0xFF8E8E8E), disabledContainerColor = Color(0xFF3A3A3A)), modifier = Modifier.size(44.dp)) {
+                        if (isLoading) Text("...", color = Color.Black) else Icon(Icons.AutoMirrored.Filled.Send, contentDescription = "\u041E\u0442\u043F\u0440\u0430\u0432\u0438\u0442\u044C", tint = Color.Black)
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun DesktopStatusLine(text: String, color: Color) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Icon(
+            Icons.Default.CheckCircle,
+            contentDescription = null,
+            tint = color,
+            modifier = Modifier.size(16.dp)
+        )
+        Spacer(modifier = Modifier.width(8.dp))
+        Text(text, color = TextSecondary, fontSize = 13.sp)
+    }
+}
+
+@Composable
+private fun DesktopToolBlock(
+    event: CodexActionEvent,
+    onRespondToAction: (String, Boolean) -> Unit
+) {
+    val isFailed = event.status == "failed"
+    val isDone = event.status == "completed"
+    Surface(
+        color = Color(0xFF1D1F20),
+        shape = RoundedCornerShape(10.dp),
+        border = BorderStroke(1.dp, Color(0xFF25282B)),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(modifier = Modifier.padding(12.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    imageVector = when {
+                        event.type.contains("patch") -> Icons.Default.Build
+                        event.type.contains("command") -> Icons.Default.Terminal
+                        event.type.contains("error") -> Icons.Default.Error
+                        else -> Icons.Default.Build
+                    },
+                    contentDescription = null,
+                    tint = when {
+                        isFailed -> ErrorRed
+                        isDone -> AccentGreen
+                        else -> TextSecondary
+                    },
+                    modifier = Modifier.size(18.dp)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    event.title.ifBlank { event.type },
+                    color = TextPrimary,
+                    fontSize = 13.sp,
+                    fontFamily = FontFamily.Monospace,
+                    fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier.weight(1f),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Text(event.status, color = TextSecondary, fontSize = 12.sp)
+            }
+            if (event.detail.isNotBlank()) {
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    event.detail,
+                    color = TextSecondary,
+                    fontSize = 13.sp,
+                    maxLines = 4,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+            if (event.actionable) {
+                Spacer(modifier = Modifier.height(10.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedButton(onClick = { onRespondToAction(event.id, false) }) {
+                        Text("\u041E\u0442\u043A\u043B\u043E\u043D\u0438\u0442\u044C")
+                    }
+                    Button(onClick = { onRespondToAction(event.id, true) }) {
+                        Text("\u0420\u0430\u0437\u0440\u0435\u0448\u0438\u0442\u044C")
                     }
                 }
             }
@@ -654,43 +506,36 @@ private fun CodexActionStrip(
 @Composable
 private fun CodexMessageBubble(message: CodexChatMessage) {
     val isUser = message.role == "user"
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = if (isUser) Arrangement.End else Arrangement.Start
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 2.dp)
     ) {
-        Surface(
-            color = if (isUser) AccentBlue.copy(alpha = 0.22f) else DarkSurfaceVariant,
-            shape = RoundedCornerShape(12.dp),
-            modifier = Modifier.fillMaxWidth(if (isUser) 0.86f else 0.96f)
-        ) {
-            Column(modifier = Modifier.padding(12.dp)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(
-                        if (isUser) "Вы" else "Codex",
-                        color = if (isUser) AccentBlue else AccentGreen,
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Bold
-                    )
-                    if (!isUser && message.isStreaming) {
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text("пишет...", color = TextSecondary, fontSize = 11.sp)
-                    }
-                    message.model?.takeIf { it.isNotBlank() }?.let {
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(it, color = TextSecondary, fontSize = 10.sp)
-                    }
-                }
-                Spacer(modifier = Modifier.height(6.dp))
-                Text(
-                    message.content.ifBlank { "..." },
-                    color = TextPrimary,
-                    fontSize = 13.sp
-                )
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                if (isUser) "\u0412\u044B" else "Codex",
+                color = if (isUser) TextSecondary else TextPrimary,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.SemiBold
+            )
+            if (!isUser && message.isStreaming) {
+                Spacer(modifier = Modifier.width(8.dp))
+                Text("\u043F\u0438\u0448\u0435\u0442...", color = TextSecondary, fontSize = 11.sp)
+            }
+            message.model?.takeIf { it.isNotBlank() }?.let {
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(it, color = TextSecondary, fontSize = 10.sp)
             }
         }
+        Spacer(modifier = Modifier.height(4.dp))
+        Text(
+            message.content.ifBlank { "..." },
+            color = TextPrimary,
+            fontSize = 15.sp,
+            lineHeight = 22.sp
+        )
     }
 }
-
 @Composable
 private fun CodexModelChip(
     modelName: String,
@@ -762,14 +607,14 @@ private fun Context.readMessageAttachment(uri: Uri): MessageAttachment {
 
     val maxBytes = 6 * 1024 * 1024
     if (size > maxBytes) {
-        throw IllegalStateException("???? ?????? 6 MB")
+        throw IllegalStateException("file is larger than 6 MB")
     }
     val bytes = resolver.openInputStream(uri)?.use { input ->
         val data = input.readBytes()
-        if (data.size > maxBytes) throw IllegalStateException("???? ?????? 6 MB")
+        if (data.size > maxBytes) throw IllegalStateException("file is larger than 6 MB")
         data
-    } ?: throw IllegalStateException("???? ??????????")
-    if (bytes.isEmpty()) throw IllegalStateException("?????? ????")
+    } ?: throw IllegalStateException("file unavailable")
+    if (bytes.isEmpty()) throw IllegalStateException("empty file")
     return MessageAttachment(
         name = name,
         mimeType = mimeType,
