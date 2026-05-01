@@ -14,11 +14,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
-import com.remotecodeonpc.app.ui.navigation.Screen
 import com.remotecodeonpc.app.ui.screens.*
 import com.remotecodeonpc.app.ui.theme.*
 import com.remotecodeonpc.app.viewmodel.MainViewModel
@@ -32,54 +30,11 @@ fun RemoteCodeApp(
 ) {
     val state by viewModel.uiState.collectAsState()
 
-    Scaffold(
-        modifier = Modifier.fillMaxSize(),
-        bottomBar = {
-            if (state.isConnected) {
-                NavigationBar(
-                    containerColor = DarkSurface,
-                    contentColor = TextPrimary,
-                    tonalElevation = 0.dp
-                ) {
-                    Screen.items.forEach { screen ->
-                        NavigationBarItem(
-                            icon = {
-                                Icon(
-                                    imageVector = screen.icon,
-                                    contentDescription = screen.title,
-                                    tint = if (state.currentScreen == screen.route) AccentBlue else TextSecondary
-                                )
-                            },
-                            label = {
-                                Text(
-                                    screen.title,
-                                    fontSize = 11.sp,
-                                    maxLines = 1,
-                                    softWrap = true,
-                                    overflow = TextOverflow.Visible
-                                )
-                            },
-                            selected = state.currentScreen == screen.route,
-                            onClick = { viewModel.navigateTo(screen.route) },
-                            colors = NavigationBarItemDefaults.colors(
-                                selectedIconColor = AccentBlue,
-                                selectedTextColor = AccentBlue,
-                                unselectedIconColor = TextSecondary,
-                                unselectedTextColor = TextSecondary,
-                                indicatorColor = AccentBlue.copy(alpha = 0.12f)
-                            )
-                        )
-                    }
-                }
-            }
-        }
-    ) { paddingValues ->
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(DarkBackground)
-                .padding(paddingValues)
-        ) {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(DarkBackground)
+    ) {
             if (state.isConnected) {
                 // Основные экраны
                 when (state.currentScreen) {
@@ -242,6 +197,7 @@ fun RemoteCodeApp(
                         onStartTunnel = { viewModel.startTunnel() },
                         onStopTunnel = { viewModel.stopTunnel() },
                         onToggleTunnelMode = { viewModel.toggleTunnelMode(it) },
+                        onBack = { viewModel.navigateTo("vscode") },
                         onUpdateApp = { onUpdateApp(state.serverConfig) }
                     )
                 }
@@ -257,7 +213,6 @@ fun RemoteCodeApp(
                     onUpdateApp = onUpdateApp
                 )
             }
-        }
     }
 }
 
@@ -459,6 +414,7 @@ private fun SettingsScreen(
     onStartTunnel: () -> Unit,
     onStopTunnel: () -> Unit,
     onToggleTunnelMode: (Boolean) -> Unit,
+    onBack: () -> Unit,
     onUpdateApp: () -> Unit
 ) {
     val scrollState = rememberScrollState()
@@ -470,7 +426,20 @@ private fun SettingsScreen(
             .verticalScroll(scrollState),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        Text("Настройки", color = TextBright, fontSize = 20.sp, fontWeight = FontWeight.Bold)
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            IconButton(
+                onClick = onBack,
+                modifier = Modifier.size(40.dp)
+            ) {
+                Icon(
+                    Icons.Default.ArrowBack,
+                    contentDescription = "Back",
+                    tint = TextSecondary
+                )
+            }
+            Spacer(modifier = Modifier.width(4.dp))
+            Text("Настройки", color = TextBright, fontSize = 20.sp, fontWeight = FontWeight.Bold)
+        }
 
         // Информация о подключении
         Card(
