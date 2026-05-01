@@ -1,0 +1,15 @@
+.venv/**
+*.vsix
+analyze_jsonl.js
+check_chat_data*.py
+check_vscode_db.py
+launch_log.txt
+remote_code_task.xml
+create_task_*.ps1
+setup_autostart.ps1
+start_server.ps1
+start_server.cmd
+test-extension.js
+src/**
+tsconfig.json
+*.map
