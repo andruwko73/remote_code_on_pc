@@ -1,13 +1,10 @@
 package com.remotecodeonpc.app.ui.screens
 
-import androidx.compose.animation.*
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.*
-import androidx.compose.material.icons.outlined.*
+import androidx.compose.material.icons.filled.DesktopWindows
+import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -21,7 +18,6 @@ import com.remotecodeonpc.app.ui.theme.*
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun VSCodeScreen(
-    // Chat params
     agents: List<ChatAgent>,
     selectedAgent: String,
     chatHistory: List<ChatMessage>,
@@ -30,16 +26,30 @@ fun VSCodeScreen(
     isChatLoading: Boolean,
     chatError: String?,
     isThinking: Boolean,
-    // Files params
     folders: FoldersResponse?,
     currentFiles: FileTreeItem?,
     fileContent: FileContent?,
     isLoadingFiles: Boolean,
-    // Callbacks
     onSendMessage: (String) -> Unit,
     onSelectAgent: (String) -> Unit,
     onNewChat: () -> Unit,
     onSwitchChat: (String) -> Unit,
+    codexStatus: CodexStatus?,
+    codexModels: List<CodexModel>,
+    codexSelectedModel: String,
+    codexChatHistory: List<CodexChatMessage>,
+    codexActionEvents: List<CodexActionEvent>,
+    codexSendResult: CodexSendResponse?,
+    codexThreads: List<CodexThread>,
+    currentCodexThreadId: String,
+    isCodexLoading: Boolean,
+    codexError: String?,
+    onSendCodexMessage: (String) -> Unit,
+    onSelectCodexModel: (String) -> Unit,
+    onLaunchCodex: () -> Unit,
+    onLoadCodexThreads: () -> Unit,
+    onSwitchCodexThread: (String) -> Unit,
+    onRespondToCodexAction: (String, Boolean) -> Unit,
     onNavigateToDir: (String) -> Unit,
     onOpenFile: (String) -> Unit,
     onOpenFolder: (String) -> Unit,
@@ -47,14 +57,13 @@ fun VSCodeScreen(
     onNavigateToSettings: () -> Unit = {}
 ) {
     var selectedTab by remember { mutableStateOf(0) }
-    val tabs = listOf("Чат", "Файлы")
+    val tabs = listOf("Codex", "VS Code", "Файлы")
 
     Column(
         modifier = Modifier
             .fillMaxSize()
             .background(DarkBackground)
     ) {
-        // Верхняя панель с табами
         Surface(
             color = DarkSurface,
             shadowElevation = 2.dp
@@ -67,20 +76,19 @@ fun VSCodeScreen(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Icon(
-                        Icons.Filled.Code,
-                        contentDescription = "VS Code",
+                        Icons.Filled.DesktopWindows,
+                        contentDescription = "Remote Code",
                         tint = AccentBlue,
                         modifier = Modifier.size(24.dp)
                     )
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(
-                        "VS Code",
+                        "Remote Code",
                         color = TextBright,
                         fontSize = 18.sp,
                         fontWeight = FontWeight.Bold
                     )
                     Spacer(modifier = Modifier.weight(1f))
-                    // Кнопка настроек
                     IconButton(onClick = onNavigateToSettings) {
                         Icon(
                             Icons.Outlined.Settings,
@@ -89,7 +97,6 @@ fun VSCodeScreen(
                         )
                     }
                 }
-                // Табы
                 TabRow(
                     selectedTabIndex = selectedTab,
                     containerColor = DarkSurface,
@@ -114,9 +121,26 @@ fun VSCodeScreen(
             }
         }
 
-        // Контент табов
         when (selectedTab) {
-            0 -> ChatScreen(
+            0 -> CodexChatTab(
+                status = codexStatus,
+                models = codexModels,
+                selectedModel = codexSelectedModel,
+                chatHistory = codexChatHistory,
+                actionEvents = codexActionEvents,
+                sendResult = codexSendResult,
+                threads = codexThreads,
+                currentThreadId = currentCodexThreadId,
+                isLoading = isCodexLoading,
+                error = codexError,
+                onSendMessage = onSendCodexMessage,
+                onSelectModel = onSelectCodexModel,
+                onLaunchCodex = onLaunchCodex,
+                onLoadThreads = onLoadCodexThreads,
+                onSwitchThread = onSwitchCodexThread,
+                onRespondToAction = onRespondToCodexAction
+            )
+            1 -> ChatScreen(
                 agents = agents,
                 selectedAgent = selectedAgent,
                 chatHistory = chatHistory,
@@ -130,7 +154,7 @@ fun VSCodeScreen(
                 onNewChat = onNewChat,
                 onSwitchChat = onSwitchChat
             )
-            1 -> FilesScreen(
+            2 -> FilesScreen(
                 folders = folders,
                 currentFiles = currentFiles,
                 fileContent = fileContent,

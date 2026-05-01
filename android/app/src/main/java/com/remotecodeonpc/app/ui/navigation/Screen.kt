@@ -12,7 +12,7 @@ sealed class Screen(
     val selectedIcon: ImageVector
 ) {
     // Основные экраны (нижнее меню)
-    data object VSCode : Screen("vscode", "VS Code", Icons.Outlined.DesktopWindows, Icons.Filled.DesktopWindows)
+    data object VSCode : Screen("vscode", "ПК", Icons.Outlined.DesktopWindows, Icons.Filled.DesktopWindows)
     data object Codex : Screen("codex", "Codex", Icons.Outlined.SmartToy, Icons.Filled.SmartToy)
     data object Diagnostics : Screen("diagnostics", "Ошибки", Icons.Outlined.BugReport, Icons.Filled.BugReport)
     data object Settings : Screen("settings", "Настройки", Icons.Outlined.Settings, Icons.Filled.Settings)
@@ -23,7 +23,7 @@ sealed class Screen(
     data object Terminal : Screen("terminal", "Терминал", Icons.Outlined.Terminal, Icons.Filled.Terminal)
 
     companion object {
-        val items = listOf(Codex, VSCode, Diagnostics, Settings)
+        val items = listOf(VSCode, Diagnostics, Settings)
         val all = listOf(Codex, VSCode, Chat, Files, Diagnostics, Settings, Terminal)
     }
 }

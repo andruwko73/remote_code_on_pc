@@ -169,7 +169,7 @@ fun CodexScreen(
 }
 
 @Composable
-private fun CodexChatTab(
+fun CodexChatTab(
     status: CodexStatus?,
     models: List<CodexModel>,
     selectedModel: String,

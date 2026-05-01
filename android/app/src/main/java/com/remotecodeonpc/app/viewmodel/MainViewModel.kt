@@ -1021,7 +1021,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _uiState.value = _uiState.value.copy(currentScreen = screen)
         // Загружаем данные при переходе
         when (screen) {
-            "vscode" -> { loadChatAgents(); loadChatHistory(); loadConversations(); loadFolders() }
+            "vscode" -> {
+                loadChatAgents()
+                loadChatHistory()
+                loadConversations()
+                loadFolders()
+                loadCodexStatus()
+                loadCodexModels()
+                loadCodexThreads()
+            }
             "chat" -> { loadChatAgents(); loadChatHistory() }
             "files" -> loadFolders()
             "diagnostics" -> loadDiagnostics()
