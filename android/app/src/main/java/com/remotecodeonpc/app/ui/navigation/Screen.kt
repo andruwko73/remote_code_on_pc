@@ -23,7 +23,7 @@ sealed class Screen(
     data object Terminal : Screen("terminal", "Терминал", Icons.Outlined.Terminal, Icons.Filled.Terminal)
 
     companion object {
-        val items = listOf(VSCode, Codex, Diagnostics, Settings)
-        val all = listOf(VSCode, Chat, Files, Codex, Diagnostics, Settings, Terminal)
+        val items = listOf(Codex, VSCode, Diagnostics, Settings)
+        val all = listOf(Codex, VSCode, Chat, Files, Diagnostics, Settings, Terminal)
     }
 }

@@ -167,8 +167,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     loadConversations()
                     loadDiagnostics()
                     loadCodexStatus()
-                    loadCodexHistory()
-                    loadCodexEvents()
                     loadCodexThreads()
                 } else {
                     CrashLogger.w("ViewModel", "getStatus failed: code=${response.code()}, message=${response.message()}")
@@ -330,8 +328,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                                 loadFolders()
                                 loadCodexStatus()
                                 loadCodexThreads()
-                                loadCodexHistory(_uiState.value.currentCodexThreadId.takeIf { it.isNotBlank() })
-                                loadCodexEvents(_uiState.value.currentCodexThreadId.takeIf { it.isNotBlank() })
                             }
                         }
                     }
@@ -1029,7 +1025,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             "chat" -> { loadChatAgents(); loadChatHistory() }
             "files" -> loadFolders()
             "diagnostics" -> loadDiagnostics()
-            "codex" -> { loadCodexStatus(); loadCodexModels(); loadCodexHistory(); loadCodexEvents(); loadCodexThreads() }
+            "codex" -> { loadCodexStatus(); loadCodexModels(); loadCodexThreads() }
             "terminal" -> { /* ничего не загружаем - терминал лёгкий */ }
             "settings" -> loadTunnelStatus()
         }

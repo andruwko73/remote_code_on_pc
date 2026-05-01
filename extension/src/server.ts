@@ -2130,18 +2130,18 @@ export class RemoteServer {
             const lines = fs.readFileSync(filePath, 'utf-8').split(/\r?\n/).filter(Boolean);
             let id = path.basename(filePath, '.jsonl').replace(/^rollout-[^-]+-\d\d-\d\dT\d\d-\d\d-\d\d-/, '');
             let title = 'Codex';
-            let timestamp = fs.statSync(filePath).mtimeMs;
+            let timestamp = Math.round(fs.statSync(filePath).mtimeMs);
             const messages: CodexChatMessage[] = [];
 
             for (const line of lines) {
                 let item: any;
                 try { item = JSON.parse(line); } catch { continue; }
                 const payload = item.payload || {};
-                const itemTime = item.timestamp ? new Date(item.timestamp).getTime() : timestamp;
+                const itemTime = Math.round(item.timestamp ? new Date(item.timestamp).getTime() : timestamp);
 
                 if (item.type === 'session_meta') {
                     id = payload.id || id;
-                    timestamp = payload.timestamp ? new Date(payload.timestamp).getTime() : timestamp;
+                    timestamp = Math.round(payload.timestamp ? new Date(payload.timestamp).getTime() : timestamp);
                     continue;
                 }
 
@@ -2158,10 +2158,10 @@ export class RemoteServer {
                             id: `codex_user_${messages.length}_${itemTime}`,
                             role: 'user',
                             content: this.cleanCodexMessage(content),
-                            timestamp: itemTime
+                            timestamp: Math.round(itemTime)
                         });
                     }
-                    timestamp = itemTime || timestamp;
+                    timestamp = Math.round(itemTime || timestamp);
                     continue;
                 }
 
@@ -2170,9 +2170,9 @@ export class RemoteServer {
                         id: `codex_assistant_${messages.length}_${itemTime}`,
                         role: 'assistant',
                         content: this.cleanCodexMessage(payload.message),
-                        timestamp: itemTime
+                        timestamp: Math.round(itemTime)
                     });
-                    timestamp = itemTime || timestamp;
+                    timestamp = Math.round(itemTime || timestamp);
                     continue;
                 }
 
@@ -2183,24 +2183,24 @@ export class RemoteServer {
                             id: `codex_${payload.role}_${messages.length}_${itemTime}`,
                             role: payload.role,
                             content: this.cleanCodexMessage(content),
-                            timestamp: itemTime
+                            timestamp: Math.round(itemTime)
                         });
                     }
-                    timestamp = itemTime || timestamp;
+                    timestamp = Math.round(itemTime || timestamp);
                 }
             }
 
             const indexed = index.get(id);
             if (indexed) {
                 title = indexed.title || title;
-                timestamp = Math.max(timestamp, indexed.timestamp || 0);
+                timestamp = Math.round(Math.max(timestamp, indexed.timestamp || 0));
             }
             if (!title || title === 'Codex') {
                 const firstUser = messages.find(m => m.role === 'user' && m.content.trim());
                 title = firstUser ? firstUser.content.replace(/\s+/g, ' ').slice(0, 80) : 'Codex';
             }
 
-            return { id, title, timestamp, messages, filePath };
+            return { id, title, timestamp: Math.round(timestamp), messages, filePath };
         } catch {
             return null;
         }
