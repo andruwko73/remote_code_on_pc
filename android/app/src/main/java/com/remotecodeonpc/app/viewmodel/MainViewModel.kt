@@ -2,6 +2,7 @@ package com.remotecodeonpc.app.viewmodel
 
 import android.app.Application
 import android.content.Context
+import com.google.gson.JsonParser
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.remotecodeonpc.app.CrashLogger
@@ -1156,6 +1157,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun startTunnel() {
+        startTunnelImproved()
+        return
         _uiState.value = _uiState.value.copy(isTunnelStarting = true, tunnelError = null)
         viewModelScope.launch {
             try {
@@ -1194,6 +1197,60 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     tunnelError = "РћС€РёР±РєР°: ${e.message}"
                 )
             }
+        }
+    }
+
+    private fun startTunnelImproved() {
+        _uiState.value = _uiState.value.copy(isTunnelStarting = true, tunnelError = null)
+        viewModelScope.launch {
+            try {
+                val api = ApiClient.getApi(_uiState.value.serverConfig.copy(useTunnel = false, tunnelUrl = ""))
+                val response = api.startTunnel()
+                val body = response.body()
+                val url = body?.url
+                if (response.isSuccessful && body?.success == true && !url.isNullOrBlank()) {
+                    _uiState.value = _uiState.value.copy(
+                        tunnelActive = true,
+                        tunnelUrl = url,
+                        isTunnelStarting = false,
+                        tunnelError = null
+                    )
+                    val updatedConfig = _uiState.value.serverConfig.copy(
+                        useTunnel = true,
+                        tunnelUrl = url
+                    )
+                    _uiState.value = _uiState.value.copy(serverConfig = updatedConfig)
+                    saveConfig(updatedConfig)
+                    ApiClient.reset()
+                    connectWebSocket()
+                } else {
+                    val errorText = body?.error
+                        ?: response.errorBody()?.string()?.let { parseServerError(it) }
+                        ?: body?.message
+                        ?: "Ошибка ${response.code()}"
+                    _uiState.value = _uiState.value.copy(
+                        isTunnelStarting = false,
+                        tunnelActive = false,
+                        tunnelError = errorText
+                    )
+                }
+            } catch (e: Exception) {
+                _uiState.value = _uiState.value.copy(
+                    isTunnelStarting = false,
+                    tunnelActive = false,
+                    tunnelError = "Ошибка: ${e.message}"
+                )
+            }
+        }
+    }
+
+    private fun parseServerError(raw: String): String? {
+        return try {
+            val json = JsonParser.parseString(raw).asJsonObject
+            json.get("error")?.asString?.takeIf { it.isNotBlank() }
+                ?: json.get("message")?.asString?.takeIf { it.isNotBlank() }
+        } catch (_: Exception) {
+            raw.takeIf { it.isNotBlank() }?.take(500)
         }
     }
 

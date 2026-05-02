@@ -6,7 +6,7 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as vscode from 'vscode';
 import { WebSocketServer, WebSocket } from 'ws';
-import { spawn, execSync } from 'child_process';
+import { spawn, spawnSync, execSync } from 'child_process';
 
 interface ChatAgent {
     name: string;
@@ -99,6 +99,13 @@ interface RemoteCodeActionEvent {
     diff?: string;
     stdout?: string;
     stderr?: string;
+}
+
+interface TunnelLauncher {
+    command: string;
+    prefixArgs: string[];
+    shell: boolean;
+    label: string;
 }
 
 export class RemoteServer {
@@ -4078,7 +4085,102 @@ prompt.addEventListener('keydown', event => {
         }
     }
 
+    private findNgrokLauncher(): TunnelLauncher | undefined {
+        const candidates: TunnelLauncher[] = [
+            { command: path.join(process.env.LOCALAPPDATA || '', 'ngrok', 'ngrok.exe'), prefixArgs: [], shell: false, label: 'LOCALAPPDATA ngrok.exe' },
+            { command: path.join(process.env.PROGRAMFILES || '', 'ngrok', 'ngrok.exe'), prefixArgs: [], shell: false, label: 'Program Files ngrok.exe' },
+            { command: 'C:\\tools\\ngrok.exe', prefixArgs: [], shell: false, label: 'C:\\tools\\ngrok.exe' },
+            { command: path.join(process.env.USERPROFILE || '', 'ngrok.exe'), prefixArgs: [], shell: false, label: 'USERPROFILE ngrok.exe' },
+            { command: 'ngrok.cmd', prefixArgs: [], shell: true, label: 'ngrok from PATH' },
+            { command: 'ngrok', prefixArgs: [], shell: true, label: 'ngrok from PATH' },
+            { command: 'npx.cmd', prefixArgs: ['--yes', 'ngrok@latest'], shell: true, label: 'npx ngrok@latest' },
+        ];
+
+        for (const candidate of candidates) {
+            if (candidate.command.toLowerCase().endsWith('.exe') && !fs.existsSync(candidate.command)) {
+                continue;
+            }
+            try {
+                const check = spawnSync(candidate.command, [...candidate.prefixArgs, 'version'], {
+                    windowsHide: true,
+                    shell: candidate.shell,
+                    encoding: 'utf8',
+                    timeout: 10000
+                });
+                const output = `${check.stdout || ''}\n${check.stderr || ''}`;
+                if (check.status === 0 && /ngrok/i.test(output)) {
+                    return candidate;
+                }
+            } catch {
+                // Try the next candidate. Broken npm shims are common on Windows.
+            }
+        }
+        return undefined;
+    }
+
+    private startTunnelWithLauncher(launcher: TunnelLauncher): Promise<string> {
+        return new Promise((resolve, reject) => {
+            const args = [...launcher.prefixArgs, 'http', String(this._port), '--log=stdout'];
+
+            const ngrokConfig = path.join(process.env.USERPROFILE || '', '.ngrok2', 'ngrok.yml');
+            if (fs.existsSync(ngrokConfig)) {
+                args.push('--config', ngrokConfig);
+            }
+
+            const proc = spawn(launcher.command, args, {
+                windowsHide: true,
+                shell: launcher.shell,
+                stdio: ['pipe', 'pipe', 'pipe']
+            });
+
+            this._tunnelProcess = proc;
+            let settled = false;
+
+            const acceptOutput = (data: Buffer) => {
+                const text = data.toString();
+                const urlMatch = text.match(/https?:\/\/[a-zA-Z0-9_-]+\.ngrok[-a-zA-Z0-9]*\.(io|app)/);
+                if (urlMatch && !settled) {
+                    settled = true;
+                    this._tunnelUrl = urlMatch[0];
+                    console.log(`[RemoteCodeOnPC] ngrok tunnel: ${this._tunnelUrl}`);
+                    vscode.window.showInformationMessage(`Интернет-доступ: ${this._tunnelUrl}`);
+                    resolve(this._tunnelUrl);
+                }
+            };
+
+            proc.stdout.on('data', acceptOutput);
+            proc.stderr.on('data', acceptOutput);
+
+            proc.on('close', (code: number) => {
+                if (!settled && !this._tunnelUrl) {
+                    this._tunnelProcess = null;
+                    reject(new Error(`ngrok не запустился (${launcher.label}, код ${code}). Проверьте установку ngrok/authtoken или укажите публичный URL вручную в настройках приложения.`));
+                }
+            });
+
+            proc.on('error', (err: Error) => {
+                if (!settled) {
+                    this._tunnelProcess = null;
+                    reject(new Error(`Ошибка запуска ngrok: ${err.message}`));
+                }
+            });
+
+            setTimeout(() => {
+                if (!settled && !this._tunnelUrl) {
+                    proc.kill();
+                    this._tunnelProcess = null;
+                    reject(new Error('Таймаут запуска ngrok (15 сек). Проверьте установку ngrok или вставьте публичный URL вручную.'));
+                }
+            }, 15000);
+        });
+    }
+
     private async startTunnel(): Promise<string> {
+        const launcher = this.findNgrokLauncher();
+        if (!launcher) {
+            throw new Error('ngrok не найден или установлен некорректно. Установите ngrok.exe и добавьте его в PATH либо вставьте готовый публичный URL вручную в настройках приложения.');
+        }
+        return this.startTunnelWithLauncher(launcher);
         // Сначала пробуем найти установленный ngrok
         const ngrokPaths = [
             'ngrok',
@@ -4122,7 +4224,7 @@ prompt.addEventListener('keydown', event => {
                 args.push('--config', ngrokConfig);
             }
 
-            const proc = spawn(ngrokCmd, args, {
+            const proc: any = spawn(ngrokCmd as string, args, {
                 windowsHide: true,
                 shell: true,
                 stdio: ['pipe', 'pipe', 'pipe']
