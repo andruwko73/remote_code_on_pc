@@ -1,6 +1,7 @@
 package com.remotecodeonpc.app
 
 import android.content.Intent
+import android.content.Context
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
@@ -10,18 +11,53 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.core.content.FileProvider
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.BugReport
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Share
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Icon
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import com.remotecodeonpc.app.ui.theme.AccentBlue
 import com.remotecodeonpc.app.ui.theme.DarkBackground
+import com.remotecodeonpc.app.ui.theme.ErrorRed
 import com.remotecodeonpc.app.ui.theme.RemoteCodeTheme
+import com.remotecodeonpc.app.ui.theme.TextBright
+import com.remotecodeonpc.app.ui.theme.TextSecondary
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.io.File
+import kotlin.system.exitProcess
 import java.util.concurrent.TimeUnit
 
 class MainActivity : ComponentActivity() {
     private val publicUpdateUrl = "https://raw.githubusercontent.com/andruwko73/remote_code_on_pc/main/apk/app-debug.apk"
+    private val crashPrefsName = "remote_code_crash_recovery"
+    private val appPrefsName = "remote_code_prefs"
     private var pendingUpdateApk: File? = null
     private var pendingUpdateConfig: ServerConfig? = null
     private var waitingForInstallPermission = false
@@ -31,26 +67,44 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
 
         CrashLogger.init(applicationContext)
-            CrashLogger.i("MainActivity", "App started, version=1.0.32")
-
-        val defaultCrashHandler = Thread.getDefaultUncaughtExceptionHandler()
-        Thread.setDefaultUncaughtExceptionHandler { thread, throwable ->
-            CrashLogger.e("UNCAUGHT", "Unhandled error in thread ${thread.name}", throwable)
-            defaultCrashHandler?.uncaughtException(thread, throwable)
-        }
+        installCrashRecoveryHandler()
+        sanitizeStateAfterUpgrade()
+        CrashLogger.i("MainActivity", "App started, version=${BuildConfig.VERSION_NAME}")
 
         enableEdgeToEdge()
+        val shouldShowRecovery = getSharedPreferences(crashPrefsName, Context.MODE_PRIVATE)
+            .getBoolean("pending_crash", false)
+        val lastCrash = getSharedPreferences(crashPrefsName, Context.MODE_PRIVATE)
+            .getString("last_crash", "")
         setContent {
+            var recoveryMode by remember { mutableStateOf(shouldShowRecovery) }
             RemoteCodeTheme {
                 Surface(
                     modifier = Modifier.fillMaxSize(),
                     color = DarkBackground
                 ) {
-                    RemoteCodeApp(
-                        onShareLogs = { shareLogs() },
-                        onClearLogs = { clearLogs() },
-                        onUpdateApp = { config -> downloadAndInstallUpdate(config) }
-                    )
+                    if (recoveryMode) {
+                        CrashRecoveryScreen(
+                            versionName = BuildConfig.VERSION_NAME,
+                            lastCrash = lastCrash.orEmpty(),
+                            onOpenNormally = {
+                                clearCrashRecoveryFlag()
+                                recoveryMode = false
+                            },
+                            onResetAndOpen = {
+                                resetLocalAppState()
+                                clearCrashRecoveryFlag()
+                                recoveryMode = false
+                            },
+                            onShareLogs = { shareLogs() }
+                        )
+                    } else {
+                        RemoteCodeApp(
+                            onShareLogs = { shareLogs() },
+                            onClearLogs = { clearLogs() },
+                            onUpdateApp = { config -> downloadAndInstallUpdate(config) }
+                        )
+                    }
                 }
             }
         }
@@ -84,6 +138,88 @@ class MainActivity : ComponentActivity() {
     private fun clearLogs() {
         CrashLogger.clear()
         Toast.makeText(this, "Logs cleared", Toast.LENGTH_SHORT).show()
+    }
+
+    private fun installCrashRecoveryHandler() {
+        val defaultCrashHandler = Thread.getDefaultUncaughtExceptionHandler()
+        Thread.setDefaultUncaughtExceptionHandler { thread, throwable ->
+            try {
+                CrashLogger.e("UNCAUGHT", "Unhandled error in thread ${thread.name}", throwable)
+                getSharedPreferences(crashPrefsName, Context.MODE_PRIVATE)
+                    .edit()
+                    .putBoolean("pending_crash", true)
+                    .putLong("last_crash_time", System.currentTimeMillis())
+                    .putString("last_crash", throwable.stackTraceToString().take(6000))
+                    .apply()
+            } catch (_: Exception) {
+            }
+            if (defaultCrashHandler != null) {
+                defaultCrashHandler.uncaughtException(thread, throwable)
+            } else {
+                exitProcess(2)
+            }
+        }
+    }
+
+    private fun sanitizeStateAfterUpgrade() {
+        val prefs = getSharedPreferences(appPrefsName, Context.MODE_PRIVATE)
+        val lastVersion = runCatching { prefs.getInt("last_version_code", -1) }.getOrDefault(-1)
+        if (lastVersion == BuildConfig.VERSION_CODE) return
+
+        val host = safeStringPref(prefs, "host")
+        val port = safeIntPref(prefs, "port", 8799).coerceIn(1, 65535)
+        val authToken = safeStringPref(prefs, "authToken")
+        val useTunnel = safeBooleanPref(prefs, "useTunnel", false)
+        val tunnelUrl = safeStringPref(prefs, "tunnelUrl")
+
+        prefs.edit()
+            .clear()
+            .putString("host", host)
+            .putInt("port", port)
+            .putString("authToken", authToken)
+            .putBoolean("useTunnel", useTunnel)
+            .putString("tunnelUrl", tunnelUrl)
+            .putInt("last_version_code", BuildConfig.VERSION_CODE)
+            .apply()
+
+        cacheDir.listFiles()
+            ?.filter { it.name.startsWith("remote-code-update-") && it.extension == "apk" }
+            ?.forEach { it.delete() }
+        CrashLogger.i("MainActivity", "Sanitized app state after upgrade: $lastVersion -> ${BuildConfig.VERSION_CODE}")
+    }
+
+    private fun safeStringPref(prefs: android.content.SharedPreferences, key: String): String {
+        return runCatching { prefs.getString(key, "") ?: "" }
+            .recoverCatching { prefs.all[key]?.toString().orEmpty() }
+            .getOrDefault("")
+    }
+
+    private fun safeIntPref(prefs: android.content.SharedPreferences, key: String, defaultValue: Int): Int {
+        return runCatching { prefs.getInt(key, defaultValue) }
+            .recoverCatching { prefs.all[key]?.toString()?.toIntOrNull() ?: defaultValue }
+            .getOrDefault(defaultValue)
+    }
+
+    private fun safeBooleanPref(prefs: android.content.SharedPreferences, key: String, defaultValue: Boolean): Boolean {
+        return runCatching { prefs.getBoolean(key, defaultValue) }
+            .recoverCatching { prefs.all[key]?.toString()?.toBooleanStrictOrNull() ?: defaultValue }
+            .getOrDefault(defaultValue)
+    }
+
+    private fun clearCrashRecoveryFlag() {
+        getSharedPreferences(crashPrefsName, Context.MODE_PRIVATE)
+            .edit()
+            .putBoolean("pending_crash", false)
+            .apply()
+    }
+
+    private fun resetLocalAppState() {
+        getSharedPreferences(appPrefsName, Context.MODE_PRIVATE).edit().clear().apply()
+        cacheDir.listFiles()
+            ?.filter { it.name.startsWith("remote-code-update-") && it.extension == "apk" }
+            ?.forEach { it.delete() }
+        CrashLogger.i("MainActivity", "Local app state reset from recovery screen")
+        Toast.makeText(this, "Local settings reset", Toast.LENGTH_SHORT).show()
     }
 
     private fun downloadAndInstallUpdate(config: ServerConfig) {
@@ -202,5 +338,77 @@ class MainActivity : ComponentActivity() {
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         }
         startActivity(intent)
+    }
+}
+
+@Composable
+private fun CrashRecoveryScreen(
+    versionName: String,
+    lastCrash: String,
+    onOpenNormally: () -> Unit,
+    onResetAndOpen: () -> Unit,
+    onShareLogs: () -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(DarkBackground)
+            .padding(28.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center
+    ) {
+        Icon(
+            Icons.Default.BugReport,
+            contentDescription = null,
+            tint = ErrorRed,
+            modifier = Modifier.size(64.dp)
+        )
+        Spacer(modifier = Modifier.height(18.dp))
+        Text(
+            "Remote Code восстановлен после сбоя",
+            color = TextBright,
+            fontSize = 22.sp,
+            fontWeight = FontWeight.Bold,
+            textAlign = TextAlign.Center
+        )
+        Spacer(modifier = Modifier.height(8.dp))
+        Text(
+            "APK $versionName запустился в безопасном режиме. Можно открыть приложение обычно или сбросить локальные настройки подключения.",
+            color = TextSecondary,
+            fontSize = 14.sp,
+            textAlign = TextAlign.Center
+        )
+        if (lastCrash.isNotBlank()) {
+            Spacer(modifier = Modifier.height(12.dp))
+            Text(
+                lastCrash.lineSequence().firstOrNull().orEmpty(),
+                color = TextSecondary.copy(alpha = 0.75f),
+                fontSize = 12.sp,
+                textAlign = TextAlign.Center,
+                maxLines = 2
+            )
+        }
+        Spacer(modifier = Modifier.height(24.dp))
+        Button(
+            onClick = onOpenNormally,
+            colors = ButtonDefaults.buttonColors(containerColor = AccentBlue),
+            shape = RoundedCornerShape(12.dp)
+        ) {
+            Icon(Icons.Default.PlayArrow, contentDescription = null)
+            Spacer(modifier = Modifier.size(8.dp))
+            Text("Открыть приложение")
+        }
+        Spacer(modifier = Modifier.height(10.dp))
+        OutlinedButton(onClick = onResetAndOpen, shape = RoundedCornerShape(12.dp)) {
+            Icon(Icons.Default.Delete, contentDescription = null)
+            Spacer(modifier = Modifier.size(8.dp))
+            Text("Сбросить настройки и открыть")
+        }
+        Spacer(modifier = Modifier.height(10.dp))
+        OutlinedButton(onClick = onShareLogs, shape = RoundedCornerShape(12.dp)) {
+            Icon(Icons.Default.Share, contentDescription = null)
+            Spacer(modifier = Modifier.size(8.dp))
+            Text("Отправить логи")
+        }
     }
 }

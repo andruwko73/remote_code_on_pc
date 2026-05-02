@@ -92,12 +92,16 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             val savedHost = prefs.getString("host", "") ?: ""
             val savedPort = prefs.getInt("port", 8799)
             val savedToken = prefs.getString("authToken", "") ?: ""
+            val savedUseTunnel = prefs.getBoolean("useTunnel", false)
+            val savedTunnelUrl = prefs.getString("tunnelUrl", "") ?: ""
             if (savedHost.isNotBlank()) {
                 _uiState.value = _uiState.value.copy(
                     serverConfig = ServerConfig(
                         host = savedHost,
                         port = savedPort,
-                        authToken = savedToken
+                        authToken = savedToken,
+                        useTunnel = savedUseTunnel,
+                        tunnelUrl = savedTunnelUrl
                     )
                 )
                 CrashLogger.i("ViewModel", "Loaded saved config: $savedHost:$savedPort")
@@ -115,6 +119,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 .putString("host", config.host)
                 .putInt("port", config.port)
                 .putString("authToken", config.authToken)
+                .putBoolean("useTunnel", config.useTunnel)
+                .putString("tunnelUrl", config.tunnelUrl)
                 .apply()
             CrashLogger.d("ViewModel", "Config saved: ${config.host}:${config.port}")
         } catch (e: Exception) {
