@@ -2147,6 +2147,18 @@ export class RemoteServer {
         const selectedEffort = effortOptions.some(option => option.id === this.selectedReasoningEffort)
             ? this.selectedReasoningEffort
             : 'medium';
+        const icon = {
+            edit: '<svg viewBox="0 0 24 24"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>',
+            more: '<svg viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="19" cy="12" r="1.5"/></svg>',
+            play: '<svg viewBox="0 0 24 24"><path d="m8 5 11 7-11 7Z"/></svg>',
+            terminal: '<svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="m8 9 3 3-3 3"/><path d="M13 15h4"/></svg>',
+            settings: '<svg viewBox="0 0 24 24"><path d="M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Z"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.88l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06A1.7 1.7 0 0 0 15 19.4a1.7 1.7 0 0 0-1 .6 1.7 1.7 0 0 0-.4 1.1V21a2 2 0 1 1-4 0v-.09A1.7 1.7 0 0 0 8 19.4a1.7 1.7 0 0 0-1.88.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.7 1.7 0 0 0 3.6 15a1.7 1.7 0 0 0-.6-1 1.7 1.7 0 0 0-1.1-.4H1.8a2 2 0 1 1 0-4h.09A1.7 1.7 0 0 0 3.6 8a1.7 1.7 0 0 0-.34-1.88l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.7 1.7 0 0 0 8 3.6a1.7 1.7 0 0 0 1-.6 1.7 1.7 0 0 0 .4-1.1V1.8a2 2 0 1 1 4 0v.09A1.7 1.7 0 0 0 15 3.6a1.7 1.7 0 0 0 1.88-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.7 1.7 0 0 0 19.4 8c.11.36.32.7.6 1 .31.26.7.4 1.1.4h.1a2 2 0 1 1 0 4h-.1A1.7 1.7 0 0 0 19.4 15Z"/></svg>',
+            plus: '<svg viewBox="0 0 24 24"><path d="M12 5v14"/><path d="M5 12h14"/></svg>',
+            chevron: '<svg viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg>',
+            send: '<svg viewBox="0 0 24 24"><path d="M12 19V5"/><path d="m5 12 7-7 7 7"/></svg>',
+            sparkle: '<svg viewBox="0 0 24 24"><path d="M12 3 14.2 9.8 21 12l-6.8 2.2L12 21l-2.2-6.8L3 12l6.8-2.2Z"/></svg>',
+            branch: '<svg viewBox="0 0 24 24"><path d="M6 3v12"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="6" r="3"/><path d="M8.5 15.5 18 6"/></svg>'
+        };
         const rows = messages.map(message => {
             const role = message.role === 'system' ? 'Система' : '';
             const cls = message.role === 'user' ? 'user' : message.role === 'assistant' ? 'assistant' : 'system';
@@ -2173,89 +2185,95 @@ export class RemoteServer {
 <meta charset="UTF-8">
 <style>
 html,body{height:100%}
-body{margin:0;background:#111213;color:#d8d8d8;font:15px/1.55 var(--vscode-font-family);display:flex;flex-direction:column}
-.top{height:46px;border-bottom:1px solid #222426;background:#111213;display:flex;align-items:center;gap:10px;padding:0 min(3.8vw,42px)}
-.edit-icon{color:#9a9a9a;font-size:18px}
-.thread-title{font-size:16px;color:#f0f0f0;font-weight:700;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:560px}
+body{margin:0;background:#101112;color:#d7d7d7;font:14px/1.55 var(--vscode-font-family);display:flex;flex-direction:column;letter-spacing:0}
+button{font:inherit}
+svg{width:18px;height:18px;display:block;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.top{height:48px;border-bottom:1px solid #222326;background:#111213;display:flex;align-items:center;gap:8px;padding:0 min(3.4vw,38px)}
+.edit-icon{color:#9c9c9c}
+.thread-title{font-size:15px;color:#f1f1f1;font-weight:650;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:600px}
 .toolbar-spacer{flex:1}
-.icon-btn{width:28px;height:28px;border:0;border-radius:7px;background:transparent;color:#aaa;font:inherit;font-size:16px;display:inline-flex;align-items:center;justify-content:center;cursor:pointer}
-.icon-btn:hover{background:#1f2123;color:#e7e7e7}
-.pill-btn{height:30px;border:1px solid #2b2d30;border-radius:9px;background:#17191b;color:#bdbdbd;padding:0 10px;font:inherit;cursor:pointer}
-.pill-btn:hover{background:#222426;color:#e5e5e5}
+.icon-btn{width:30px;height:30px;border:0;border-radius:8px;background:transparent;color:#9b9b9b;display:inline-flex;align-items:center;justify-content:center;cursor:pointer;padding:0}
+.icon-btn:hover{background:#202123;color:#ededed}
+.pill-btn{height:30px;border:1px solid #2c2f33;border-radius:9px;background:#17191b;color:#d8d8d8;padding:0 11px;cursor:pointer;display:inline-flex;align-items:center;gap:7px}
+.pill-btn:hover{background:#222426;color:#f1f1f1}
 .thread-menu-wrap{position:relative;min-width:0;display:flex;align-items:center;gap:7px}
-.thread-menu-btn{border:0;background:transparent;color:#f0f0f0;display:flex;align-items:center;gap:8px;min-width:0;max-width:620px;cursor:pointer;border-radius:8px;padding:5px 7px;font:inherit}
+.thread-menu-btn{border:0;background:transparent;color:#f0f0f0;display:flex;align-items:center;gap:7px;min-width:0;max-width:640px;cursor:pointer;border-radius:8px;padding:5px 7px}
 .thread-menu-btn:hover,.thread-menu-wrap.open .thread-menu-btn{background:#1f2123}
 .thread-menu{display:none;position:absolute;left:0;top:36px;width:min(420px,70vw);max-height:360px;overflow:auto;background:#202123;border:1px solid #33363a;border-radius:10px;padding:6px;z-index:10;box-shadow:0 14px 40px rgba(0,0,0,.45)}
 .thread-menu-wrap.open .thread-menu{display:block}
-.thread-item{width:100%;border:0;background:transparent;color:#d8d8d8;text-align:left;border-radius:7px;padding:9px 10px;cursor:pointer;font:inherit}
+.thread-item{width:100%;border:0;background:transparent;color:#d8d8d8;text-align:left;border-radius:7px;padding:9px 10px;cursor:pointer}
 .thread-item:hover{background:#2b2d30}
 .thread-item.selected{background:#303337;color:#f2f2f2}
 .thread-item small{display:block;color:#8d8d8d;margin-top:2px;font-size:11px}
-.messages{flex:1;overflow:auto;padding:20px min(3.8vw,42px) 14px}
-.msg{padding:3px 0 18px;margin:0 auto;background:transparent;border:0;max-width:920px}
-.msg.user{max-width:620px;margin-left:auto;margin-right:min(3vw,28px);color:#f0f0f0}
+.messages{flex:1;overflow:auto;padding:18px min(3.4vw,38px) 12px}
+.msg{padding:2px 0 17px;margin:0 auto;background:transparent;border:0;max-width:960px}
+.msg.user{max-width:620px;margin-left:auto;margin-right:min(2.4vw,24px);color:#f0f0f0}
 .msg.user .role,.msg.user .meta{display:none}
-.msg.user pre{background:#2b2c2e;border:1px solid #303235;border-radius:18px;padding:12px 16px}
+.msg.user pre{background:#2b2c2e;border:1px solid #303235;border-radius:18px;padding:11px 15px}
 .msg.system pre{color:#aeb0b3}
 .role{font-weight:600;color:#dcdcdc;margin-bottom:5px}
 .meta{font-size:12px;color:#8e8e8e;margin:-1px 0 6px}
 .meta-bottom{margin:8px 0 0;color:#858585}
 .assistant .role{color:#dcdcdc}.system .role{color:#e8b66b}
 pre{margin:0;white-space:pre-wrap;word-wrap:break-word;font:inherit}
-.action{max-width:920px;margin:0 auto 14px;padding:10px 12px;background:#222325;border:1px solid #303236;border-radius:10px}
+.action{max-width:960px;margin:0 auto 14px;padding:10px 12px;background:#222325;border:1px solid #303236;border-radius:10px}
 .action-head{display:flex;align-items:center;justify-content:space-between;gap:12px;color:#e2e2e2;margin-bottom:8px}
 .action-head span{font-size:12px;color:#999}
 .action pre{max-height:220px;overflow:auto;color:#cfcfcf;font:12px/1.45 var(--vscode-editor-font-family, monospace)}
 .action-buttons{display:flex;gap:8px;justify-content:flex-end;margin-top:10px}
 .action-buttons button{border:1px solid #3a3d42;background:#2c2e31;color:#d9d9d9;border-radius:8px;padding:6px 10px;cursor:pointer}
 .action-buttons button:hover{background:#383b3f}
-.composer-wrap{padding:10px min(3.8vw,42px) 14px;background:#111213}
-.composer{max-width:920px;margin:0 auto;border:1px solid #2b2d30;background:#2c2c2e;border-radius:20px;padding:13px 14px 10px;display:flex;flex-direction:column;gap:8px;box-shadow:0 8px 24px rgba(0,0,0,.16)}
-.controls{display:flex;gap:10px;align-items:center;min-width:0}
-.subcontrols{display:flex;gap:24px;align-items:center;margin:7px auto 0;max-width:920px;color:#8e8e8e;font-size:13px}
-.plus{font-size:25px;line-height:1;color:#b8b8b8;background:transparent;border:0;width:34px;padding:0;cursor:pointer}
-textarea{width:100%;box-sizing:border-box;resize:none;min-height:66px;max-height:190px;border:0;background:transparent;color:#e8e8e8;padding:2px 0;font:inherit;font-size:15px;outline:none}
-textarea::placeholder{color:#707070}
-.dropdown{position:relative;flex:0 1 142px;min-width:0}
-.dropdown.effort{flex-basis:112px}
-.dropdown.profile{flex-basis:168px}
+.composer-wrap{padding:10px min(3.4vw,38px) 14px;background:#101112}
+.composer{max-width:960px;margin:0 auto;border:1px solid #2a2c2f;background:#2c2c2e;border-radius:18px;padding:12px 14px 10px;display:flex;flex-direction:column;gap:8px;box-shadow:0 8px 22px rgba(0,0,0,.14)}
+.controls{display:flex;gap:8px;align-items:center;min-width:0}
+.subcontrols{display:flex;gap:24px;align-items:center;margin:7px auto 0;max-width:960px;color:#8e8e8e;font-size:13px}
+.plus{color:#bcbcbc;background:transparent;border:0;width:34px;height:34px;display:inline-flex;align-items:center;justify-content:center;padding:0;cursor:pointer;border-radius:8px}
+.plus:hover{background:#36373a;color:#ededed}
+textarea{width:100%;box-sizing:border-box;resize:none;min-height:64px;max-height:190px;border:0;background:transparent;color:#e8e8e8;padding:1px 0;font:inherit;font-size:14px;outline:none}
+textarea::placeholder{color:#777}
+.dropdown{position:relative;flex:0 1 132px;min-width:0}
+.dropdown.effort{flex-basis:110px}
+.dropdown.profile{flex-basis:174px}
 .dropdown.workmode{flex:0 1 172px}
-.dropdown-btn{height:32px;width:100%;border:0;background:transparent;color:#bdbdbd;padding:0 7px;font:inherit;font-size:13px;display:flex;align-items:center;justify-content:space-between;gap:7px;border-radius:8px;cursor:pointer}
+.dropdown-btn{height:32px;width:100%;border:0;background:transparent;color:#c7c7c7;padding:0 8px;font-size:13px;display:flex;align-items:center;justify-content:space-between;gap:7px;border-radius:8px;cursor:pointer;white-space:nowrap}
 .dropdown-btn:hover,.dropdown.open .dropdown-btn{background:#343537;color:#e0e0e0}
-.chev{font-size:16px;color:#9a9a9a}
+.dropdown-btn .label{min-width:0;overflow:hidden;text-overflow:ellipsis}
+.chev{color:#9a9a9a;display:inline-flex;align-items:center}
+.chev svg{width:15px;height:15px}
 .menu{display:none;position:absolute;left:0;bottom:40px;min-width:100%;max-height:260px;overflow:auto;background:#252526;border:1px solid #3a3a3a;border-radius:10px;padding:6px;box-shadow:0 10px 30px rgba(0,0,0,.45);z-index:5}
 .dropdown.open .menu{display:block}
-.item{width:100%;text-align:left;border:0;background:transparent;color:#d7d7d7;padding:8px 10px;border-radius:7px;font:inherit;cursor:pointer;white-space:nowrap}
+.item{width:100%;text-align:left;border:0;background:transparent;color:#d7d7d7;padding:8px 10px;border-radius:7px;cursor:pointer;white-space:nowrap}
 .item:hover{background:#343638}
 .item.selected{color:#f1f1f1;background:#313438}
-.context{margin-left:auto;color:#4bb4ff;font-weight:500;white-space:nowrap;border:0;background:transparent;font:inherit;font-size:13px;cursor:pointer;border-radius:8px;padding:7px 8px}
+.context{margin-left:auto;color:#4bb4ff;font-weight:500;white-space:nowrap;border:0;background:transparent;font-size:13px;cursor:pointer;border-radius:8px;padding:7px 8px;display:inline-flex;align-items:center;gap:5px}
 .context.off{color:#8e8e8e}
 .context:hover{background:#343537}
-.context .spark{padding-right:4px}
-button.send{border:0;border-radius:50%;background:#b7b7b7;color:#111;width:44px;height:44px;font-size:22px;font-weight:700;cursor:pointer;white-space:nowrap}
-.link-btn{border:0;background:transparent;color:#8e8e8e;font:inherit;cursor:pointer;padding:4px 0}
+.context .spark{display:inline-flex;color:#18a8ff}
+button.send{border:0;border-radius:50%;background:#d9d9d9;color:#111;width:42px;height:42px;display:inline-flex;align-items:center;justify-content:center;cursor:pointer;white-space:nowrap;padding:0}
+button.send:hover{background:#fff}
+.link-btn{border:0;background:transparent;color:#8e8e8e;cursor:pointer;padding:4px 0;display:inline-flex;align-items:center;gap:6px}
 .link-btn:hover{color:#d0d0d0}
-@media (max-width: 680px){.messages{padding-left:18px;padding-right:18px}.composer-wrap{padding-left:12px;padding-right:12px}.controls{flex-wrap:wrap}.context{margin-left:0}button.send{margin-left:auto}.toolbar{padding:0 10px}.subcontrols{gap:10px;flex-wrap:wrap}}
+@media (max-width: 680px){.top{padding:0 10px}.messages{padding-left:16px;padding-right:16px}.composer-wrap{padding-left:10px;padding-right:10px}.controls{flex-wrap:wrap}.context{margin-left:0}button.send{margin-left:auto}.subcontrols{gap:10px;flex-wrap:wrap}.dropdown.profile{flex-basis:150px}}
 </style>
 </head>
 <body>
 <div class="top">
-  <button class="icon-btn edit-icon" type="button" data-action="newChat" title="Новый чат">&#9998;</button>
+  <button class="icon-btn edit-icon" type="button" data-action="newChat" title="&#1053;&#1086;&#1074;&#1099;&#1081; &#1095;&#1072;&#1090;">${icon.edit}</button>
   <div class="thread-menu-wrap" id="threadDrop">
-    <button class="thread-menu-btn" type="button" title="История чатов">
+    <button class="thread-menu-btn" type="button" title="&#1048;&#1089;&#1090;&#1086;&#1088;&#1080;&#1103; &#1095;&#1072;&#1090;&#1086;&#1074;">
       <span class="thread-title">${this.escapeHtml(title)}</span>
-      <span class="chev">&#8964;</span>
+      <span class="chev">${icon.chevron}</span>
     </button>
     <div class="thread-menu" id="threadMenu">
       ${threadOptions.map(thread => `<button class="thread-item ${thread.id === this.currentRemoteThreadId ? 'selected' : ''}" type="button" data-thread-id="${this.escapeHtml(thread.id)}">${this.escapeHtml(thread.title)}<small>${this.escapeHtml(new Date(thread.timestamp || Date.now()).toLocaleString())}</small></button>`).join('')}
     </div>
   </div>
-  <button class="icon-btn" type="button" data-action="clearChat" title="Очистить чат">...</button>
+  <button class="icon-btn" type="button" data-action="clearChat" title="&#1054;&#1095;&#1080;&#1089;&#1090;&#1080;&#1090;&#1100; &#1095;&#1072;&#1090;">${icon.more}</button>
   <div class="toolbar-spacer"></div>
-  <button class="icon-btn" type="button" id="topRun" title="Отправить">&triangleright;</button>
-  <button class="pill-btn" type="button" data-action="showUsageStatus" title="Проверить локальный режим">VS Code</button>
-  <button class="icon-btn" type="button" data-action="openTerminal" title="Терминал">&#9002;</button>
-  <button class="icon-btn" type="button" data-action="openSettings" title="Настройки">&#9881;</button>
+  <button class="icon-btn" type="button" id="topRun" title="&#1054;&#1090;&#1087;&#1088;&#1072;&#1074;&#1080;&#1090;&#1100;">${icon.play}</button>
+  <button class="pill-btn" type="button" data-action="showUsageStatus" title="&#1055;&#1088;&#1086;&#1074;&#1077;&#1088;&#1080;&#1090;&#1100; &#1083;&#1086;&#1082;&#1072;&#1083;&#1100;&#1085;&#1099;&#1081; &#1088;&#1077;&#1078;&#1080;&#1084;">VS Code</button>
+  <button class="icon-btn" type="button" data-action="openTerminal" title="&#1058;&#1077;&#1088;&#1084;&#1080;&#1085;&#1072;&#1083;">${icon.terminal}</button>
+  <button class="icon-btn" type="button" data-action="openSettings" title="&#1053;&#1072;&#1089;&#1090;&#1088;&#1086;&#1081;&#1082;&#1080;">${icon.settings}</button>
 </div>
 <main class="messages" id="messages">
 ${rows || '<div class="msg system"><div class="role">Система</div><pre>Жду сообщение с телефона или из VS Code.</pre></div>'}
@@ -2265,29 +2283,29 @@ ${actionRows}
   <form class="composer" id="composer">
     <textarea id="prompt" placeholder="Запросите внесение дополнительных изменений"></textarea>
     <div class="controls">
-      <button class="plus" type="button" data-action="addFile" title="Добавить файл">+</button>
+      <button class="plus" type="button" data-action="addFile" title="&#1044;&#1086;&#1073;&#1072;&#1074;&#1080;&#1090;&#1100; &#1092;&#1072;&#1081;&#1083;">${icon.plus}</button>
       <div class="dropdown profile" id="profileDrop">
-        <button class="dropdown-btn" type="button"><span>&#9881;</span><span id="profileLabel"></span><span class="chev">&#8964;</span></button>
+        <button class="dropdown-btn" type="button"><span>${icon.settings}</span><span id="profileLabel" class="label"></span><span class="chev">${icon.chevron}</span></button>
         <div class="menu" id="profileMenu"></div>
       </div>
       <div class="dropdown" id="modelDrop">
-        <button class="dropdown-btn" type="button"><span id="modelLabel"></span><span class="chev">&#8964;</span></button>
+        <button class="dropdown-btn" type="button"><span id="modelLabel" class="label"></span><span class="chev">${icon.chevron}</span></button>
         <div class="menu" id="modelMenu"></div>
       </div>
       <div class="dropdown effort" id="effortDrop">
-        <button class="dropdown-btn" type="button"><span id="effortLabel"></span><span class="chev">&#8964;</span></button>
+        <button class="dropdown-btn" type="button"><span id="effortLabel" class="label"></span><span class="chev">${icon.chevron}</span></button>
         <div class="menu" id="effortMenu"></div>
       </div>
-      <button class="context" id="contextToggle" type="button"><span class="spark">*</span>Контекст IDE</button>
-      <button class="send" id="send" type="submit">&uarr;</button>
+      <button class="context" id="contextToggle" type="button"><span class="spark">${icon.sparkle}</span>&#1050;&#1086;&#1085;&#1090;&#1077;&#1082;&#1089;&#1090; IDE</button>
+      <button class="send" id="send" type="submit" title="&#1054;&#1090;&#1087;&#1088;&#1072;&#1074;&#1080;&#1090;&#1100;">${icon.send}</button>
     </div>
   </form>
   <div class="subcontrols">
     <div class="dropdown workmode" id="workModeDrop">
-      <button class="dropdown-btn" type="button"><span id="workModeLabel"></span><span class="chev">&#8964;</span></button>
+      <button class="dropdown-btn" type="button"><span id="workModeLabel" class="label"></span><span class="chev">${icon.chevron}</span></button>
       <div class="menu" id="workModeMenu"></div>
     </div>
-    <button class="link-btn" type="button" data-action="showBranch">ветка ${this.escapeHtml(branchLabel)}</button>
+    <button class="link-btn" type="button" data-action="showBranch">${icon.branch} &#1074;&#1077;&#1090;&#1082;&#1072; ${this.escapeHtml(branchLabel)}</button>
   </div>
 </div>
 <script>
