@@ -140,6 +140,7 @@ export class RemoteServer {
     private activeChatThreadId?: string;
     private hiddenCodexThreadIds: Set<string> = new Set();
     private workspaceStorageCache?: { timestamp: number; dirs: string[] };
+    private workspaceFileHintsCache?: { timestamp: number; limit: number; hints: string };
 
     // Internet tunnel
     private _tunnelUrl: string | null = null;
@@ -1573,10 +1574,15 @@ export class RemoteServer {
         const folders = vscode.workspace.workspaceFolders?.map(f => f.uri.fsPath).join('\n') || 'No workspace folder is open.';
         const active = vscode.window.activeTextEditor;
         const activeFile = active ? `${active.document.uri.fsPath} (${active.document.languageId})` : 'No active editor.';
+        const fileHints = this.getWorkspaceFileHints(120);
         return [
             'You are Remote Code Agent running inside VS Code.',
             'Help with code, files, diagnostics, terminal commands, and IDE context.',
             'When an action needs user approval, do not claim it was done.',
+            'Use only real project files. Do not invent source paths.',
+            'Before requesting ::read-file, prefer paths from Project file hints below or paths explicitly provided by the user/history.',
+            'If a file is not listed and you are unsure, request a directory listing with ::run-command{"command":"dir","cwd":"absolute folder"} or ask for the exact path.',
+            'Important: this project currently renders the Remote Code VS Code chat webview in extension/src/server.ts. There is no extension/src/webview/chat/ChatView.tsx unless Project file hints list it.',
             'Request terminal approval with a single line: ::run-command{"command":"...","cwd":"optional path"}',
             'Read a project file with a single line: ::read-file{"path":"absolute path"}',
             'Request current VS Code diagnostics with a single line: ::show-diagnostics{}',
@@ -1586,8 +1592,125 @@ export class RemoteServer {
             'Workspace folders:',
             folders,
             'Active editor:',
-            activeFile
+            activeFile,
+            'Project file hints:',
+            fileHints
         ].join('\n');
+    }
+
+    private getWorkspaceFileHints(limit = 100): string {
+        const roots = vscode.workspace.workspaceFolders?.map(folder => folder.uri.fsPath).filter(folder => fs.existsSync(folder)) || [];
+        if (roots.length === 0) return 'No workspace files are available.';
+        const cached = this.workspaceFileHintsCache;
+        if (cached && cached.limit >= limit && Date.now() - cached.timestamp < 30_000) {
+            return cached.hints.split('\n').slice(0, limit).join('\n') || 'No source-like project files found.';
+        }
+
+        const seen = new Set<string>();
+        const files: string[] = [];
+        const addFile = (absolutePath: string): void => {
+            if (!fs.existsSync(absolutePath)) return;
+            try {
+                const stat = fs.statSync(absolutePath);
+                if (!stat.isFile()) return;
+            } catch {
+                return;
+            }
+            const rel = this.toWorkspaceDisplayPath(absolutePath);
+            if (seen.has(rel)) return;
+            seen.add(rel);
+            files.push(rel);
+        };
+
+        const importantFiles = [
+            'extension/src/server.ts',
+            'extension/src/extension.ts',
+            'extension/package.json',
+            'README.md',
+            'android/app/build.gradle.kts',
+            'android/app/src/main/java/com/remotecodeonpc/app/RemoteCodeApp.kt',
+            'android/app/src/main/java/com/remotecodeonpc/app/MainActivity.kt',
+            'android/app/src/main/java/com/remotecodeonpc/app/Models.kt',
+            'android/app/src/main/java/com/remotecodeonpc/app/viewmodel/MainViewModel.kt',
+            'android/app/src/main/java/com/remotecodeonpc/app/network/ApiClient.kt',
+            'android/app/src/main/java/com/remotecodeonpc/app/network/WebSocketClient.kt',
+            'android/app/src/main/java/com/remotecodeonpc/app/ui/screens/CodexScreen.kt',
+            'android/app/src/main/java/com/remotecodeonpc/app/ui/screens/FilesScreen.kt',
+            'android/app/src/main/java/com/remotecodeonpc/app/ui/screens/DiagnosticsScreen.kt',
+            'android/app/src/main/java/com/remotecodeonpc/app/ui/screens/TerminalScreen.kt',
+            'android/app/src/main/java/com/remotecodeonpc/app/ui/screens/VSCodeScreen.kt'
+        ];
+
+        for (const root of roots) {
+            for (const rel of importantFiles) {
+                addFile(path.join(root, rel));
+            }
+        }
+
+        const walk = (dir: string, depth: number): void => {
+            if (files.length >= limit || depth > 6) return;
+            let entries: fs.Dirent[];
+            try {
+                entries = fs.readdirSync(dir, { withFileTypes: true });
+            } catch {
+                return;
+            }
+            entries.sort((a, b) => {
+                if (a.isDirectory() !== b.isDirectory()) return a.isDirectory() ? -1 : 1;
+                return a.name.localeCompare(b.name);
+            });
+            for (const entry of entries) {
+                if (files.length >= limit) return;
+                if (this.shouldSkipWorkspaceEntry(entry.name)) continue;
+                const fullPath = path.join(dir, entry.name);
+                if (entry.isDirectory()) {
+                    walk(fullPath, depth + 1);
+                } else if (entry.isFile() && this.isWorkspaceHintFile(entry.name)) {
+                    addFile(fullPath);
+                }
+            }
+        };
+
+        for (const root of roots) {
+            walk(root, 0);
+            if (files.length >= limit) break;
+        }
+
+        const result = files.slice(0, limit).join('\n') || 'No source-like project files found.';
+        this.workspaceFileHintsCache = { timestamp: Date.now(), limit, hints: result };
+        return result;
+    }
+
+    private shouldSkipWorkspaceEntry(name: string): boolean {
+        return new Set([
+            '.git',
+            '.gradle',
+            '.idea',
+            '.remote-code-uploads',
+            '.vscode-test',
+            'apk',
+            'build',
+            'coverage',
+            'dist',
+            'node_modules',
+            'out'
+        ]).has(name);
+    }
+
+    private isWorkspaceHintFile(name: string): boolean {
+        return /\.(ts|tsx|js|json|kt|kts|md|xml|yml|yaml|toml|properties|gradle)$/i.test(name);
+    }
+
+    private toWorkspaceDisplayPath(filePath: string): string {
+        const roots = vscode.workspace.workspaceFolders?.map(folder => folder.uri.fsPath) || [];
+        const normalized = path.resolve(filePath);
+        for (const root of roots) {
+            const rel = path.relative(root, normalized);
+            if (rel && !rel.startsWith('..') && !path.isAbsolute(rel)) {
+                return rel.replace(/[\\/]+/g, '/');
+            }
+        }
+        return normalized;
     }
 
     private async sendToChat(message: string, agentName: string): Promise<string> {
@@ -2519,7 +2642,7 @@ export class RemoteServer {
             .replace(/::read-file\{[^\n]+\}/g, '')
             .replace(/::show-diagnostics\{[^\n]*\}/g, '')
             .replace(/\n{3,}/g, '\n\n')
-            .trim() || 'Готово. Ожидаю подтверждение действия.';
+            .trim() || 'Запросил данные у VS Code. Результат ниже.';
     }
 
     private appendToolResultMessage(content: string, threadId: string): void {
@@ -2538,20 +2661,92 @@ export class RemoteServer {
     }
 
     private readFileToolResult(filePath: string): string {
-        if (!path.isAbsolute(filePath)) {
-            return `read-file failed: path must be absolute: ${filePath}`;
+        const resolved = this.resolveWorkspaceFilePath(filePath);
+        if (!resolved) {
+            const baseName = path.basename(filePath);
+            const matches = baseName ? this.findWorkspaceFilesByBasename(baseName, 8) : [];
+            const hints = matches.length > 0
+                ? matches.map(match => `- ${match}`).join('\n')
+                : this.getWorkspaceFileHints(35).split('\n').map(hint => `- ${hint}`).join('\n');
+            return [
+                `read-file failed: file not found: ${filePath}`,
+                'Use an existing path from the workspace. Current project file hints:',
+                hints,
+                'For this project, the VS Code Remote Code chat UI is currently implemented in extension/src/server.ts.'
+            ].join('\n');
         }
-        if (!fs.existsSync(filePath)) {
-            return `read-file failed: file not found: ${filePath}`;
-        }
-        const stat = fs.statSync(filePath);
+        const finalPath = resolved.path;
+        const stat = fs.statSync(finalPath);
         if (!stat.isFile()) {
-            return `read-file failed: not a file: ${filePath}`;
+            return `read-file failed: not a file: ${finalPath}`;
         }
         const maxBytes = 160_000;
-        const content = fs.readFileSync(filePath, 'utf8');
+        const content = fs.readFileSync(finalPath, 'utf8');
         const clipped = content.length > maxBytes ? `${content.slice(0, maxBytes)}\n\n... truncated ...` : content;
-        return `read-file result: ${filePath}\n\n${clipped}`;
+        const note = resolved.note ? `\nResolved from requested path: ${filePath}` : '';
+        return `read-file result: ${finalPath}${note}\n\n${clipped}`;
+    }
+
+    private resolveWorkspaceFilePath(filePath: string): { path: string; note?: string } | undefined {
+        const roots = vscode.workspace.workspaceFolders?.map(folder => folder.uri.fsPath).filter(folder => fs.existsSync(folder)) || [];
+        const candidates: string[] = [];
+        if (path.isAbsolute(filePath)) {
+            candidates.push(filePath);
+        } else {
+            for (const root of roots) {
+                candidates.push(path.join(root, filePath));
+            }
+            candidates.push(path.resolve(filePath));
+        }
+
+        for (const candidate of candidates) {
+            try {
+                if (fs.existsSync(candidate) && fs.statSync(candidate).isFile()) {
+                    return { path: candidate };
+                }
+            } catch {
+                // Continue with other candidates.
+            }
+        }
+
+        const normalizedSuffix = filePath.replace(/[\\/]+/g, '/').replace(/^\.\//, '').toLowerCase();
+        const baseName = path.basename(filePath);
+        if (!baseName) return undefined;
+        const matches = this.findWorkspaceFilesByBasename(baseName, 16);
+        const suffixMatch = matches.find(match => match.replace(/[\\/]+/g, '/').toLowerCase().endsWith(normalizedSuffix));
+        if (suffixMatch) return { path: suffixMatch, note: 'suffix-match' };
+        if (matches.length === 1) return { path: matches[0], note: 'basename-match' };
+        return undefined;
+    }
+
+    private findWorkspaceFilesByBasename(fileName: string, limit = 12): string[] {
+        const roots = vscode.workspace.workspaceFolders?.map(folder => folder.uri.fsPath).filter(folder => fs.existsSync(folder)) || [];
+        const matches: string[] = [];
+        const target = fileName.toLowerCase();
+        const walk = (dir: string, depth: number): void => {
+            if (matches.length >= limit || depth > 7) return;
+            let entries: fs.Dirent[];
+            try {
+                entries = fs.readdirSync(dir, { withFileTypes: true });
+            } catch {
+                return;
+            }
+            for (const entry of entries) {
+                if (matches.length >= limit) return;
+                if (this.shouldSkipWorkspaceEntry(entry.name)) continue;
+                const fullPath = path.join(dir, entry.name);
+                if (entry.isDirectory()) {
+                    walk(fullPath, depth + 1);
+                } else if (entry.isFile() && entry.name.toLowerCase() === target) {
+                    matches.push(fullPath);
+                }
+            }
+        };
+        for (const root of roots) {
+            walk(root, 0);
+            if (matches.length >= limit) break;
+        }
+        return matches;
     }
 
     private diagnosticsToolResult(): string {
@@ -2664,6 +2859,7 @@ export class RemoteServer {
             copy: '<svg viewBox="0 0 24 24"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>',
             up: '<svg viewBox="0 0 24 24"><path d="M7 10v11"/><path d="M15 5.9 14 10h5.8a2 2 0 0 1 2 2.4l-1.4 7A2 2 0 0 1 18.4 21H4a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2h2.8a2 2 0 0 0 1.7-1L12 3a2 2 0 0 1 3 2.9Z"/></svg>',
             down: '<svg viewBox="0 0 24 24"><path d="M17 14V3"/><path d="M9 18.1 10 14H4.2a2 2 0 0 1-2-2.4l1.4-7A2 2 0 0 1 5.6 3H20a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2h-2.8a2 2 0 0 0-1.7 1L12 21a2 2 0 0 1-3-2.9Z"/></svg>',
+            scrollDown: '<svg viewBox="0 0 24 24"><path d="M12 5v14"/><path d="m19 12-7 7-7-7"/></svg>',
             layout: '<svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M12 4v16"/></svg>',
             vscode: '<svg class="vscode-icon" viewBox="0 0 24 24"><path d="M17.8 3 8.4 12l9.4 9 2.2-.9V3.9Z"/><path d="m8.4 12-4 3.2L2.5 14 6.4 12 2.5 10 4.4 8.8Z"/></svg>'
         };
@@ -2834,6 +3030,10 @@ button.send.stop{background:#f0f0f0;color:#111}
 button.send.stop:hover{background:#fff}
 .link-btn{border:0;background:transparent;color:#8e8e8e;cursor:pointer;padding:3px 0;display:inline-flex;align-items:center;gap:5px}
 .link-btn:hover{color:#d0d0d0}
+.scroll-bottom{position:fixed;right:min(4vw,42px);bottom:calc(var(--composer-height, 132px) + 12px);z-index:4;width:34px;height:34px;border:1px solid #3a3c40;border-radius:999px;background:rgba(43,44,46,.78);color:#e2e2e2;display:inline-flex;align-items:center;justify-content:center;padding:0;cursor:pointer;box-shadow:0 10px 26px rgba(0,0,0,.32);backdrop-filter:blur(5px);opacity:1;transform:translateY(0);transition:opacity .15s ease,transform .15s ease,background .15s ease}
+.scroll-bottom svg{width:17px;height:17px}
+.scroll-bottom:hover{background:rgba(57,58,61,.95);color:#fff}
+.scroll-bottom.hidden{opacity:0;pointer-events:none;transform:translateY(8px)}
 @media (max-width: 680px){.top{padding:0 10px}.messages{padding-left:14px;padding-right:14px}.composer-wrap{padding-left:8px;padding-right:8px}.controls{flex-wrap:wrap}button.send{margin-left:auto}.subcontrols{gap:8px;flex-wrap:wrap}.dropdown.profile{flex-basis:132px}}
 </style>
 </head>
@@ -2878,6 +3078,7 @@ button.send.stop:hover{background:#fff}
 ${rows || '<div class="msg system"><div class="role">Система</div><pre>Жду сообщение с телефона или из VS Code.</pre></div>'}
 ${actionRows}
 </main>
+<button class="scroll-bottom hidden" id="scrollBottom" type="button" title="&#1050; &#1085;&#1086;&#1074;&#1099;&#1084; &#1089;&#1086;&#1086;&#1073;&#1097;&#1077;&#1085;&#1080;&#1103;&#1084;">${icon.scrollDown}</button>
 <div class="composer-wrap">
   <form class="composer" id="composer">
     <textarea id="prompt" placeholder="Запросите внесение дополнительных изменений" spellcheck="true" lang="ru" autocomplete="on" autocapitalize="sentences" autocorrect="on" inputmode="text" autofocus></textarea>
@@ -2906,6 +3107,7 @@ const vscode = acquireVsCodeApi();
 const form = document.getElementById('composer');
 const prompt = document.getElementById('prompt');
 const messages = document.getElementById('messages');
+const scrollBottom = document.getElementById('scrollBottom');
 prompt.spellcheck = true;
 prompt.lang = navigator.language || 'ru';
 const modelOptions = ${JSON.stringify(modelOptions)};
@@ -3128,13 +3330,32 @@ window.addEventListener('message', event => {
 });
 refreshControls();
 renderAttachments();
+function isNearBottom() {
+  return messages.scrollHeight - messages.scrollTop - messages.clientHeight < 110;
+}
+function updateComposerHeight() {
+  const wrap = document.querySelector('.composer-wrap');
+  const height = wrap ? Math.ceil(wrap.getBoundingClientRect().height) : 132;
+  document.documentElement.style.setProperty('--composer-height', height + 'px');
+}
+function updateScrollBottomButton() {
+  scrollBottom?.classList.toggle('hidden', isNearBottom());
+}
+scrollBottom?.addEventListener('click', () => {
+  messages.scrollTo({ top: messages.scrollHeight, behavior: 'smooth' });
+});
+messages.addEventListener('scroll', updateScrollBottomButton, { passive: true });
 messages.scrollTop = messages.scrollHeight;
+updateComposerHeight();
+updateScrollBottomButton();
 function autoGrowPrompt() {
   prompt.style.height = 'auto';
   const max = 190;
   const next = Math.min(prompt.scrollHeight, max);
   prompt.style.height = next + 'px';
   prompt.classList.toggle('scroll', prompt.scrollHeight > max);
+  updateComposerHeight();
+  updateScrollBottomButton();
 }
 prompt.addEventListener('input', autoGrowPrompt);
 autoGrowPrompt();
