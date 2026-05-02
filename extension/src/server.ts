@@ -106,6 +106,7 @@ interface TunnelLauncher {
     prefixArgs: string[];
     shell: boolean;
     label: string;
+    provider: 'ngrok' | 'cloudflared';
 }
 
 export class RemoteServer {
@@ -2848,7 +2849,7 @@ ${actionRows}
 </main>
 <div class="composer-wrap">
   <form class="composer" id="composer">
-    <textarea id="prompt" placeholder="Запросите внесение дополнительных изменений" autofocus></textarea>
+    <textarea id="prompt" placeholder="Запросите внесение дополнительных изменений" spellcheck="true" lang="ru" autocomplete="on" autocapitalize="sentences" autocorrect="on" inputmode="text" autofocus></textarea>
     <div class="composer-attachments" id="attachments"></div>
     <div class="controls">
       <button class="plus" type="button" data-action="addFile" title="&#1044;&#1086;&#1073;&#1072;&#1074;&#1080;&#1090;&#1100; &#1092;&#1072;&#1081;&#1083;">${icon.plus}</button>
@@ -2874,6 +2875,8 @@ const vscode = acquireVsCodeApi();
 const form = document.getElementById('composer');
 const prompt = document.getElementById('prompt');
 const messages = document.getElementById('messages');
+prompt.spellcheck = true;
+prompt.lang = navigator.language || 'ru';
 const modelOptions = ${JSON.stringify(modelOptions)};
 const effortOptions = ${JSON.stringify(effortOptions)};
 const profileOptions = ${JSON.stringify(profileOptions)};
@@ -3630,7 +3633,7 @@ prompt.addEventListener('keydown', event => {
         }
         try {
             const url = await this.startTunnel();
-            this.jsonResponse(res, 200, { success: true, url, message: 'Туннель запущен через ngrok' });
+            this.jsonResponse(res, 200, { success: true, url, message: 'Туннель запущен' });
         } catch (err: any) {
             this.jsonResponse(res, 500, { success: false, error: err.message });
         }
@@ -4085,15 +4088,19 @@ prompt.addEventListener('keydown', event => {
         }
     }
 
-    private findNgrokLauncher(): TunnelLauncher | undefined {
+    private findTunnelLauncher(): TunnelLauncher | undefined {
         const candidates: TunnelLauncher[] = [
-            { command: path.join(process.env.LOCALAPPDATA || '', 'ngrok', 'ngrok.exe'), prefixArgs: [], shell: false, label: 'LOCALAPPDATA ngrok.exe' },
-            { command: path.join(process.env.PROGRAMFILES || '', 'ngrok', 'ngrok.exe'), prefixArgs: [], shell: false, label: 'Program Files ngrok.exe' },
-            { command: 'C:\\tools\\ngrok.exe', prefixArgs: [], shell: false, label: 'C:\\tools\\ngrok.exe' },
-            { command: path.join(process.env.USERPROFILE || '', 'ngrok.exe'), prefixArgs: [], shell: false, label: 'USERPROFILE ngrok.exe' },
-            { command: 'ngrok.cmd', prefixArgs: [], shell: true, label: 'ngrok from PATH' },
-            { command: 'ngrok', prefixArgs: [], shell: true, label: 'ngrok from PATH' },
-            { command: 'npx.cmd', prefixArgs: ['--yes', 'ngrok@latest'], shell: true, label: 'npx ngrok@latest' },
+            { command: path.join(process.env.LOCALAPPDATA || '', 'ngrok', 'ngrok.exe'), prefixArgs: [], shell: false, label: 'LOCALAPPDATA ngrok.exe', provider: 'ngrok' },
+            { command: path.join(process.env.PROGRAMFILES || '', 'ngrok', 'ngrok.exe'), prefixArgs: [], shell: false, label: 'Program Files ngrok.exe', provider: 'ngrok' },
+            { command: 'C:\\tools\\ngrok.exe', prefixArgs: [], shell: false, label: 'C:\\tools\\ngrok.exe', provider: 'ngrok' },
+            { command: path.join(process.env.USERPROFILE || '', 'ngrok.exe'), prefixArgs: [], shell: false, label: 'USERPROFILE ngrok.exe', provider: 'ngrok' },
+            { command: 'ngrok.cmd', prefixArgs: [], shell: true, label: 'ngrok from PATH', provider: 'ngrok' },
+            { command: 'ngrok', prefixArgs: [], shell: true, label: 'ngrok from PATH', provider: 'ngrok' },
+            { command: 'npx.cmd', prefixArgs: ['--yes', 'ngrok@latest'], shell: true, label: 'npx ngrok@latest', provider: 'ngrok' },
+            { command: path.join(process.env['ProgramFiles(x86)'] || '', 'cloudflared', 'cloudflared.exe'), prefixArgs: [], shell: false, label: 'Program Files (x86) cloudflared.exe', provider: 'cloudflared' },
+            { command: path.join(process.env.PROGRAMFILES || '', 'cloudflared', 'cloudflared.exe'), prefixArgs: [], shell: false, label: 'Program Files cloudflared.exe', provider: 'cloudflared' },
+            { command: 'cloudflared.exe', prefixArgs: [], shell: true, label: 'cloudflared from PATH', provider: 'cloudflared' },
+            { command: 'cloudflared', prefixArgs: [], shell: true, label: 'cloudflared from PATH', provider: 'cloudflared' },
         ];
 
         for (const candidate of candidates) {
@@ -4101,14 +4108,17 @@ prompt.addEventListener('keydown', event => {
                 continue;
             }
             try {
-                const check = spawnSync(candidate.command, [...candidate.prefixArgs, 'version'], {
+                const versionArgs = candidate.provider === 'cloudflared'
+                    ? [...candidate.prefixArgs, '--version']
+                    : [...candidate.prefixArgs, 'version'];
+                const check = spawnSync(candidate.command, versionArgs, {
                     windowsHide: true,
                     shell: candidate.shell,
                     encoding: 'utf8',
                     timeout: 10000
                 });
                 const output = `${check.stdout || ''}\n${check.stderr || ''}`;
-                if (check.status === 0 && /ngrok/i.test(output)) {
+                if (check.status === 0 && new RegExp(candidate.provider, 'i').test(output)) {
                     return candidate;
                 }
             } catch {
@@ -4120,10 +4130,12 @@ prompt.addEventListener('keydown', event => {
 
     private startTunnelWithLauncher(launcher: TunnelLauncher): Promise<string> {
         return new Promise((resolve, reject) => {
-            const args = [...launcher.prefixArgs, 'http', String(this._port), '--log=stdout'];
+            const args = launcher.provider === 'cloudflared'
+                ? [...launcher.prefixArgs, 'tunnel', '--url', `http://localhost:${this._port}`, '--no-autoupdate']
+                : [...launcher.prefixArgs, 'http', String(this._port), '--log=stdout'];
 
             const ngrokConfig = path.join(process.env.USERPROFILE || '', '.ngrok2', 'ngrok.yml');
-            if (fs.existsSync(ngrokConfig)) {
+            if (launcher.provider === 'ngrok' && fs.existsSync(ngrokConfig)) {
                 args.push('--config', ngrokConfig);
             }
 
@@ -4138,11 +4150,13 @@ prompt.addEventListener('keydown', event => {
 
             const acceptOutput = (data: Buffer) => {
                 const text = data.toString();
-                const urlMatch = text.match(/https?:\/\/[a-zA-Z0-9_-]+\.ngrok[-a-zA-Z0-9]*\.(io|app)/);
+                const urlMatch = launcher.provider === 'cloudflared'
+                    ? text.match(/https?:\/\/[a-zA-Z0-9-]+\.trycloudflare\.com/)
+                    : text.match(/https?:\/\/[a-zA-Z0-9_-]+\.ngrok[-a-zA-Z0-9]*\.(io|app)/);
                 if (urlMatch && !settled) {
                     settled = true;
                     this._tunnelUrl = urlMatch[0];
-                    console.log(`[RemoteCodeOnPC] ngrok tunnel: ${this._tunnelUrl}`);
+                    console.log(`[RemoteCodeOnPC] ${launcher.provider} tunnel: ${this._tunnelUrl}`);
                     vscode.window.showInformationMessage(`Интернет-доступ: ${this._tunnelUrl}`);
                     resolve(this._tunnelUrl);
                 }
@@ -4154,14 +4168,15 @@ prompt.addEventListener('keydown', event => {
             proc.on('close', (code: number) => {
                 if (!settled && !this._tunnelUrl) {
                     this._tunnelProcess = null;
-                    reject(new Error(`ngrok не запустился (${launcher.label}, код ${code}). Проверьте установку ngrok/authtoken или укажите публичный URL вручную в настройках приложения.`));
+                    const authHint = launcher.provider === 'ngrok' ? '/authtoken' : '';
+                    reject(new Error(`${launcher.provider} не запустился (${launcher.label}, код ${code}). Проверьте установку${authHint} или укажите публичный URL вручную в настройках приложения.`));
                 }
             });
 
             proc.on('error', (err: Error) => {
                 if (!settled) {
                     this._tunnelProcess = null;
-                    reject(new Error(`Ошибка запуска ngrok: ${err.message}`));
+                    reject(new Error(`Ошибка запуска ${launcher.provider}: ${err.message}`));
                 }
             });
 
@@ -4169,115 +4184,18 @@ prompt.addEventListener('keydown', event => {
                 if (!settled && !this._tunnelUrl) {
                     proc.kill();
                     this._tunnelProcess = null;
-                    reject(new Error('Таймаут запуска ngrok (15 сек). Проверьте установку ngrok или вставьте публичный URL вручную.'));
+                    reject(new Error(`Таймаут запуска ${launcher.provider} (15 сек). Проверьте установку или вставьте публичный URL вручную.`));
                 }
             }, 15000);
         });
     }
 
     private async startTunnel(): Promise<string> {
-        const launcher = this.findNgrokLauncher();
+        const launcher = this.findTunnelLauncher();
         if (!launcher) {
-            throw new Error('ngrok не найден или установлен некорректно. Установите ngrok.exe и добавьте его в PATH либо вставьте готовый публичный URL вручную в настройках приложения.');
+            throw new Error('Не найден рабочий ngrok или cloudflared. Установите один из них либо вставьте готовый публичный URL вручную в настройках приложения.');
         }
         return this.startTunnelWithLauncher(launcher);
-        // Сначала пробуем найти установленный ngrok
-        const ngrokPaths = [
-            'ngrok',
-            path.join(process.env.LOCALAPPDATA || '', 'ngrok', 'ngrok.exe'),
-            path.join(process.env.PROGRAMFILES || '', 'ngrok', 'ngrok.exe'),
-            'C:\\tools\\ngrok.exe',
-            path.join(process.env.USERPROFILE || '', 'ngrok.exe'),
-        ];
-
-        let ngrokCmd: string | null = null;
-        for (const p of ngrokPaths) {
-            try {
-                const test = this.execSync(`where ${p} 2>nul || echo NOT_FOUND`).trim();
-                if (!test.includes('NOT_FOUND')) {
-                    ngrokCmd = p;
-                    break;
-                }
-            } catch { continue; }
-        }
-
-        // Если ngrok не найден — пробуем npx ngrok
-        if (!ngrokCmd) {
-            try {
-                const test = this.execSync(`npx ngrok version 2>&1`).trim();
-                if (test && !test.includes('not found')) {
-                    ngrokCmd = 'npx ngrok';
-                }
-            } catch { /* ignore */ }
-        }
-
-        if (!ngrokCmd) {
-            throw new Error('ngrok не найден. Скачайте: https://ngrok.com/download или установите: npm i -g ngrok');
-        }
-
-        return new Promise((resolve, reject) => {
-            const args = ['http', String(this._port), '--log=stdout'];
-            
-            // Добавляем файл конфига если есть
-            const ngrokConfig = path.join(process.env.USERPROFILE || '', '.ngrok2', 'ngrok.yml');
-            if (fs.existsSync(ngrokConfig)) {
-                args.push('--config', ngrokConfig);
-            }
-
-            const proc: any = spawn(ngrokCmd as string, args, {
-                windowsHide: true,
-                shell: true,
-                stdio: ['pipe', 'pipe', 'pipe']
-            });
-
-            this._tunnelProcess = proc;
-            let output = '';
-
-            proc.stdout.on('data', (data: Buffer) => {
-                const text = data.toString();
-                output += text;
-                // Ищем URL в выводе
-                const urlMatch = text.match(/https?:\/\/[a-zA-Z0-9_-]+\.ngrok[-a-zA-Z0-9]*\.(io|app)/);
-                if (urlMatch) {
-                    this._tunnelUrl = urlMatch[0];
-                    console.log(`[RemoteCodeOnPC] Туннель ngrok: ${this._tunnelUrl}`);
-                    // Сохраняем URL и сообщаем пользователю
-                    vscode.window.showInformationMessage(`🌐 Интернет-доступ: ${this._tunnelUrl}`);
-                    resolve(this._tunnelUrl);
-                }
-            });
-
-            proc.stderr.on('data', (data: Buffer) => {
-                output += data.toString();
-                const urlMatch = data.toString().match(/https?:\/\/[a-zA-Z0-9_-]+\.ngrok[-a-zA-Z0-9]*\.(io|app)/);
-                if (urlMatch) {
-                    this._tunnelUrl = urlMatch[0];
-                    vscode.window.showInformationMessage(`🌐 Интернет-доступ: ${this._tunnelUrl}`);
-                    resolve(this._tunnelUrl);
-                }
-            });
-
-            proc.on('close', (code: number) => {
-                if (!this._tunnelUrl) {
-                    this._tunnelProcess = null;
-                    reject(new Error(`ngrok завершился с кодом ${code}. Вывод: ${output.slice(0, 500)}`));
-                }
-            });
-
-            proc.on('error', (err: Error) => {
-                this._tunnelProcess = null;
-                reject(new Error(`Ошибка запуска ngrok: ${err.message}`));
-            });
-
-            // Таймаут 15 секунд
-            setTimeout(() => {
-                if (!this._tunnelUrl) {
-                    proc.kill();
-                    this._tunnelProcess = null;
-                    reject(new Error('Таймаут запуска ngrok (15 сек)'));
-                }
-            }, 15000);
-        });
     }
 
     private stopTunnel(): void {

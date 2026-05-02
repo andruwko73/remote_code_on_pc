@@ -15,6 +15,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -723,6 +724,213 @@ private fun SettingsScreenV2(
     onClearLogs: () -> Unit,
     onUpdateApp: () -> Unit
 ) {
+    if (true) {
+        var compactHostText by remember(serverConfig.host) { mutableStateOf(serverConfig.host) }
+        var compactPortText by remember(serverConfig.port) { mutableStateOf(serverConfig.port.toString()) }
+        var compactTokenText by remember(serverConfig.authToken) { mutableStateOf(serverConfig.authToken) }
+        var compactUseTunnel by remember(serverConfig.useTunnel) { mutableStateOf(serverConfig.useTunnel) }
+        var compactTunnelText by remember(serverConfig.tunnelUrl, tunnelUrl) {
+            mutableStateOf(serverConfig.tunnelUrl.ifBlank { tunnelUrl.orEmpty() })
+        }
+
+        val compactTunnelUrl = compactTunnelText.trim().trimEnd('/')
+        val compactPort = compactPortText.toIntOrNull()?.coerceIn(1, 65535) ?: serverConfig.port
+        val compactConfig = serverConfig.copy(
+            host = compactHostText.trim(),
+            port = compactPort,
+            authToken = compactTokenText.trim(),
+            useTunnel = compactUseTunnel && compactTunnelUrl.isNotBlank(),
+            tunnelUrl = compactTunnelUrl
+        )
+        val tunnelFormatOk = compactTunnelUrl.isBlank() ||
+            compactTunnelUrl.startsWith("http://") ||
+            compactTunnelUrl.startsWith("https://")
+        val canSave = compactHostText.isNotBlank() && compactPortText.toIntOrNull() != null && tunnelFormatOk
+        val hasChanges = compactConfig != serverConfig
+        val modeLabel = if (serverConfig.useTunnel) "Внешняя сеть" else "Локальная сеть"
+        val compactTunnelError = tunnelError
+            ?.replace('\n', ' ')
+            ?.replace("Установите ngrok.exe и добавьте его в PATH либо вставьте готовый публичный URL вручную в настройках приложения.", "Поставьте ngrok/cloudflared или вставьте публичный URL вручную.")
+
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(DarkBackground)
+                .padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Row(
+                modifier = Modifier.height(34.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                IconButton(onClick = onBack, modifier = Modifier.size(34.dp)) {
+                    Icon(Icons.Default.ArrowBack, contentDescription = "Назад", tint = TextSecondary, modifier = Modifier.size(20.dp))
+                }
+                Spacer(modifier = Modifier.width(4.dp))
+                Text("Настройки", color = TextBright, fontSize = 19.sp, fontWeight = FontWeight.Bold)
+            }
+
+            Card(colors = CardDefaults.cardColors(containerColor = CardBg), shape = RoundedCornerShape(12.dp)) {
+                Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 9.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    InfoSettingRow("Статус", if (isConnected) "Подключено" else "Отключено")
+                    InfoSettingRow("Режим", modeLabel)
+                    InfoSettingRow("APK", BuildConfig.VERSION_NAME)
+                    InfoSettingRow("VS Code", status?.version ?: "—")
+                    if (localIp.isNotBlank()) InfoSettingRow("IP ПК", localIp)
+                }
+            }
+
+            Card(colors = CardDefaults.cardColors(containerColor = CardBg), shape = RoundedCornerShape(12.dp)) {
+                Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Default.Link, contentDescription = null, tint = AccentBlue, modifier = Modifier.size(20.dp))
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Подключение", color = TextBright, fontWeight = FontWeight.SemiBold)
+                        Spacer(modifier = Modifier.weight(1f))
+                        Text("Внешняя", color = TextSecondary, fontSize = 12.sp)
+                        Switch(
+                            checked = compactUseTunnel,
+                            onCheckedChange = {
+                                compactUseTunnel = it
+                                if (!it) onToggleTunnelMode(false)
+                            },
+                            modifier = Modifier.height(28.dp),
+                            colors = SwitchDefaults.colors(
+                                checkedThumbColor = AccentGreen,
+                                checkedTrackColor = AccentGreen.copy(alpha = 0.35f),
+                                uncheckedThumbColor = TextSecondary,
+                                uncheckedTrackColor = DarkSurfaceVariant
+                            )
+                        )
+                    }
+
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        OutlinedTextField(
+                            value = compactHostText,
+                            onValueChange = { compactHostText = it },
+                            label = { Text("IP ПК", color = TextSecondary, fontSize = 12.sp) },
+                            singleLine = true,
+                            leadingIcon = { Icon(Icons.Default.Computer, contentDescription = null, tint = AccentBlue, modifier = Modifier.size(18.dp)) },
+                            modifier = Modifier.weight(1f).height(54.dp),
+                            colors = outlinedFieldColors(),
+                            shape = RoundedCornerShape(11.dp)
+                        )
+                        OutlinedTextField(
+                            value = compactPortText,
+                            onValueChange = { compactPortText = it.filter(Char::isDigit).take(5) },
+                            label = { Text("Порт", color = TextSecondary, fontSize = 12.sp) },
+                            singleLine = true,
+                            isError = compactPortText.toIntOrNull() == null,
+                            modifier = Modifier.width(104.dp).height(54.dp),
+                            colors = outlinedFieldColors(),
+                            shape = RoundedCornerShape(11.dp)
+                        )
+                    }
+
+                    if (compactUseTunnel || tunnelActive || compactTunnelText.isNotBlank()) {
+                        OutlinedTextField(
+                            value = compactTunnelText,
+                            onValueChange = { compactTunnelText = it },
+                            label = { Text("Публичный URL", color = TextSecondary, fontSize = 12.sp) },
+                            singleLine = true,
+                            leadingIcon = { Icon(Icons.Default.Public, contentDescription = null, tint = AccentGreen, modifier = Modifier.size(18.dp)) },
+                            modifier = Modifier.fillMaxWidth().height(54.dp),
+                            enabled = compactUseTunnel || tunnelActive,
+                            isError = compactTunnelUrl.isNotBlank() && !tunnelFormatOk,
+                            colors = outlinedFieldColors(),
+                            shape = RoundedCornerShape(11.dp)
+                        )
+                    }
+
+                    OutlinedTextField(
+                        value = compactTokenText,
+                        onValueChange = { compactTokenText = it },
+                        label = { Text("Токен доступа", color = TextSecondary, fontSize = 12.sp) },
+                        singleLine = true,
+                        leadingIcon = { Icon(Icons.Default.Lock, contentDescription = null, tint = AccentBlue, modifier = Modifier.size(18.dp)) },
+                        modifier = Modifier.fillMaxWidth().height(54.dp),
+                        colors = outlinedFieldColors(),
+                        shape = RoundedCornerShape(11.dp)
+                    )
+
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Button(
+                            onClick = if (tunnelActive) onStopTunnel else onStartTunnel,
+                            enabled = !isTunnelStarting,
+                            modifier = Modifier.weight(1f).height(42.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = if (tunnelActive) ErrorRed else AccentGreen),
+                            shape = RoundedCornerShape(10.dp)
+                        ) {
+                            if (isTunnelStarting) {
+                                CircularProgressIndicator(modifier = Modifier.size(17.dp), strokeWidth = 2.dp, color = TextBright)
+                            } else {
+                                Icon(if (tunnelActive) Icons.Default.WifiOff else Icons.Default.Wifi, contentDescription = null, modifier = Modifier.size(18.dp))
+                            }
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(if (tunnelActive) "Стоп" else "Туннель", maxLines = 1)
+                        }
+                        Button(
+                            onClick = {
+                                onUpdateConfig(compactConfig)
+                                onReconnect()
+                            },
+                            enabled = canSave,
+                            modifier = Modifier.weight(1f).height(42.dp),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = if (hasChanges) AccentBlue else DarkSurfaceVariant,
+                                disabledContainerColor = DarkSurfaceVariant
+                            ),
+                            shape = RoundedCornerShape(10.dp)
+                        ) {
+                            Icon(if (hasChanges) Icons.Default.Save else Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(if (hasChanges) "Сохранить" else "Проверить", maxLines = 1)
+                        }
+                    }
+
+                    compactTunnelError?.takeIf { it.isNotBlank() }?.let {
+                        Text(
+                            it,
+                            color = ErrorRed,
+                            fontSize = 11.sp,
+                            lineHeight = 14.sp,
+                            maxLines = 3,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                }
+            }
+
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedButton(
+                    onClick = onUpdateApp,
+                    modifier = Modifier.weight(1f).height(42.dp),
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = AccentBlue),
+                    shape = RoundedCornerShape(10.dp)
+                ) {
+                    Text("Обновить", maxLines = 1, fontSize = 13.sp)
+                }
+                OutlinedButton(
+                    onClick = onClearLogs,
+                    modifier = Modifier.weight(1f).height(42.dp),
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = TextSecondary),
+                    shape = RoundedCornerShape(10.dp)
+                ) {
+                    Text("Логи", maxLines = 1, fontSize = 13.sp)
+                }
+                OutlinedButton(
+                    onClick = onDisconnect,
+                    modifier = Modifier.weight(1f).height(42.dp),
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = ErrorRed),
+                    shape = RoundedCornerShape(10.dp)
+                ) {
+                    Text("Откл.", maxLines = 1, fontSize = 13.sp)
+                }
+            }
+        }
+        return
+    }
+
     val scrollState = rememberScrollState()
     var hostText by remember(serverConfig.host) { mutableStateOf(serverConfig.host) }
     var portText by remember(serverConfig.port) { mutableStateOf(serverConfig.port.toString()) }

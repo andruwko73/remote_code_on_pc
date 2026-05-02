@@ -1,9 +1,13 @@
 package com.remotecodeonpc.app.ui.screens
 
+import android.app.Activity
+import android.content.ActivityNotFoundException
 import android.database.Cursor
 import android.content.Context
+import android.content.Intent
 import android.net.Uri
 import android.provider.OpenableColumns
+import android.speech.RecognizerIntent
 import android.util.Base64
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
@@ -56,6 +60,7 @@ import com.remotecodeonpc.app.ui.theme.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.util.Locale
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -228,8 +233,7 @@ fun CodexChatTab(
     onOpenFile: (String) -> Unit
 ) {
     var messageText by remember { mutableStateOf("") }
-    var showModelSelector by remember { mutableStateOf(false) }
-    var showReasoningSelector by remember { mutableStateOf(false) }
+    var showModelEffortSelector by remember { mutableStateOf(false) }
     var showProfileSelector by remember { mutableStateOf(false) }
     var showThreads by remember { mutableStateOf(false) }
     var attachments by remember { mutableStateOf<List<MessageAttachment>>(emptyList()) }
@@ -249,6 +253,32 @@ fun CodexChatTab(
             }
             errorMessage?.let { Toast.makeText(context, it, Toast.LENGTH_LONG).show() }
             if (next.isNotEmpty()) attachments = (attachments + next).takeLast(4)
+        }
+    }
+    val speechLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+        if (result.resultCode != Activity.RESULT_OK) return@rememberLauncherForActivityResult
+        val spoken = result.data
+            ?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)
+            ?.firstOrNull()
+            ?.trim()
+            .orEmpty()
+        if (spoken.isNotBlank()) {
+            messageText = listOf(messageText.trim(), spoken)
+                .filter { it.isNotBlank() }
+                .joinToString(" ")
+        }
+    }
+
+    fun startVoiceInput() {
+        val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+            putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+            putExtra(RecognizerIntent.EXTRA_LANGUAGE, Locale.getDefault().toLanguageTag())
+            putExtra(RecognizerIntent.EXTRA_PROMPT, "Говорите")
+        }
+        try {
+            speechLauncher.launch(intent)
+        } catch (_: ActivityNotFoundException) {
+            Toast.makeText(context, "На телефоне не найден голосовой ввод", Toast.LENGTH_LONG).show()
         }
     }
 
@@ -424,27 +454,18 @@ fun CodexChatTab(
                 ) {
                     IconButton(
                         onClick = { attachmentPicker.launch("*/*") },
-                        modifier = Modifier.size(42.dp)
+                        modifier = Modifier.size(36.dp)
                     ) {
-                        Icon(Icons.Default.Add, contentDescription = "\u0414\u043E\u0431\u0430\u0432\u0438\u0442\u044C", tint = TextSecondary)
+                        Icon(Icons.Default.Add, contentDescription = "\u0414\u043E\u0431\u0430\u0432\u0438\u0442\u044C", tint = TextSecondary, modifier = Modifier.size(21.dp))
                     }
                     Box {
                         TextButton(
                             onClick = { showProfileSelector = true },
-                            contentPadding = PaddingValues(horizontal = 4.dp),
-                            modifier = Modifier.widthIn(min = 82.dp, max = 112.dp)
+                            contentPadding = PaddingValues(horizontal = 3.dp),
+                            modifier = Modifier.width(44.dp)
                         ) {
-                            Icon(Icons.Outlined.Settings, contentDescription = null, tint = TextSecondary, modifier = Modifier.size(18.dp))
-                            Spacer(modifier = Modifier.width(3.dp))
-                            Text(
-                                profileLabel,
-                                color = TextSecondary,
-                                fontSize = 12.sp,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                                modifier = Modifier.weight(1f, fill = false)
-                            )
-                            Icon(Icons.Default.ArrowDropDown, contentDescription = null, tint = TextSecondary, modifier = Modifier.size(16.dp))
+                            Icon(Icons.Outlined.Settings, contentDescription = profileLabel, tint = TextSecondary, modifier = Modifier.size(18.dp))
+                            Icon(Icons.Default.ArrowDropDown, contentDescription = null, tint = TextSecondary, modifier = Modifier.size(14.dp))
                         }
                         DropdownMenu(expanded = showProfileSelector, onDismissRequest = { showProfileSelector = false }, modifier = Modifier.background(Color(0xFF202123))) {
                             profileOptions.forEach { option ->
@@ -460,58 +481,58 @@ fun CodexChatTab(
                     }
                     Box {
                         TextButton(
-                            onClick = { showModelSelector = true },
-                            contentPadding = PaddingValues(horizontal = 6.dp),
-                            modifier = Modifier.widthIn(min = 78.dp, max = 126.dp)
+                            onClick = { showModelEffortSelector = true },
+                            contentPadding = PaddingValues(horizontal = 5.dp),
+                            modifier = Modifier.widthIn(min = 140.dp, max = 158.dp)
                         ) {
                             Text(
-                                modelLabel,
+                                "$modelLabel $reasoningLabel",
                                 color = TextSecondary,
                                 fontSize = 13.sp,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
                                 modifier = Modifier.weight(1f, fill = false)
                             )
-                            Icon(Icons.Default.ArrowDropDown, contentDescription = null, tint = TextSecondary, modifier = Modifier.size(18.dp))
+                            Icon(Icons.Default.ArrowDropDown, contentDescription = null, tint = TextSecondary, modifier = Modifier.size(16.dp))
                         }
-                        DropdownMenu(expanded = showModelSelector, onDismissRequest = { showModelSelector = false }, modifier = Modifier.background(Color(0xFF202123))) {
-                            displayModels.forEach { model -> DropdownMenuItem(text = { Text(model.name, color = if (model.id == selectedModel) AccentBlue else TextPrimary) }, onClick = { onSelectModel(model.id); showModelSelector = false }) }
-                        }
-                    }
-                    Box {
-                        TextButton(
-                            onClick = { showReasoningSelector = true },
-                            contentPadding = PaddingValues(horizontal = 6.dp),
-                            modifier = Modifier.widthIn(min = 76.dp, max = 118.dp)
-                        ) {
-                            Text(
-                                reasoningLabel,
-                                color = TextSecondary,
-                                fontSize = 13.sp,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                                modifier = Modifier.weight(1f, fill = false)
-                            )
-                            Icon(Icons.Default.ArrowDropDown, contentDescription = null, tint = TextSecondary, modifier = Modifier.size(18.dp))
-                        }
-                        DropdownMenu(expanded = showReasoningSelector, onDismissRequest = { showReasoningSelector = false }, modifier = Modifier.background(Color(0xFF202123))) {
+                        DropdownMenu(expanded = showModelEffortSelector, onDismissRequest = { showModelEffortSelector = false }, modifier = Modifier.background(Color(0xFF202123))) {
+                            Text("\u041C\u043E\u0434\u0435\u043B\u044C", color = TextSecondary, fontSize = 12.sp, modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp))
+                            displayModels.forEach { model ->
+                                DropdownMenuItem(
+                                    text = { Text(model.name, color = if (model.id == selectedModel) AccentBlue else TextPrimary) },
+                                    onClick = {
+                                        onSelectModel(model.id)
+                                        showModelEffortSelector = false
+                                    }
+                                )
+                            }
+                            HorizontalDivider(color = DividerColor)
+                            Text("\u0423\u0441\u0438\u043B\u0438\u0435", color = TextSecondary, fontSize = 12.sp, modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp))
                             reasoningOptions.forEach { option ->
                                 DropdownMenuItem(
                                     text = { Text(option.second, color = if (option.first == selectedReasoningEffort) AccentBlue else TextPrimary) },
                                     onClick = {
                                         onSelectReasoningEffort(option.first)
-                                        showReasoningSelector = false
+                                        showModelEffortSelector = false
                                     }
                                 )
                             }
                         }
                     }
                     Spacer(modifier = Modifier.weight(1f))
-                    IconButton(onClick = onToggleContext, modifier = Modifier.size(40.dp)) {
+                    IconButton(onClick = onToggleContext, modifier = Modifier.size(36.dp)) {
                         Icon(
                             Icons.Default.AutoAwesome,
                             contentDescription = "\u041A\u043E\u043D\u0442\u0435\u043A\u0441\u0442 IDE",
                             tint = if (includeContext) AccentBlue else TextSecondary,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+                    IconButton(onClick = { startVoiceInput() }, modifier = Modifier.size(36.dp)) {
+                        Icon(
+                            Icons.Default.Mic,
+                            contentDescription = "\u0413\u043E\u043B\u043E\u0441\u043E\u0432\u043E\u0439 \u0432\u0432\u043E\u0434",
+                            tint = TextSecondary,
                             modifier = Modifier.size(20.dp)
                         )
                     }
@@ -520,7 +541,7 @@ fun CodexChatTab(
                         enabled = isLoading || messageText.isNotBlank() || attachments.isNotEmpty(),
                         shape = CircleShape,
                         colors = IconButtonDefaults.filledIconButtonColors(containerColor = Color(0xFF8E8E8E), disabledContainerColor = Color(0xFF3A3A3A)),
-                        modifier = Modifier.size(44.dp)
+                        modifier = Modifier.size(42.dp)
                     ) {
                         if (isLoading) {
                             Icon(Icons.Default.Stop, contentDescription = "Остановить", tint = Color.Black)
