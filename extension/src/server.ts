@@ -97,6 +97,7 @@ export class RemoteServer {
     private agentCache?: { timestamp: number; agents: ChatAgent[] };
     private codexHistory: CodexChatMessage[] = [];
     private codexActionEvents: RemoteCodeActionEvent[] = [];
+    private remoteCodeThreads: RemoteCodeThreadSummary[] = [];
     private currentRemoteThreadId: string = 'remote-code-default';
     private pcChatPanel?: vscode.WebviewPanel;
     private workspaceStorageCache?: { timestamp: number; dirs: string[] };
@@ -1334,6 +1335,7 @@ export class RemoteServer {
         try {
             const savedHistory = this._context.globalState.get<CodexChatMessage[]>('remote_code_history', []);
             const savedActions = this._context.globalState.get<RemoteCodeActionEvent[]>('remote_code_actions', []);
+            const savedThreads = this._context.globalState.get<RemoteCodeThreadSummary[]>('remote_code_threads', []);
             const savedThreadId = this._context.globalState.get<string>('remote_code_current_thread_id', 'remote-code-default');
             const savedAgent = this._context.globalState.get<string>('remote_code_selected_agent', this.selectedAgent);
             const savedEffort = this._context.globalState.get<string>('remote_code_reasoning_effort', this.selectedReasoningEffort);
@@ -1343,6 +1345,16 @@ export class RemoteServer {
             const allowedModelIds = new Set(this.getDefaultCodexModels().map(model => model.id));
             this.codexHistory = Array.isArray(savedHistory) ? savedHistory.slice(-200) : [];
             this.codexActionEvents = Array.isArray(savedActions) ? savedActions.slice(-250) : [];
+            this.remoteCodeThreads = Array.isArray(savedThreads)
+                ? savedThreads
+                    .filter(thread => thread && typeof thread.id === 'string' && thread.id.trim())
+                    .map(thread => ({
+                        id: thread.id.trim(),
+                        title: typeof thread.title === 'string' && thread.title.trim() ? thread.title.trim() : 'Новый чат',
+                        timestamp: Number.isFinite(thread.timestamp) ? thread.timestamp : Date.now()
+                    }))
+                    .slice(-80)
+                : [];
             this.currentRemoteThreadId = savedThreadId || 'remote-code-default';
             this.selectedAgent = allowedModelIds.has(savedAgent) ? savedAgent : 'gpt-5.5';
             this.selectedReasoningEffort = savedEffort || this.selectedReasoningEffort;
@@ -1359,14 +1371,17 @@ export class RemoteServer {
                 });
                 this.saveRemoteCodeState();
             }
+            this.upsertRemoteCodeThread(this.currentRemoteThreadId, this.getCurrentThreadTitle(), Date.now());
         } catch (err) {
             console.warn('[RemoteCodeOnPC] Failed to restore Remote Code state:', err);
         }
     }
 
     private saveRemoteCodeState(): void {
+        this.remoteCodeThreads = this.getRemoteCodeThreads();
         void this._context.globalState.update('remote_code_history', this.codexHistory.slice(-200));
         void this._context.globalState.update('remote_code_actions', this.codexActionEvents.slice(-250));
+        void this._context.globalState.update('remote_code_threads', this.remoteCodeThreads.slice(-80));
         void this._context.globalState.update('remote_code_current_thread_id', this.currentRemoteThreadId);
         void this._context.globalState.update('remote_code_selected_agent', this.selectedAgent);
         void this._context.globalState.update('remote_code_reasoning_effort', this.selectedReasoningEffort);
@@ -1375,8 +1390,34 @@ export class RemoteServer {
         void this._context.globalState.update('remote_code_profile', this.selectedProfile);
     }
 
+    private upsertRemoteCodeThread(threadId: string, title?: string, timestamp?: number): void {
+        const id = threadId.trim();
+        if (!id) return;
+        const existing = this.remoteCodeThreads.find(thread => thread.id === id);
+        const cleanTitle = title?.replace(/\s+/g, ' ').trim().slice(0, 80);
+        const next: RemoteCodeThreadSummary = {
+            id,
+            title: cleanTitle || existing?.title || 'Новый чат',
+            timestamp: Math.max(existing?.timestamp || 0, Math.round(timestamp || Date.now()))
+        };
+        this.remoteCodeThreads = [
+            next,
+            ...this.remoteCodeThreads.filter(thread => thread.id !== id)
+        ]
+            .sort((a, b) => b.timestamp - a.timestamp)
+            .slice(0, 80);
+    }
+
     private getRemoteCodeThreads(): RemoteCodeThreadSummary[] {
         const byThread = new Map<string, RemoteCodeThreadSummary>();
+        for (const thread of this.remoteCodeThreads) {
+            if (!thread?.id) continue;
+            byThread.set(thread.id, {
+                id: thread.id,
+                title: thread.title || 'Новый чат',
+                timestamp: Math.round(thread.timestamp || 0)
+            });
+        }
         for (const message of this.codexHistory.filter(item => item.role !== 'system')) {
             const id = message.threadId || this.currentRemoteThreadId || 'remote-code-default';
             const existing = byThread.get(id);
@@ -1400,6 +1441,7 @@ export class RemoteServer {
     private createRemoteCodeThread(): string {
         const threadId = `remote-code-${Date.now()}`;
         this.currentRemoteThreadId = threadId;
+        this.upsertRemoteCodeThread(threadId, 'Новый чат', Date.now());
         this.codexActionEvents = this.codexActionEvents.filter(event => event.threadId !== threadId);
         this.saveRemoteCodeState();
         this.refreshPcChatPanel();
@@ -1703,6 +1745,18 @@ export class RemoteServer {
                 await this.pcChatPanel?.webview.postMessage({ type: 'appendPrompt', text: `${text}\n` });
                 return;
             }
+            case 'pasteFiles': {
+                const attachments = Array.isArray(msg.attachments) ? msg.attachments : [];
+                const files = this.saveMobileAttachments(attachments);
+                if (files.length === 0) {
+                    await vscode.window.setStatusBarMessage('Remote Code: в буфере не найдено файлов для вставки', 1800);
+                    return;
+                }
+                const text = files.map(file => `@${file.path}`).join('\n');
+                await this.pcChatPanel?.webview.postMessage({ type: 'appendPrompt', text: `${text}\n` });
+                await vscode.window.setStatusBarMessage(`Remote Code: добавлено файлов: ${files.length}`, 1800);
+                return;
+            }
             case 'selectModel':
                 if (typeof msg.model === 'string' && this.getDefaultCodexModels().some(model => model.id === msg.model)) {
                     this.selectedAgent = msg.model;
@@ -1734,6 +1788,7 @@ export class RemoteServer {
             case 'clearChat':
                 this.codexHistory = this.codexHistory.filter(message => message.threadId !== this.currentRemoteThreadId);
                 this.codexActionEvents = this.codexActionEvents.filter(event => event.threadId !== this.currentRemoteThreadId);
+                this.upsertRemoteCodeThread(this.currentRemoteThreadId, 'Новый чат', Date.now());
                 this.saveRemoteCodeState();
                 this.refreshPcChatPanel();
                 return;
@@ -2303,15 +2358,11 @@ textarea::placeholder{color:#777}
 .item{width:100%;text-align:left;border:0;background:transparent;color:#d7d7d7;padding:7px 9px;border-radius:6px;cursor:pointer;white-space:nowrap;font-size:13px;line-height:1.35}
 .item:hover{background:#343638}
 .item.selected{color:#f1f1f1;background:#313438}
-.context{margin-left:auto;color:#4bb4ff;font-weight:500;white-space:nowrap;border:0;background:transparent;font-size:12.5px;cursor:pointer;border-radius:7px;padding:5px 6px;display:inline-flex;align-items:center;gap:5px}
-.context.off{color:#8e8e8e}
-.context:hover{background:#343537}
-.context .spark{display:inline-flex;color:#18a8ff}
 button.send{border:0;border-radius:999px;background:#d9d9d9;color:#111;width:34px;height:34px;min-width:34px;max-width:34px;aspect-ratio:1/1;display:inline-flex;align-items:center;justify-content:center;cursor:pointer;white-space:nowrap;padding:0;flex:0 0 34px}
 button.send:hover{background:#fff}
 .link-btn{border:0;background:transparent;color:#8e8e8e;cursor:pointer;padding:3px 0;display:inline-flex;align-items:center;gap:5px}
 .link-btn:hover{color:#d0d0d0}
-@media (max-width: 680px){.top{padding:0 10px}.messages{padding-left:14px;padding-right:14px}.composer-wrap{padding-left:8px;padding-right:8px}.controls{flex-wrap:wrap}.context{margin-left:0}button.send{margin-left:auto}.subcontrols{gap:8px;flex-wrap:wrap}.dropdown.profile{flex-basis:132px}}
+@media (max-width: 680px){.top{padding:0 10px}.messages{padding-left:14px;padding-right:14px}.composer-wrap{padding-left:8px;padding-right:8px}.controls{flex-wrap:wrap}button.send{margin-left:auto}.subcontrols{gap:8px;flex-wrap:wrap}.dropdown.profile{flex-basis:132px}}
 </style>
 </head>
 <body>
@@ -2359,7 +2410,6 @@ ${actionRows}
         <button class="dropdown-btn" type="button"><span id="effortLabel" class="label"></span><span class="chev">${icon.chevron}</span></button>
         <div class="menu" id="effortMenu"></div>
       </div>
-      <button class="context" id="contextToggle" type="button"><span class="spark">${icon.sparkle}</span>&#1050;&#1086;&#1085;&#1090;&#1077;&#1082;&#1089;&#1090; IDE</button>
       <button class="send" id="send" type="submit" title="&#1054;&#1090;&#1087;&#1088;&#1072;&#1074;&#1080;&#1090;&#1100;">${icon.send}</button>
     </div>
   </form>
@@ -2378,7 +2428,7 @@ const profileOptions = ${JSON.stringify(profileOptions)};
 let selectedModel = ${JSON.stringify(selectedModel)};
 let selectedEffort = ${JSON.stringify(selectedEffort)};
 let selectedProfile = ${JSON.stringify(this.selectedProfile)};
-let includeContext = ${JSON.stringify(this.selectedIncludeContext)};
+const includeContext = true;
 function renderDropdown(rootId, menuId, labelId, options, selected, onSelect) {
   const root = document.getElementById(rootId);
   const menu = document.getElementById(menuId);
@@ -2414,7 +2464,6 @@ function refreshControls() {
     vscode.postMessage({ type: 'action', action: 'selectProfile', profile: selectedProfile });
     refreshControls();
   });
-  document.getElementById('contextToggle').classList.toggle('off', !includeContext);
 }
 document.querySelectorAll('.dropdown-btn').forEach(button => {
   button.addEventListener('click', event => {
@@ -2448,11 +2497,6 @@ document.addEventListener('click', event => {
     document.getElementById('topMoreDrop').classList.remove('open');
   }
 });
-document.getElementById('contextToggle').addEventListener('click', () => {
-  includeContext = !includeContext;
-  vscode.postMessage({ type: 'action', action: 'toggleContext', includeContext });
-  refreshControls();
-});
 document.querySelectorAll('[data-action]').forEach(button => {
   button.addEventListener('click', () => {
     document.getElementById('topMoreDrop')?.classList.remove('open');
@@ -2484,6 +2528,35 @@ function autoGrowPrompt() {
 }
 prompt.addEventListener('input', autoGrowPrompt);
 autoGrowPrompt();
+function readClipboardFile(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = String(reader.result || '');
+      const base64 = result.includes(',') ? result.slice(result.indexOf(',') + 1) : result;
+      resolve({
+        name: file.name || 'clipboard-file',
+        mimeType: file.type || 'application/octet-stream',
+        size: file.size || 0,
+        base64
+      });
+    };
+    reader.onerror = () => reject(reader.error || new Error('Failed to read clipboard file'));
+    reader.readAsDataURL(file);
+  });
+}
+prompt.addEventListener('paste', event => {
+  const files = Array.from(event.clipboardData?.files || []);
+  if (!files.length) return;
+  event.preventDefault();
+  Promise.all(files.slice(0, 6).map(readClipboardFile))
+    .then(attachments => {
+      vscode.postMessage({ type: 'action', action: 'pasteFiles', attachments });
+    })
+    .catch(error => {
+      console.error('Remote Code paste failed:', error);
+    });
+});
 document.querySelectorAll('.message-tool').forEach(button => {
   button.addEventListener('click', event => {
     const msg = event.currentTarget.closest('.msg');
@@ -3052,7 +3125,10 @@ prompt.addEventListener('keydown', event => {
 
     private async handleRemoteCodeThreads(_req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
         try {
-            this.jsonResponse(res, 200, { threads: this.getRemoteCodeThreads() });
+            this.jsonResponse(res, 200, {
+                threads: this.getRemoteCodeThreads(),
+                currentThreadId: this.currentRemoteThreadId
+            });
         } catch (err: any) {
             this.jsonResponse(res, 200, { threads: [], error: err.message });
         }
