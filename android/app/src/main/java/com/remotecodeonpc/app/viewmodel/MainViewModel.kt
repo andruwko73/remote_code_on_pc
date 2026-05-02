@@ -1158,46 +1158,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun startTunnel() {
         startTunnelImproved()
-        return
-        _uiState.value = _uiState.value.copy(isTunnelStarting = true, tunnelError = null)
-        viewModelScope.launch {
-            try {
-                val api = ApiClient.getApi(_uiState.value.serverConfig.copy(useTunnel = false, tunnelUrl = ""))
-                val response = api.startTunnel()
-                if (response.isSuccessful) {
-                    val body = response.body()
-                    val url = body?.url
-                    _uiState.value = _uiState.value.copy(
-                        tunnelActive = true,
-                        tunnelUrl = url,
-                        isTunnelStarting = false,
-                        tunnelError = null
-                    )
-                    // РђРІС‚РѕРјР°С‚РёС‡РµСЃРєРё РїРµСЂРµРєР»СЋС‡Р°РµРј Android РЅР° С‚СѓРЅРЅРµР»СЊ
-                    if (url != null) {
-                        val updatedConfig = _uiState.value.serverConfig.copy(
-                            useTunnel = true,
-                            tunnelUrl = url
-                        )
-                        _uiState.value = _uiState.value.copy(serverConfig = updatedConfig)
-                        saveConfig(updatedConfig)
-                        // РџРµСЂРµРїРѕРґРєР»СЋС‡Р°РµРј WebSocket С‡РµСЂРµР· С‚СѓРЅРЅРµР»СЊ
-                        ApiClient.reset()
-                        connectWebSocket()
-                    }
-                } else {
-                    _uiState.value = _uiState.value.copy(
-                        isTunnelStarting = false,
-                        tunnelError = "РћС€РёР±РєР° ${response.code()}"
-                    )
-                }
-            } catch (e: Exception) {
-                _uiState.value = _uiState.value.copy(
-                    isTunnelStarting = false,
-                    tunnelError = "РћС€РёР±РєР°: ${e.message}"
-                )
-            }
-        }
     }
 
     private fun startTunnelImproved() {

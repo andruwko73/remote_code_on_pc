@@ -1600,7 +1600,8 @@ export class RemoteServer {
         onChunk?: (content: string) => void,
         includeContext: boolean = true,
         cancellationToken?: vscode.CancellationToken,
-        attachments: LocalAttachment[] = []
+        attachments: LocalAttachment[] = [],
+        history: CodexChatMessage[] = []
     ): Promise<string> {
         // Используем VS Code LanguageModel API для отправки в Copilot Chat
         try {
@@ -1652,6 +1653,7 @@ export class RemoteServer {
                 ? `${this.getWorkspaceContextForPrompt()}\n\nUser request:\n${message}`
                 : message;
             const messages = [
+                ...this.buildLanguageModelHistory(history),
                 new vscode.LanguageModelChatMessage(
                     vscode.LanguageModelChatMessageRole.User,
                     this.createLanguageModelContent(prompt, attachments)
@@ -1675,6 +1677,29 @@ export class RemoteServer {
             console.warn('[RemoteCodeOnPC] VS Code LM request failed:', errorMessage);
             throw new Error(`VS Code language model request failed: ${errorMessage}`);
         }
+    }
+
+    private buildLanguageModelHistory(history: CodexChatMessage[]): vscode.LanguageModelChatMessage[] {
+        return history
+            .filter(message =>
+                (message.role === 'user' || message.role === 'assistant') &&
+                !message.isStreaming &&
+                typeof message.content === 'string' &&
+                message.content.trim().length > 0
+            )
+            .slice(-12)
+            .map(message => new vscode.LanguageModelChatMessage(
+                message.role === 'assistant'
+                    ? vscode.LanguageModelChatMessageRole.Assistant
+                    : vscode.LanguageModelChatMessageRole.User,
+                this.trimLanguageModelHistoryContent(this.stripActionDirectives(message.content))
+            ));
+    }
+
+    private trimLanguageModelHistoryContent(content: string): string {
+        const clean = content.replace(/\n{4,}/g, '\n\n\n').trim();
+        if (clean.length <= 12000) return clean;
+        return `${clean.slice(0, 6000)}\n\n...[history truncated]...\n\n${clean.slice(-6000)}`;
     }
 
     private normalizeReasoningEffort(value?: string): string {
@@ -1722,7 +1747,8 @@ export class RemoteServer {
         model?: string,
         reasoningEffort?: string,
         includeContext: boolean = true,
-        attachments: LocalAttachment[] = []
+        attachments: LocalAttachment[] = [],
+        priorHistory?: CodexChatMessage[]
     ): Promise<void> {
         const effort = this.normalizeReasoningEffort(reasoningEffort || this.selectedReasoningEffort);
         this.stopActiveGeneration(false);
@@ -1747,6 +1773,8 @@ export class RemoteServer {
         this.broadcast({ type: 'codex:message', message: thinking, threadId, timestamp: Date.now() });
 
         try {
+            const historyForModel = priorHistory ?? this.getMessagesForRemoteThread(threadId, 24)
+                    .filter(item => item.id !== thinking.id && item.role !== 'system');
             const response = await this.sendToChatStreaming(
                 `${message}\n\nReasoning effort: ${this.reasoningEffortLabel(effort)} (${effort}).\n${this.profileInstruction(this.selectedProfile)}`,
                 model || this.selectedAgent || 'auto',
@@ -1766,7 +1794,8 @@ export class RemoteServer {
             },
                 includeContext,
                 cancellation.token,
-                attachments
+                attachments,
+                historyForModel
             );
             const cleanResponse = this.stripActionDirectives(response);
             const changeSummary = this.getGitChangeSummaryFromMessage(cleanResponse);
@@ -1830,6 +1859,8 @@ export class RemoteServer {
             ...this.saveMobileAttachments(attachments),
             ...this.normalizeLocalAttachments(localAttachments)
         ];
+        const priorHistory = this.getMessagesForRemoteThread(targetThreadId, 24)
+            .filter(item => item.role !== 'system' && !item.isStreaming);
         const displayMessage = message.trim() || (attachmentFiles.length ? 'Проверь вложения.' : message);
         const messageForAgent = this.withAttachmentInstructions(displayMessage, attachmentFiles);
         const userMessage: CodexChatMessage = {
@@ -1852,7 +1883,7 @@ export class RemoteServer {
         this.broadcast({ type: 'codex:sent', message: messageForAgent, model, reasoningEffort: effort, includeContext: this.selectedIncludeContext, threadId: targetThreadId, timestamp: Date.now() });
         this.broadcast({ type: 'codex:threads-update', threads: this.getRemoteCodeThreads(), timestamp: Date.now() });
 
-        this.answerInPcMirror(messageForAgent, targetThreadId, model, effort, this.selectedIncludeContext, attachmentFiles).catch(err => {
+        this.answerInPcMirror(messageForAgent, targetThreadId, model, effort, this.selectedIncludeContext, attachmentFiles, priorHistory).catch(err => {
             const errorMessage: CodexChatMessage = {
                 id: `remote_assistant_error_${Date.now()}`,
                 role: 'assistant',
