@@ -34,6 +34,7 @@ interface CodexChatMessage {
     includeContext?: boolean;
     isStreaming?: boolean;
     threadId?: string;
+    attachments?: LocalAttachment[];
 }
 
 interface RemoteCodeThreadSummary {
@@ -48,6 +49,13 @@ interface MobileAttachment {
     mimeType?: string;
     size?: number;
     base64?: string;
+}
+
+interface LocalAttachment {
+    name: string;
+    path: string;
+    mimeType: string;
+    size: number;
 }
 
 interface DiagnosticItem {
@@ -1680,7 +1688,8 @@ export class RemoteServer {
         threadId: string,
         attachments: MobileAttachment[],
         reasoningEffort?: string,
-        includeContext?: boolean
+        includeContext?: boolean,
+        localAttachments: LocalAttachment[] = []
     ): Promise<string> {
         const targetThreadId = threadId.trim() || this.currentRemoteThreadId || 'remote-code-default';
         this.currentRemoteThreadId = targetThreadId;
@@ -1688,17 +1697,22 @@ export class RemoteServer {
         this.selectedReasoningEffort = effort;
         this.selectedIncludeContext = includeContext !== false;
         if (model) this.selectedAgent = model;
-        const attachmentFiles = this.saveMobileAttachments(attachments);
-        const messageForAgent = this.withAttachmentInstructions(message, attachmentFiles);
+        const attachmentFiles = [
+            ...this.saveMobileAttachments(attachments),
+            ...this.normalizeLocalAttachments(localAttachments)
+        ];
+        const displayMessage = message.trim() || (attachmentFiles.length ? 'Проверь вложения.' : message);
+        const messageForAgent = this.withAttachmentInstructions(displayMessage, attachmentFiles);
         const userMessage: CodexChatMessage = {
             id: `remote_user_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
             role: 'user',
-            content: messageForAgent,
+            content: displayMessage,
             timestamp: Date.now(),
             model: model || undefined,
             reasoningEffort: effort,
             includeContext: this.selectedIncludeContext,
-            threadId: targetThreadId
+            threadId: targetThreadId,
+            attachments: attachmentFiles
         };
         this.codexHistory.push(userMessage);
         this.codexHistory = this.codexHistory.slice(-200);
@@ -1742,16 +1756,20 @@ export class RemoteServer {
             { enableScripts: true, retainContextWhenHidden: true }
         );
         this.pcChatPanel.webview.onDidReceiveMessage(async msg => {
-            if (msg?.type === 'send' && typeof msg.message === 'string' && msg.message.trim()) {
+            if (msg?.type === 'send') {
+                const localAttachments = this.normalizeLocalAttachments(Array.isArray(msg.attachments) ? msg.attachments : []);
+                const text = typeof msg.message === 'string' ? msg.message.trim() : '';
+                if (!text && localAttachments.length === 0) return;
                 if (typeof msg.profile === 'string') this.selectedProfile = msg.profile;
                 if (typeof msg.workMode === 'string') this.selectedWorkMode = msg.workMode;
                 await this.enqueueRemoteCodeMessage(
-                    msg.message,
+                    text,
                     typeof msg.model === 'string' ? msg.model : this.selectedAgent,
                     '',
                     [],
                     typeof msg.reasoningEffort === 'string' ? msg.reasoningEffort : this.selectedReasoningEffort,
-                    msg.includeContext !== false
+                    msg.includeContext !== false,
+                    localAttachments
                 );
             } else if (msg?.type === 'action' && typeof msg.action === 'string') {
                 await this.handlePcChatAction(msg.action, msg);
@@ -1783,8 +1801,13 @@ export class RemoteServer {
                 title: 'Добавить файлы в запрос Remote Code'
                 });
                 if (!uris || uris.length === 0) return;
-                const text = uris.map(uri => `@${uri.fsPath}`).join('\n');
-                await this.pcChatPanel?.webview.postMessage({ type: 'appendPrompt', text: `${text}\n` });
+                const files = this.normalizeLocalAttachments(uris.map(uri => ({
+                    name: path.basename(uri.fsPath),
+                    path: uri.fsPath,
+                    mimeType: this.guessMimeType(uri.fsPath),
+                    size: 0
+                })));
+                await this.pcChatPanel?.webview.postMessage({ type: 'attachFiles', files });
                 return;
             }
             case 'pasteFiles': {
@@ -1794,8 +1817,7 @@ export class RemoteServer {
                     await vscode.window.setStatusBarMessage('Remote Code: в буфере не найдено файлов для вставки', 1800);
                     return;
                 }
-                const text = files.map(file => `@${file.path}`).join('\n');
-                await this.pcChatPanel?.webview.postMessage({ type: 'appendPrompt', text: `${text}\n` });
+                await this.pcChatPanel?.webview.postMessage({ type: 'attachFiles', files });
                 await vscode.window.setStatusBarMessage(`Remote Code: добавлено файлов: ${files.length}`, 1800);
                 return;
             }
@@ -2309,9 +2331,12 @@ export class RemoteServer {
             const meta = [message.model, message.reasoningEffort ? this.reasoningEffortLabel(message.reasoningEffort) : '']
                 .filter(Boolean)
                 .join(' - ');
+            const content = this.renderMessageContent(message.content);
+            const attachments = this.renderMessageAttachments(message.attachments);
             return `<section class="msg ${cls}" data-message-id="${this.escapeHtml(message.id)}">
                 ${role ? `<div class="role">${this.escapeHtml(role)}</div>` : ''}
-                <pre>${this.escapeHtml(message.content)}</pre>
+                <div class="message-text">${content}</div>
+                ${attachments}
                 ${message.role === 'assistant' && meta ? `<div class="meta meta-bottom">${this.escapeHtml(meta)}</div>` : ''}
                 <div class="msg-tools">
                     <button type="button" class="hover-btn message-tool" data-message-action="copy" title="&#1050;&#1086;&#1087;&#1080;&#1088;&#1086;&#1074;&#1072;&#1090;&#1100;">${icon.copy}</button>
@@ -2334,7 +2359,7 @@ export class RemoteServer {
 <meta charset="UTF-8">
 <style>
 html,body{height:100%}
-body{margin:0;background:#101112;color:#d7d7d7;font:14px/1.55 var(--vscode-font-family);display:flex;flex-direction:column;letter-spacing:0}
+body{margin:0;background:#101112;color:#d9d9d9;font:14.5px/1.58 var(--vscode-font-family);display:flex;flex-direction:column;letter-spacing:0}
 button{font:inherit}
 svg{width:15px;height:15px;display:block;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
 .top{height:42px;border-bottom:1px solid #222326;background:#111213;display:flex;align-items:center;gap:5px;padding:0 min(2.8vw,28px)}
@@ -2360,12 +2385,27 @@ svg{width:15px;height:15px;display:block;fill:none;stroke:currentColor;stroke-wi
 .msg{position:relative;padding:2px 0 14px;margin:0 auto;background:transparent;border:0;max-width:960px}
 .msg.user{max-width:620px;margin-left:auto;margin-right:min(2vw,20px);color:#f0f0f0}
 .msg.user .role,.msg.user .meta{display:none}
-.msg.user pre{background:#2b2c2e;border:1px solid #303235;border-radius:16px;padding:9px 13px}
-.msg.system pre{color:#aeb0b3}
+.msg.user .message-text{background:#2b2c2e;border:1px solid #303235;border-radius:16px;padding:9px 13px}
+.msg.system .message-text{color:#aeb0b3}
 .role{font-weight:600;color:#dcdcdc;margin-bottom:4px}
 .meta{font-size:12px;color:#8e8e8e;margin:-1px 0 5px}
 .meta-bottom{margin:8px 0 0;color:#858585}
 .assistant .role{color:#dcdcdc}.system .role{color:#e8b66b}
+.message-text{margin:0;white-space:pre-wrap;word-wrap:break-word;font:inherit;color:#dcdcdc}
+.message-text code,.message-text .inline-chip{font-family:var(--vscode-editor-font-family, monospace);font-size:.92em;background:#2b2c2e;color:#e2e2e2;border-radius:6px;padding:1px 6px;white-space:break-spaces}
+.msg.user .message-text code,.msg.user .message-text .inline-chip{background:#3a3b3d}
+.attachments-list{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0 0}
+.attachment-chip{border:1px solid #3a3c40;background:#222326;color:#dcdcdc;border-radius:999px;padding:4px 8px;display:inline-flex;align-items:center;gap:6px;font-size:12px;max-width:100%}
+.attachment-chip span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.attachment-chip small{color:#8f8f8f}
+.change-card{margin:10px 0;background:#242526;border:1px solid #323437;border-radius:8px;overflow:hidden;color:#dcdcdc}
+.change-head{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:8px 10px;background:#2b2c2e;border-bottom:1px solid #37393d;font-weight:600}
+.change-summary{color:#dcdcdc}
+.change-row{display:flex;align-items:center;gap:10px;padding:8px 10px;border-top:1px solid #303235}
+.change-row:first-of-type{border-top:0}
+.change-path{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.delta{font-family:var(--vscode-editor-font-family, monospace);font-size:12px}
+.delta.plus{color:#38c172}.delta.minus{color:#ff6b6b}
 pre{margin:0;white-space:pre-wrap;word-wrap:break-word;font:inherit}
 .msg-tools{position:absolute;right:2px;bottom:0;display:flex;gap:4px;opacity:0;transform:translateY(2px);transition:opacity .12s ease, transform .12s ease}
 .msg:hover .msg-tools{opacity:1;transform:translateY(0)}
@@ -2389,13 +2429,21 @@ pre{margin:0;white-space:pre-wrap;word-wrap:break-word;font:inherit}
 textarea{width:100%;box-sizing:border-box;resize:none;min-height:58px;max-height:180px;overflow:hidden;border:0;background:transparent;color:#e8e8e8;padding:0;font:inherit;font-size:14px;outline:none;line-height:1.45}
 textarea.scroll{overflow:auto}
 textarea::placeholder{color:#777}
+.composer-attachments{display:none;flex-wrap:wrap;gap:6px;margin:-1px 0 2px}
+.composer-attachments.visible{display:flex}
+.composer-attachment{border:1px solid #424449;background:#242528;color:#dcdcdc;border-radius:999px;display:inline-flex;align-items:center;gap:6px;max-width:100%;padding:4px 7px;font-size:12px}
+.composer-attachment span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.composer-attachment button{border:0;background:transparent;color:#a5a5a5;padding:0;width:16px;height:16px;border-radius:999px;display:inline-flex;align-items:center;justify-content:center;cursor:pointer}
+.composer-attachment button:hover{background:#383a3f;color:#fff}
 .dropdown{position:relative;flex:0 0 auto;min-width:0}
 .dropdown#modelDrop{width:82px}
-.dropdown.effort{width:86px}
+.dropdown.effort{width:max-content;min-width:86px;max-width:150px}
 .dropdown.profile{width:178px}
 .dropdown-btn{height:28px;width:100%;border:0;background:transparent;color:#c7c7c7;padding:0 6px;font-size:12.5px;display:flex;align-items:center;justify-content:flex-start;gap:4px;border-radius:7px;cursor:pointer;white-space:nowrap}
 .dropdown-btn:hover,.dropdown.open .dropdown-btn{background:#343537;color:#e0e0e0}
 .dropdown-btn .label{min-width:0;overflow:hidden;text-overflow:ellipsis;flex:0 1 auto}
+.dropdown.effort .dropdown-btn{width:max-content;min-width:86px;max-width:150px}
+.dropdown.effort .label{overflow:visible;text-overflow:clip}
 .chev{color:#9a9a9a;display:inline-flex;align-items:center}
 .chev svg{width:13px;height:13px}
 .menu{display:none;position:absolute;left:0;bottom:34px;min-width:100%;max-height:250px;overflow:auto;background:#252526;border:1px solid #3a3a3a;border-radius:8px;padding:5px;box-shadow:0 10px 30px rgba(0,0,0,.45);z-index:5}
@@ -2441,6 +2489,7 @@ ${actionRows}
 <div class="composer-wrap">
   <form class="composer" id="composer">
     <textarea id="prompt" placeholder="Запросите внесение дополнительных изменений" autofocus></textarea>
+    <div class="composer-attachments" id="attachments"></div>
     <div class="controls">
       <button class="plus" type="button" data-action="addFile" title="&#1044;&#1086;&#1073;&#1072;&#1074;&#1080;&#1090;&#1100; &#1092;&#1072;&#1081;&#1083;">${icon.plus}</button>
       <div class="dropdown profile" id="profileDrop">
@@ -2474,7 +2523,52 @@ const profileOptions = ${JSON.stringify(profileOptions)};
 let selectedModel = ${JSON.stringify(selectedModel)};
 let selectedEffort = ${JSON.stringify(selectedEffort)};
 let selectedProfile = ${JSON.stringify(this.selectedProfile)};
+let attachedFiles = [];
 const includeContext = true;
+function formatBytes(bytes) {
+  if (!bytes || bytes < 1) return '';
+  if (bytes < 1024) return bytes + ' B';
+  if (bytes < 1024 * 1024) return Math.round(bytes / 1024) + ' KB';
+  return (bytes / 1024 / 1024).toFixed(1) + ' MB';
+}
+function renderAttachments() {
+  const root = document.getElementById('attachments');
+  root.innerHTML = '';
+  root.classList.toggle('visible', attachedFiles.length > 0);
+  attachedFiles.forEach((file, index) => {
+    const item = document.createElement('div');
+    item.className = 'composer-attachment';
+    item.title = file.path || file.name || '';
+    const label = document.createElement('span');
+    const size = formatBytes(file.size);
+    label.textContent = size ? (file.name + ' · ' + size) : file.name;
+    const remove = document.createElement('button');
+    remove.type = 'button';
+    remove.textContent = '×';
+    remove.title = 'Убрать вложение';
+    remove.addEventListener('click', () => {
+      attachedFiles = attachedFiles.filter((_, itemIndex) => itemIndex !== index);
+      renderAttachments();
+    });
+    item.appendChild(label);
+    item.appendChild(remove);
+    root.appendChild(item);
+  });
+}
+function addAttachments(files) {
+  const next = Array.isArray(files) ? files.filter(file => file && file.path && file.name) : [];
+  if (!next.length) return;
+  const known = new Set(attachedFiles.map(file => file.path));
+  next.forEach(file => {
+    if (!known.has(file.path)) {
+      attachedFiles.push(file);
+      known.add(file.path);
+    }
+  });
+  attachedFiles = attachedFiles.slice(0, 6);
+  renderAttachments();
+  prompt.focus();
+}
 function renderDropdown(rootId, menuId, labelId, options, selected, onSelect) {
   const root = document.getElementById(rootId);
   const menu = document.getElementById(menuId);
@@ -2562,8 +2656,12 @@ window.addEventListener('message', event => {
     autoGrowPrompt();
     prompt.focus();
   }
+  if (data.type === 'attachFiles' && Array.isArray(data.files)) {
+    addAttachments(data.files);
+  }
 });
 refreshControls();
+renderAttachments();
 messages.scrollTop = messages.scrollHeight;
 function autoGrowPrompt() {
   prompt.style.height = 'auto';
@@ -2607,7 +2705,7 @@ prompt.addEventListener('paste', event => {
 document.querySelectorAll('.message-tool').forEach(button => {
   button.addEventListener('click', event => {
     const msg = event.currentTarget.closest('.msg');
-    const text = msg?.querySelector('pre')?.innerText || '';
+    const text = msg?.querySelector('.message-text')?.innerText || '';
     const messageId = msg?.dataset.messageId || '';
     const action = event.currentTarget.dataset.messageAction;
     if (action === 'copy') {
@@ -2623,9 +2721,11 @@ document.querySelectorAll('.message-tool').forEach(button => {
 form.addEventListener('submit', event => {
   event.preventDefault();
   const message = prompt.value.trim();
-  if (!message) return;
-  vscode.postMessage({ type: 'send', message, model: selectedModel, reasoningEffort: selectedEffort, includeContext, profile: selectedProfile });
+  if (!message && attachedFiles.length === 0) return;
+  vscode.postMessage({ type: 'send', message, attachments: attachedFiles, model: selectedModel, reasoningEffort: selectedEffort, includeContext, profile: selectedProfile });
   prompt.value = '';
+  attachedFiles = [];
+  renderAttachments();
   autoGrowPrompt();
 });
 prompt.addEventListener('keydown', event => {
@@ -2636,6 +2736,105 @@ prompt.addEventListener('keydown', event => {
 </script>
 </body>
 </html>`;
+    }
+
+    private renderMessageAttachments(attachments?: LocalAttachment[]): string {
+        const files = this.normalizeLocalAttachments(attachments || []);
+        if (files.length === 0) return '';
+        const chips = files.map(file => {
+            const label = `${file.name}${file.size ? ` · ${this.formatBytes(file.size)}` : ''}`;
+            return `<div class="attachment-chip" title="${this.escapeHtml(file.path)}"><span>${this.escapeHtml(label)}</span><small>${this.escapeHtml(file.mimeType)}</small></div>`;
+        }).join('');
+        return `<div class="attachments-list">${chips}</div>`;
+    }
+
+    private renderMessageContent(content: string): string {
+        const lines = content.replace(/\r\n/g, '\n').split('\n');
+        const chunks: string[] = [];
+        let buffer: string[] = [];
+        const flush = () => {
+            if (buffer.length === 0) return;
+            chunks.push(buffer.map(line => this.renderInlineContent(line)).join('\n'));
+            buffer = [];
+        };
+
+        for (let i = 0; i < lines.length; i++) {
+            const header = lines[i];
+            if (/^\s*Изменено\s+\d+\s+файл/i.test(header)) {
+                const changes: Array<{ path: string; plus?: string; minus?: string }> = [];
+                let j = i + 1;
+                while (j < lines.length) {
+                    if (!lines[j].trim()) {
+                        j++;
+                        continue;
+                    }
+                    const parsed = this.parseChangedFileLine(lines[j]);
+                    if (!parsed) break;
+                    changes.push(parsed);
+                    j++;
+                }
+                if (changes.length > 0) {
+                    flush();
+                    chunks.push(this.renderChangeCard(header, changes));
+                    i = j - 1;
+                    continue;
+                }
+            }
+            buffer.push(header);
+        }
+        flush();
+        return chunks.join('\n');
+    }
+
+    private parseChangedFileLine(line: string): { path: string; plus?: string; minus?: string } | undefined {
+        const match = line.match(/^\s*(?:[-*•]\s*)?(.+?)\s+(\+\d+)(?:\s+(-\d+))?\s*$/);
+        if (!match) return undefined;
+        const filePath = match[1].trim();
+        if (!/[\\/]/.test(filePath) && !/\.[a-z0-9]{1,8}$/i.test(filePath)) return undefined;
+        return { path: filePath, plus: match[2], minus: match[3] };
+    }
+
+    private renderChangeCard(header: string, changes: Array<{ path: string; plus?: string; minus?: string }>): string {
+        const rows = changes.map(change => `<div class="change-row">
+            <span class="change-path">${this.escapeHtml(change.path)}</span>
+            ${change.plus ? `<span class="delta plus">${this.escapeHtml(change.plus)}</span>` : ''}
+            ${change.minus ? `<span class="delta minus">${this.escapeHtml(change.minus)}</span>` : ''}
+        </div>`).join('');
+        return `<div class="change-card">
+            <div class="change-head"><span class="change-summary">${this.renderInlineContent(header)}</span></div>
+            ${rows}
+        </div>`;
+    }
+
+    private renderInlineContent(value: string): string {
+        const parts = value.split(/(`[^`]+`)/g);
+        return parts.map(part => {
+            if (part.startsWith('`') && part.endsWith('`')) {
+                return `<code>${this.escapeHtml(part.slice(1, -1))}</code>`;
+            }
+            return this.renderInlinePlain(part);
+        }).join('');
+    }
+
+    private renderInlinePlain(value: string): string {
+        const tokenRegex = /(C:\\[^\s`]+|(?:[\w.-]+[\\/])+[\w.@%+\-()]+|\b\d+\.\d+\.\d+\b|\b[0-9a-f]{7,40}\b|\b(?:npm run compile|vsce package|assembleDebug|lintDebug|Developer: Reload Window|200 OK)\b)/gi;
+        let html = '';
+        let lastIndex = 0;
+        let match: RegExpExecArray | null;
+        while ((match = tokenRegex.exec(value)) !== null) {
+            html += this.escapeHtml(value.slice(lastIndex, match.index));
+            html += `<code>${this.escapeHtml(match[0])}</code>`;
+            lastIndex = match.index + match[0].length;
+        }
+        html += this.escapeHtml(value.slice(lastIndex));
+        return html;
+    }
+
+    private formatBytes(bytes: number): string {
+        if (!Number.isFinite(bytes) || bytes <= 0) return '';
+        if (bytes < 1024) return `${bytes} B`;
+        if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
+        return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
     }
 
     private escapeHtml(value: string): string {
@@ -3690,6 +3889,52 @@ prompt.addEventListener('keydown', event => {
         return execSync(cmd, { encoding: 'utf-8', timeout: timeoutMs || 10000, windowsHide: true }).toString();
     }
 
+    private normalizeLocalAttachments(attachments: Array<Partial<LocalAttachment>>): LocalAttachment[] {
+        const normalized: LocalAttachment[] = [];
+        for (const attachment of attachments.slice(0, 6)) {
+            if (!attachment?.path || typeof attachment.path !== 'string') continue;
+            const filePath = path.resolve(attachment.path);
+            if (!fs.existsSync(filePath)) continue;
+            let size = typeof attachment.size === 'number' && Number.isFinite(attachment.size) ? attachment.size : 0;
+            try {
+                const stat = fs.statSync(filePath);
+                if (!stat.isFile()) continue;
+                size = stat.size;
+            } catch {
+                continue;
+            }
+            normalized.push({
+                name: typeof attachment.name === 'string' && attachment.name.trim()
+                    ? attachment.name.trim()
+                    : path.basename(filePath),
+                path: filePath,
+                mimeType: typeof attachment.mimeType === 'string' && attachment.mimeType.trim()
+                    ? attachment.mimeType.trim()
+                    : this.guessMimeType(filePath),
+                size
+            });
+        }
+        return normalized;
+    }
+
+    private guessMimeType(filePath: string): string {
+        const ext = path.extname(filePath).toLowerCase();
+        switch (ext) {
+            case '.png': return 'image/png';
+            case '.jpg':
+            case '.jpeg': return 'image/jpeg';
+            case '.gif': return 'image/gif';
+            case '.webp': return 'image/webp';
+            case '.svg': return 'image/svg+xml';
+            case '.txt':
+            case '.md':
+            case '.log': return 'text/plain';
+            case '.json': return 'application/json';
+            case '.pdf': return 'application/pdf';
+            default: return 'application/octet-stream';
+        }
+    }
+
     private saveMobileAttachments(attachments: MobileAttachment[]): Array<{ name: string; path: string; mimeType: string; size: number }> {
         const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath || this._context.globalStorageUri.fsPath;
         const uploadDir = path.join(workspaceRoot, '.remote-code-uploads');
@@ -3722,7 +3967,7 @@ prompt.addEventListener('keydown', event => {
         const lines = attachments.map((file, index) =>
             `${index + 1}. ${file.name} (${file.mimeType}, ${file.size} bytes): ${file.path}`
         );
-        return `${message}\n\nAttached files from Android were saved on this PC. Use these local paths when needed:\n${lines.join('\n')}`;
+        return `${message || 'Please inspect the attached files.'}\n\nAttached files are available on this PC. Use these local paths when needed:\n${lines.join('\n')}`;
     }
 
     private formatCommandExecutable(command: string): string {
