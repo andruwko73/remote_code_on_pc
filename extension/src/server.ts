@@ -40,6 +40,7 @@ interface RemoteCodeThreadSummary {
     id: string;
     title: string;
     timestamp: number;
+    source?: 'remote' | 'codex';
 }
 
 interface MobileAttachment {
@@ -1102,7 +1103,8 @@ export class RemoteServer {
                     setTimeout(() => {
                         this.broadcast({
                             type: 'codex:sessions-update',
-                            threads: this.getCodexThreadSummariesFast(),
+                            threads: this.getRemoteCodeThreads(),
+                            currentThreadId: this.currentRemoteThreadId,
                             timestamp: Date.now()
                         });
                     }, 2000);
@@ -1408,6 +1410,14 @@ export class RemoteServer {
             .slice(0, 80);
     }
 
+    private toCodexThreadId(codexId: string): string {
+        return `codex-file:${codexId}`;
+    }
+
+    private fromCodexThreadId(threadId: string): string | undefined {
+        return threadId.startsWith('codex-file:') ? threadId.slice('codex-file:'.length) : undefined;
+    }
+
     private getRemoteCodeThreads(): RemoteCodeThreadSummary[] {
         const byThread = new Map<string, RemoteCodeThreadSummary>();
         for (const thread of this.remoteCodeThreads) {
@@ -1415,7 +1425,18 @@ export class RemoteServer {
             byThread.set(thread.id, {
                 id: thread.id,
                 title: thread.title || 'Новый чат',
-                timestamp: Math.round(thread.timestamp || 0)
+                timestamp: Math.round(thread.timestamp || 0),
+                source: thread.source || (thread.id.startsWith('codex-file:') ? 'codex' : 'remote')
+            });
+        }
+        for (const thread of this.getCodexThreadSummariesFast()) {
+            const id = this.toCodexThreadId(thread.id);
+            const existing = byThread.get(id);
+            byThread.set(id, {
+                id,
+                title: thread.title || existing?.title || 'Codex',
+                timestamp: Math.max(existing?.timestamp || 0, Math.round(thread.timestamp || 0)),
+                source: 'codex'
             });
         }
         for (const message of this.codexHistory.filter(item => item.role !== 'system')) {
@@ -1426,16 +1447,39 @@ export class RemoteServer {
                 : existing?.title || 'Remote Code';
             const title = titleSource.replace(/\s+/g, ' ').slice(0, 80) || 'Remote Code';
             const timestamp = Math.max(existing?.timestamp || 0, Math.round(message.timestamp || 0));
-            byThread.set(id, { id, title, timestamp });
+            byThread.set(id, { id, title, timestamp, source: existing?.source || (id.startsWith('codex-file:') ? 'codex' : 'remote') });
         }
         if (!byThread.has(this.currentRemoteThreadId)) {
             byThread.set(this.currentRemoteThreadId, {
                 id: this.currentRemoteThreadId,
                 title: 'Новый чат',
-                timestamp: Date.now()
+                timestamp: Date.now(),
+                source: this.currentRemoteThreadId.startsWith('codex-file:') ? 'codex' : 'remote'
             });
         }
         return Array.from(byThread.values()).sort((a, b) => b.timestamp - a.timestamp);
+    }
+
+    private getMessagesForRemoteThread(threadId: string, limit = 120): CodexChatMessage[] {
+        const fileId = this.fromCodexThreadId(threadId);
+        let fileMessages: CodexChatMessage[] = [];
+        if (fileId) {
+            const filePath = this.findCodexSessionFile(fileId);
+            const parsed = filePath ? this.parseCodexSessionFile(filePath, this.getCodexSessionIndex()) : undefined;
+            fileMessages = parsed?.messages.map(message => ({ ...message, threadId })) || [];
+        }
+        const localMessages = this.codexHistory.filter(message =>
+            (message.threadId || this.currentRemoteThreadId) === threadId
+        );
+        const merged: CodexChatMessage[] = [];
+        const seen = new Set<string>();
+        for (const message of [...fileMessages, ...localMessages].sort((a, b) => a.timestamp - b.timestamp)) {
+            const key = `${message.role}:${message.timestamp}:${message.content}`;
+            if (seen.has(key)) continue;
+            seen.add(key);
+            merged.push(message);
+        }
+        return merged.slice(-limit);
     }
 
     private createRemoteCodeThread(): string {
@@ -1723,10 +1767,8 @@ export class RemoteServer {
 
     private refreshPcChatPanel(): void {
         if (!this.pcChatPanel) return;
-        const messages = this.codexHistory
-            .filter(m => (m.threadId || this.currentRemoteThreadId) === this.currentRemoteThreadId)
-            .filter(m => m.role !== 'system')
-            .slice(-80);
+        const messages = this.getMessagesForRemoteThread(this.currentRemoteThreadId, 80)
+            .filter(m => m.role !== 'system');
         const actions = this.getActionEventsForThread(this.currentRemoteThreadId);
         this.pcChatPanel.webview.html = this.renderPcChatHtml(messages, actions);
     }
@@ -2198,6 +2240,8 @@ export class RemoteServer {
     }
 
     private getCurrentThreadTitle(): string {
+        const summary = this.getRemoteCodeThreads().find(thread => thread.id === this.currentRemoteThreadId);
+        if (summary?.title) return summary.title;
         const firstUserMessage = this.codexHistory.find(message =>
             (message.threadId || this.currentRemoteThreadId) === this.currentRemoteThreadId &&
             message.role === 'user' &&
@@ -2338,6 +2382,7 @@ pre{margin:0;white-space:pre-wrap;word-wrap:break-word;font:inherit}
 .composer-wrap{padding:8px min(3vw,32px) 10px;background:#101112}
 .composer{max-width:960px;margin:0 auto;border:1px solid #2a2c2f;background:#2c2c2e;border-radius:16px;padding:9px 11px 8px;display:flex;flex-direction:column;gap:6px;box-shadow:0 8px 22px rgba(0,0,0,.14)}
 .controls{display:flex;gap:6px;align-items:center;min-width:0}
+.controls-spacer{flex:1 1 auto;min-width:16px}
 .subcontrols{display:flex;gap:12px;align-items:center;margin:4px auto 0;max-width:960px;color:#8e8e8e;font-size:12px}
 .plus{color:#bcbcbc;background:transparent;border:0;width:28px;height:28px;display:inline-flex;align-items:center;justify-content:center;padding:0;cursor:pointer;border-radius:7px;flex:0 0 auto}
 .plus:hover{background:#36373a;color:#ededed}
@@ -2358,7 +2403,7 @@ textarea::placeholder{color:#777}
 .item{width:100%;text-align:left;border:0;background:transparent;color:#d7d7d7;padding:7px 9px;border-radius:6px;cursor:pointer;white-space:nowrap;font-size:13px;line-height:1.35}
 .item:hover{background:#343638}
 .item.selected{color:#f1f1f1;background:#313438}
-button.send{border:0;border-radius:999px;background:#d9d9d9;color:#111;width:34px;height:34px;min-width:34px;max-width:34px;aspect-ratio:1/1;display:inline-flex;align-items:center;justify-content:center;cursor:pointer;white-space:nowrap;padding:0;flex:0 0 34px}
+button.send{border:0;border-radius:999px;background:#d9d9d9;color:#111;width:34px;height:34px;min-width:34px;max-width:34px;aspect-ratio:1/1;display:inline-flex;align-items:center;justify-content:center;cursor:pointer;white-space:nowrap;padding:0;flex:0 0 34px;margin-left:4px}
 button.send:hover{background:#fff}
 .link-btn{border:0;background:transparent;color:#8e8e8e;cursor:pointer;padding:3px 0;display:inline-flex;align-items:center;gap:5px}
 .link-btn:hover{color:#d0d0d0}
@@ -2374,7 +2419,7 @@ button.send:hover{background:#fff}
       <span class="chev">${icon.chevron}</span>
     </button>
     <div class="thread-menu" id="threadMenu">
-      ${threadOptions.map(thread => `<button class="thread-item ${thread.id === this.currentRemoteThreadId ? 'selected' : ''}" type="button" data-thread-id="${this.escapeHtml(thread.id)}">${this.escapeHtml(thread.title)}<small>${this.escapeHtml(new Date(thread.timestamp || Date.now()).toLocaleString())}</small></button>`).join('')}
+      ${threadOptions.map(thread => `<button class="thread-item ${thread.id === this.currentRemoteThreadId ? 'selected' : ''}" type="button" data-thread-id="${this.escapeHtml(thread.id)}">${this.escapeHtml(thread.title)}<small>${this.escapeHtml(thread.source === 'codex' ? 'Codex' : 'Remote Code')} · ${this.escapeHtml(new Date(thread.timestamp || Date.now()).toLocaleString())}</small></button>`).join('')}
     </div>
   </div>
   <div class="top-menu-wrap" id="topMoreDrop">
@@ -2395,13 +2440,14 @@ ${actionRows}
 </main>
 <div class="composer-wrap">
   <form class="composer" id="composer">
-    <textarea id="prompt" placeholder="Запросите внесение дополнительных изменений"></textarea>
+    <textarea id="prompt" placeholder="Запросите внесение дополнительных изменений" autofocus></textarea>
     <div class="controls">
       <button class="plus" type="button" data-action="addFile" title="&#1044;&#1086;&#1073;&#1072;&#1074;&#1080;&#1090;&#1100; &#1092;&#1072;&#1081;&#1083;">${icon.plus}</button>
       <div class="dropdown profile" id="profileDrop">
         <button class="dropdown-btn" type="button"><span>${icon.settings}</span><span id="profileLabel" class="label"></span><span class="chev">${icon.chevron}</span></button>
         <div class="menu" id="profileMenu"></div>
       </div>
+      <div class="controls-spacer"></div>
       <div class="dropdown" id="modelDrop">
         <button class="dropdown-btn" type="button"><span id="modelLabel" class="label"></span><span class="chev">${icon.chevron}</span></button>
         <div class="menu" id="modelMenu"></div>
@@ -2528,6 +2574,7 @@ function autoGrowPrompt() {
 }
 prompt.addEventListener('input', autoGrowPrompt);
 autoGrowPrompt();
+setTimeout(() => prompt.focus(), 0);
 function readClipboardFile(file) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -2887,10 +2934,8 @@ prompt.addEventListener('keydown', event => {
         this.currentRemoteThreadId = requestedThreadId || 'remote-code-default';
         this.saveRemoteCodeState();
         this.refreshPcChatPanel();
-        const messages = this.codexHistory
-            .filter(m => (m.threadId || this.currentRemoteThreadId) === this.currentRemoteThreadId)
-            .filter(m => m.role !== 'system')
-            .slice(-120);
+        const messages = this.getMessagesForRemoteThread(this.currentRemoteThreadId, 120)
+            .filter(m => m.role !== 'system');
         this.jsonResponse(res, 200, {
             threadId: this.currentRemoteThreadId,
             title: this.getRemoteCodeThreads().find(t => t.id === this.currentRemoteThreadId)?.title || 'Remote Code',
@@ -3141,8 +3186,7 @@ prompt.addEventListener('keydown', event => {
             this.jsonResponse(res, 200, {
                 threadId,
                 title: this.getCurrentThreadTitle(),
-                messages: this.codexHistory
-                    .filter(m => (m.threadId || threadId) === threadId)
+                messages: this.getMessagesForRemoteThread(threadId, 120)
                     .filter(m => m.role !== 'system')
             });
         } catch (err: any) {
@@ -3479,20 +3523,27 @@ prompt.addEventListener('keydown', event => {
 
     private getCodexThreadSummariesFast(): Array<{ id: string; title: string; timestamp: number }> {
         const index = this.getCodexSessionIndex();
-        let threads = Array.from(index.entries()).map(([id, meta]) => ({
-            id,
-            title: meta.title || 'Codex',
-            timestamp: Math.round(meta.timestamp || 0)
-        }));
-
-        if (threads.length === 0) {
-            threads = this.getCodexSessionFiles(60).map(filePath => ({
-                id: this.codexIdFromFilePath(filePath),
-                title: path.basename(filePath, '.jsonl'),
-                timestamp: Math.round(fs.statSync(filePath).mtimeMs)
-            }));
+        const byId = new Map<string, { id: string; title: string; timestamp: number }>();
+        for (const [id, meta] of index.entries()) {
+            byId.set(id, {
+                id,
+                title: meta.title || 'Codex',
+                timestamp: Math.round(meta.timestamp || 0)
+            });
         }
 
+        for (const filePath of this.getCodexSessionFiles(160)) {
+            const id = this.codexIdFromFilePath(filePath);
+            const statTimestamp = Math.round(fs.statSync(filePath).mtimeMs);
+            const existing = byId.get(id);
+            byId.set(id, {
+                id,
+                title: existing?.title || path.basename(filePath, '.jsonl'),
+                timestamp: Math.max(existing?.timestamp || 0, statTimestamp)
+            });
+        }
+
+        const threads = Array.from(byId.values());
         threads.sort((a, b) => b.timestamp - a.timestamp);
         return threads.slice(0, 80);
     }
