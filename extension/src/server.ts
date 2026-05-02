@@ -2157,7 +2157,10 @@ export class RemoteServer {
             chevron: '<svg viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg>',
             send: '<svg viewBox="0 0 24 24"><path d="M12 19V5"/><path d="m5 12 7-7 7 7"/></svg>',
             sparkle: '<svg viewBox="0 0 24 24"><path d="M12 3 14.2 9.8 21 12l-6.8 2.2L12 21l-2.2-6.8L3 12l6.8-2.2Z"/></svg>',
-            branch: '<svg viewBox="0 0 24 24"><path d="M6 3v12"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="6" r="3"/><path d="M8.5 15.5 18 6"/></svg>'
+            branch: '<svg viewBox="0 0 24 24"><path d="M6 3v12"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="6" r="3"/><path d="M8.5 15.5 18 6"/></svg>',
+            copy: '<svg viewBox="0 0 24 24"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>',
+            up: '<svg viewBox="0 0 24 24"><path d="M7 10v11"/><path d="M15 5.9 14 10h5.8a2 2 0 0 1 2 2.4l-1.4 7A2 2 0 0 1 18.4 21H4a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2h2.8a2 2 0 0 0 1.7-1L12 3a2 2 0 0 1 3 2.9Z"/></svg>',
+            down: '<svg viewBox="0 0 24 24"><path d="M17 14V3"/><path d="M9 18.1 10 14H4.2a2 2 0 0 1-2-2.4l1.4-7A2 2 0 0 1 5.6 3H20a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2h-2.8a2 2 0 0 0-1.7 1L12 21a2 2 0 0 1-3-2.9Z"/></svg>'
         };
         const rows = messages.map(message => {
             const role = message.role === 'system' ? 'Система' : '';
@@ -2169,6 +2172,11 @@ export class RemoteServer {
                 ${role ? `<div class="role">${this.escapeHtml(role)}</div>` : ''}
                 <pre>${this.escapeHtml(message.content)}</pre>
                 ${message.role === 'assistant' && meta ? `<div class="meta meta-bottom">${this.escapeHtml(meta)}</div>` : ''}
+                <div class="msg-tools">
+                    <button type="button" class="hover-btn copy-message" title="&#1050;&#1086;&#1087;&#1080;&#1088;&#1086;&#1074;&#1072;&#1090;&#1100;">${icon.copy}</button>
+                    <button type="button" class="hover-btn" title="&#1061;&#1086;&#1088;&#1086;&#1096;&#1080;&#1081; &#1086;&#1090;&#1074;&#1077;&#1090;">${icon.up}</button>
+                    <button type="button" class="hover-btn" title="&#1055;&#1083;&#1086;&#1093;&#1086;&#1081; &#1086;&#1090;&#1074;&#1077;&#1090;">${icon.down}</button>
+                </div>
             </section>`;
         }).join('');
         const actionRows = actions.map(event => `<section class="action ${this.escapeHtml(event.status)}">
@@ -2185,75 +2193,81 @@ export class RemoteServer {
 <meta charset="UTF-8">
 <style>
 html,body{height:100%}
-body{margin:0;background:#101112;color:#d7d7d7;font:14px/1.55 var(--vscode-font-family);display:flex;flex-direction:column;letter-spacing:0}
+body{margin:0;background:#101112;color:#d7d7d7;font:15.5px/1.58 var(--vscode-font-family);display:flex;flex-direction:column;letter-spacing:0}
 button{font:inherit}
-svg{width:18px;height:18px;display:block;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
-.top{height:48px;border-bottom:1px solid #222326;background:#111213;display:flex;align-items:center;gap:8px;padding:0 min(3.4vw,38px)}
+svg{width:21px;height:21px;display:block;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.top{height:54px;border-bottom:1px solid #222326;background:#111213;display:flex;align-items:center;gap:12px;padding:0 min(3.8vw,44px)}
 .edit-icon{color:#9c9c9c}
-.thread-title{font-size:15px;color:#f1f1f1;font-weight:650;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:600px}
+.thread-title{font-size:17px;color:#f1f1f1;font-weight:650;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:640px}
 .toolbar-spacer{flex:1}
-.icon-btn{width:30px;height:30px;border:0;border-radius:8px;background:transparent;color:#9b9b9b;display:inline-flex;align-items:center;justify-content:center;cursor:pointer;padding:0}
+.icon-btn{width:36px;height:36px;border:0;border-radius:9px;background:transparent;color:#9b9b9b;display:inline-flex;align-items:center;justify-content:center;cursor:pointer;padding:0}
 .icon-btn:hover{background:#202123;color:#ededed}
-.pill-btn{height:30px;border:1px solid #2c2f33;border-radius:9px;background:#17191b;color:#d8d8d8;padding:0 11px;cursor:pointer;display:inline-flex;align-items:center;gap:7px}
+.pill-btn{height:36px;border:1px solid #2c2f33;border-radius:10px;background:#17191b;color:#d8d8d8;padding:0 15px;cursor:pointer;display:inline-flex;align-items:center;gap:10px;font-size:16px}
 .pill-btn:hover{background:#222426;color:#f1f1f1}
-.thread-menu-wrap{position:relative;min-width:0;display:flex;align-items:center;gap:7px}
-.thread-menu-btn{border:0;background:transparent;color:#f0f0f0;display:flex;align-items:center;gap:7px;min-width:0;max-width:640px;cursor:pointer;border-radius:8px;padding:5px 7px}
+.thread-menu-wrap{position:relative;min-width:0;display:flex;align-items:center;gap:10px}
+.thread-menu-btn{border:0;background:transparent;color:#f0f0f0;display:flex;align-items:center;gap:12px;min-width:0;max-width:680px;cursor:pointer;border-radius:9px;padding:7px 9px}
 .thread-menu-btn:hover,.thread-menu-wrap.open .thread-menu-btn{background:#1f2123}
-.thread-menu{display:none;position:absolute;left:0;top:36px;width:min(420px,70vw);max-height:360px;overflow:auto;background:#202123;border:1px solid #33363a;border-radius:10px;padding:6px;z-index:10;box-shadow:0 14px 40px rgba(0,0,0,.45)}
+.thread-menu{display:none;position:absolute;left:0;top:44px;width:min(460px,74vw);max-height:390px;overflow:auto;background:#202123;border:1px solid #33363a;border-radius:11px;padding:8px;z-index:10;box-shadow:0 14px 40px rgba(0,0,0,.45)}
 .thread-menu-wrap.open .thread-menu{display:block}
-.thread-item{width:100%;border:0;background:transparent;color:#d8d8d8;text-align:left;border-radius:7px;padding:9px 10px;cursor:pointer}
+.thread-item{width:100%;border:0;background:transparent;color:#d8d8d8;text-align:left;border-radius:8px;padding:11px 12px;cursor:pointer;font-size:15px}
 .thread-item:hover{background:#2b2d30}
 .thread-item.selected{background:#303337;color:#f2f2f2}
-.thread-item small{display:block;color:#8d8d8d;margin-top:2px;font-size:11px}
-.messages{flex:1;overflow:auto;padding:18px min(3.4vw,38px) 12px}
-.msg{padding:2px 0 17px;margin:0 auto;background:transparent;border:0;max-width:960px}
-.msg.user{max-width:620px;margin-left:auto;margin-right:min(2.4vw,24px);color:#f0f0f0}
+.thread-item small{display:block;color:#8d8d8d;margin-top:3px;font-size:12px}
+.messages{flex:1;overflow:auto;padding:22px min(3.8vw,44px) 16px}
+.msg{position:relative;padding:4px 0 24px;margin:0 auto;background:transparent;border:0;max-width:980px}
+.msg.user{max-width:660px;margin-left:auto;margin-right:min(2.4vw,24px);color:#f0f0f0}
 .msg.user .role,.msg.user .meta{display:none}
-.msg.user pre{background:#2b2c2e;border:1px solid #303235;border-radius:18px;padding:11px 15px}
+.msg.user pre{background:#2b2c2e;border:1px solid #303235;border-radius:18px;padding:13px 17px}
 .msg.system pre{color:#aeb0b3}
-.role{font-weight:600;color:#dcdcdc;margin-bottom:5px}
-.meta{font-size:12px;color:#8e8e8e;margin:-1px 0 6px}
+.role{font-weight:600;color:#dcdcdc;margin-bottom:7px}
+.meta{font-size:13px;color:#8e8e8e;margin:-1px 0 7px}
 .meta-bottom{margin:8px 0 0;color:#858585}
 .assistant .role{color:#dcdcdc}.system .role{color:#e8b66b}
 pre{margin:0;white-space:pre-wrap;word-wrap:break-word;font:inherit}
-.action{max-width:960px;margin:0 auto 14px;padding:10px 12px;background:#222325;border:1px solid #303236;border-radius:10px}
+.msg-tools{position:absolute;right:4px;bottom:4px;display:flex;gap:6px;opacity:0;transform:translateY(2px);transition:opacity .12s ease, transform .12s ease}
+.msg:hover .msg-tools{opacity:1;transform:translateY(0)}
+.hover-btn{width:28px;height:28px;border:0;border-radius:7px;background:#1b1c1e;color:#8f8f8f;display:inline-flex;align-items:center;justify-content:center;padding:0;cursor:pointer}
+.hover-btn svg{width:17px;height:17px}
+.hover-btn:hover{background:#2b2d30;color:#e6e6e6}
+.action{max-width:980px;margin:0 auto 18px;padding:12px 14px;background:#222325;border:1px solid #303236;border-radius:10px}
 .action-head{display:flex;align-items:center;justify-content:space-between;gap:12px;color:#e2e2e2;margin-bottom:8px}
-.action-head span{font-size:12px;color:#999}
-.action pre{max-height:220px;overflow:auto;color:#cfcfcf;font:12px/1.45 var(--vscode-editor-font-family, monospace)}
+.action-head span{font-size:13px;color:#999}
+.action pre{max-height:240px;overflow:auto;color:#cfcfcf;font:13px/1.45 var(--vscode-editor-font-family, monospace)}
 .action-buttons{display:flex;gap:8px;justify-content:flex-end;margin-top:10px}
 .action-buttons button{border:1px solid #3a3d42;background:#2c2e31;color:#d9d9d9;border-radius:8px;padding:6px 10px;cursor:pointer}
 .action-buttons button:hover{background:#383b3f}
-.composer-wrap{padding:10px min(3.4vw,38px) 14px;background:#101112}
-.composer{max-width:960px;margin:0 auto;border:1px solid #2a2c2f;background:#2c2c2e;border-radius:18px;padding:12px 14px 10px;display:flex;flex-direction:column;gap:8px;box-shadow:0 8px 22px rgba(0,0,0,.14)}
-.controls{display:flex;gap:8px;align-items:center;min-width:0}
-.subcontrols{display:flex;gap:24px;align-items:center;margin:7px auto 0;max-width:960px;color:#8e8e8e;font-size:13px}
-.plus{color:#bcbcbc;background:transparent;border:0;width:34px;height:34px;display:inline-flex;align-items:center;justify-content:center;padding:0;cursor:pointer;border-radius:8px}
+.composer-wrap{padding:12px min(3.8vw,44px) 16px;background:#101112}
+.composer{max-width:980px;margin:0 auto;border:1px solid #2a2c2f;background:#2c2c2e;border-radius:20px;padding:14px 16px 12px;display:flex;flex-direction:column;gap:10px;box-shadow:0 8px 22px rgba(0,0,0,.14)}
+.controls{display:flex;gap:13px;align-items:center;min-width:0}
+.subcontrols{display:flex;gap:30px;align-items:center;margin:9px auto 0;max-width:980px;color:#8e8e8e;font-size:14px}
+.plus{color:#bcbcbc;background:transparent;border:0;width:40px;height:40px;display:inline-flex;align-items:center;justify-content:center;padding:0;cursor:pointer;border-radius:9px;flex:0 0 auto}
 .plus:hover{background:#36373a;color:#ededed}
-textarea{width:100%;box-sizing:border-box;resize:none;min-height:64px;max-height:190px;border:0;background:transparent;color:#e8e8e8;padding:1px 0;font:inherit;font-size:14px;outline:none}
+textarea{width:100%;box-sizing:border-box;resize:none;min-height:66px;max-height:190px;overflow:hidden;border:0;background:transparent;color:#e8e8e8;padding:1px 0;font:inherit;font-size:16px;outline:none;line-height:1.5}
+textarea.scroll{overflow:auto}
 textarea::placeholder{color:#777}
-.dropdown{position:relative;flex:0 1 132px;min-width:0}
-.dropdown.effort{flex-basis:110px}
-.dropdown.profile{flex-basis:174px}
-.dropdown.workmode{flex:0 1 172px}
-.dropdown-btn{height:32px;width:100%;border:0;background:transparent;color:#c7c7c7;padding:0 8px;font-size:13px;display:flex;align-items:center;justify-content:space-between;gap:7px;border-radius:8px;cursor:pointer;white-space:nowrap}
+.dropdown{position:relative;flex:0 1 150px;min-width:0}
+.dropdown.effort{flex-basis:126px}
+.dropdown.profile{flex-basis:198px}
+.dropdown.workmode{flex:0 1 194px}
+.dropdown-btn{height:38px;width:100%;border:0;background:transparent;color:#c7c7c7;padding:0 10px;font-size:15px;display:flex;align-items:center;justify-content:space-between;gap:12px;border-radius:9px;cursor:pointer;white-space:nowrap}
 .dropdown-btn:hover,.dropdown.open .dropdown-btn{background:#343537;color:#e0e0e0}
 .dropdown-btn .label{min-width:0;overflow:hidden;text-overflow:ellipsis}
 .chev{color:#9a9a9a;display:inline-flex;align-items:center}
-.chev svg{width:15px;height:15px}
-.menu{display:none;position:absolute;left:0;bottom:40px;min-width:100%;max-height:260px;overflow:auto;background:#252526;border:1px solid #3a3a3a;border-radius:10px;padding:6px;box-shadow:0 10px 30px rgba(0,0,0,.45);z-index:5}
+.chev svg{width:17px;height:17px}
+.menu{display:none;position:absolute;left:0;bottom:46px;min-width:100%;max-height:290px;overflow:auto;background:#252526;border:1px solid #3a3a3a;border-radius:11px;padding:8px;box-shadow:0 10px 30px rgba(0,0,0,.45);z-index:5}
 .dropdown.open .menu{display:block}
-.item{width:100%;text-align:left;border:0;background:transparent;color:#d7d7d7;padding:8px 10px;border-radius:7px;cursor:pointer;white-space:nowrap}
+.item{width:100%;text-align:left;border:0;background:transparent;color:#d7d7d7;padding:10px 12px;border-radius:8px;cursor:pointer;white-space:nowrap;font-size:15px;line-height:1.45}
 .item:hover{background:#343638}
 .item.selected{color:#f1f1f1;background:#313438}
-.context{margin-left:auto;color:#4bb4ff;font-weight:500;white-space:nowrap;border:0;background:transparent;font-size:13px;cursor:pointer;border-radius:8px;padding:7px 8px;display:inline-flex;align-items:center;gap:5px}
+.context{margin-left:auto;color:#4bb4ff;font-weight:500;white-space:nowrap;border:0;background:transparent;font-size:15px;cursor:pointer;border-radius:9px;padding:8px 10px;display:inline-flex;align-items:center;gap:8px}
 .context.off{color:#8e8e8e}
 .context:hover{background:#343537}
 .context .spark{display:inline-flex;color:#18a8ff}
-button.send{border:0;border-radius:50%;background:#d9d9d9;color:#111;width:42px;height:42px;display:inline-flex;align-items:center;justify-content:center;cursor:pointer;white-space:nowrap;padding:0}
+button.send{border:0;border-radius:50%;background:#d9d9d9;color:#111;width:48px;height:48px;min-width:48px;max-width:48px;aspect-ratio:1/1;display:inline-flex;align-items:center;justify-content:center;cursor:pointer;white-space:nowrap;padding:0;flex:0 0 48px}
 button.send:hover{background:#fff}
 .link-btn{border:0;background:transparent;color:#8e8e8e;cursor:pointer;padding:4px 0;display:inline-flex;align-items:center;gap:6px}
 .link-btn:hover{color:#d0d0d0}
-@media (max-width: 680px){.top{padding:0 10px}.messages{padding-left:16px;padding-right:16px}.composer-wrap{padding-left:10px;padding-right:10px}.controls{flex-wrap:wrap}.context{margin-left:0}button.send{margin-left:auto}.subcontrols{gap:10px;flex-wrap:wrap}.dropdown.profile{flex-basis:150px}}
+@media (max-width: 680px){.top{padding:0 12px}.messages{padding-left:16px;padding-right:16px}.composer-wrap{padding-left:10px;padding-right:10px}.controls{flex-wrap:wrap}.context{margin-left:0}button.send{margin-left:auto}.subcontrols{gap:12px;flex-wrap:wrap}.dropdown.profile{flex-basis:170px}}
 </style>
 </head>
 <body>
@@ -2406,17 +2420,35 @@ window.addEventListener('message', event => {
   const data = event.data || {};
   if (data.type === 'appendPrompt' && typeof data.text === 'string') {
     prompt.value = prompt.value ? prompt.value + '\\n' + data.text : data.text;
+    autoGrowPrompt();
     prompt.focus();
   }
 });
 refreshControls();
 messages.scrollTop = messages.scrollHeight;
+function autoGrowPrompt() {
+  prompt.style.height = 'auto';
+  const max = 190;
+  const next = Math.min(prompt.scrollHeight, max);
+  prompt.style.height = next + 'px';
+  prompt.classList.toggle('scroll', prompt.scrollHeight > max);
+}
+prompt.addEventListener('input', autoGrowPrompt);
+autoGrowPrompt();
+document.querySelectorAll('.copy-message').forEach(button => {
+  button.addEventListener('click', event => {
+    const text = event.currentTarget.closest('.msg')?.querySelector('pre')?.innerText || '';
+    if (!text) return;
+    navigator.clipboard?.writeText(text).catch(() => {});
+  });
+});
 form.addEventListener('submit', event => {
   event.preventDefault();
   const message = prompt.value.trim();
   if (!message) return;
   vscode.postMessage({ type: 'send', message, model: selectedModel, reasoningEffort: selectedEffort, includeContext, profile: selectedProfile, workMode: selectedWorkMode });
   prompt.value = '';
+  autoGrowPrompt();
 });
 prompt.addEventListener('keydown', event => {
   if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) {
