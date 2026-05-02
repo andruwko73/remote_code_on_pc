@@ -2605,18 +2605,19 @@ svg{width:15px;height:15px;display:block;fill:none;stroke:currentColor;stroke-wi
 .attachment-chip{border:1px solid #3a3c40;background:#222326;color:#dcdcdc;border-radius:999px;padding:4px 8px;display:inline-flex;align-items:center;gap:6px;font-size:12px;max-width:100%}
 .attachment-chip span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .attachment-chip small{color:#8f8f8f}
-.change-card{margin:10px 0;background:#242526;border:1px solid #323437;border-radius:8px;overflow:hidden;color:#dcdcdc}
-.change-head{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:8px 10px;background:#2b2c2e;border-bottom:1px solid #37393d;font-weight:600}
-.change-summary{color:#dcdcdc}
-.change-actions{display:flex;align-items:center;gap:8px;color:#9b9b9b;font-weight:500}
-.change-action{border:0;background:transparent;color:#9b9b9b;padding:2px 4px;border-radius:5px;cursor:pointer;font:inherit;font-size:12.5px}
+.change-card{margin:8px 0 10px;background:#242526;border:1px solid #323437;border-radius:8px;overflow:hidden;color:#dcdcdc;white-space:normal}
+.change-head{display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:40px;padding:0 10px;background:#2b2c2e;border-bottom:1px solid #37393d;font-weight:600;line-height:1.2;white-space:normal}
+.change-summary{display:flex;align-items:center;gap:6px;min-width:0;color:#dcdcdc;font-size:14px;white-space:normal}
+.change-actions{display:flex;align-items:center;gap:14px;color:#9b9b9b;font-weight:500;white-space:normal}
+.change-action{border:0;background:transparent;color:#9b9b9b;height:28px;padding:0 2px;border-radius:5px;cursor:pointer;font:inherit;font-size:13px;line-height:1}
 .change-action:hover{background:#37393d;color:#e8e8e8}
-.change-row{display:flex;align-items:center;gap:10px;padding:8px 10px;border:0;border-top:1px solid #303235;background:transparent;color:#dcdcdc;width:100%;text-align:left;cursor:pointer;font:inherit}
+.change-row{display:flex;align-items:center;gap:10px;min-height:40px;padding:0 10px;border:0;border-top:1px solid #303235;background:transparent;color:#dcdcdc;width:100%;text-align:left;cursor:pointer;font:inherit;font-size:14px;line-height:1.2;white-space:normal}
 .change-row:hover{background:#2c2d30}
 .change-row:first-of-type{border-top:0}
 .change-path{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.delta{font-family:var(--vscode-editor-font-family, monospace);font-size:12px}
+.delta{font-family:var(--vscode-editor-font-family, monospace);font-size:13px}
 .delta.plus{color:#38c172}.delta.minus{color:#ff6b6b}
+.chev{color:#9b9b9b}
 .change-card.collapsed .change-row:nth-of-type(n+4){display:none}
 pre{margin:0;white-space:pre-wrap;word-wrap:break-word;font:inherit}
 .msg-tools{position:absolute;right:2px;bottom:0;display:flex;gap:4px;opacity:0;transform:translateY(2px);transition:opacity .12s ease, transform .12s ease}
@@ -3087,41 +3088,20 @@ prompt.addEventListener('keydown', event => {
             additions: this.parseDelta(change.plus),
             deletions: Math.abs(this.parseDelta(change.minus))
         })).join('');
-        return `<div class="change-card collapsed">
-            <div class="change-head">
-                <span class="change-summary">${this.renderInlineContent(header)}</span>
-                <span class="change-actions">
-                    <button type="button" class="change-action" data-change-action="review">Проверить</button>
-                    <button type="button" class="change-action" data-change-action="toggle">↕</button>
-                </span>
-            </div>
-            ${rows}
-        </div>`;
+        return `<div class="change-card collapsed"><div class="change-head"><span class="change-summary">${this.renderInlineContent(header)}</span><span class="change-actions"><button type="button" class="change-action" data-change-action="review">Проверить</button><button type="button" class="change-action" data-change-action="toggle">↕</button></span></div>${rows}</div>`;
     }
 
     private renderGitChangeCard(summary: GitChangeSummary): string {
         const fileWord = this.pluralRu(summary.files.length, 'файл', 'файла', 'файлов');
-        const header = `Изменено ${summary.files.length} ${fileWord} +${summary.additions} -${summary.deletions}`;
+        const header = `Изменено ${summary.files.length} ${fileWord} <span class="delta plus">+${summary.additions}</span> <span class="delta minus">-${summary.deletions}</span>`;
         const rows = summary.files.map(file => this.renderChangeRow(file)).join('');
-        return `<div class="change-card collapsed" data-commit="${this.escapeHtml(summary.commit || '')}">
-            <div class="change-head">
-                <span class="change-summary">${this.escapeHtml(header)}</span>
-                <span class="change-actions">
-                    <button type="button" class="change-action" data-change-action="review">Проверить</button>
-                    <button type="button" class="change-action" data-change-action="toggle">↕</button>
-                </span>
-            </div>
-            ${rows}
-        </div>`;
+        return `<div class="change-card collapsed" data-commit="${this.escapeHtml(summary.commit || '')}"><div class="change-head"><span class="change-summary">${header}</span><span class="change-actions"><button type="button" class="change-action" data-change-action="review">Проверить</button><button type="button" class="change-action" data-change-action="toggle">↕</button></span></div>${rows}</div>`;
     }
 
     private renderChangeRow(change: GitChangeFile): string {
-        return `<button type="button" class="change-row" data-path="${this.escapeHtml(change.path)}">
-            <span class="change-path">${this.escapeHtml(change.path)}</span>
-            ${change.additions ? `<span class="delta plus">+${this.escapeHtml(String(change.additions))}</span>` : ''}
-            ${change.deletions ? `<span class="delta minus">-${this.escapeHtml(String(change.deletions))}</span>` : ''}
-            <span class="chev">⌄</span>
-        </button>`;
+        const additions = change.additions ? `<span class="delta plus">+${this.escapeHtml(String(change.additions))}</span>` : '';
+        const deletions = change.deletions ? `<span class="delta minus">-${this.escapeHtml(String(change.deletions))}</span>` : '';
+        return `<button type="button" class="change-row" data-path="${this.escapeHtml(change.path)}"><span class="change-path">${this.escapeHtml(change.path)}</span>${additions}${deletions}<span class="chev">⌄</span></button>`;
     }
 
     private parseDelta(value?: string): number {
