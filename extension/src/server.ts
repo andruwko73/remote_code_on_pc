@@ -2147,8 +2147,8 @@ export class RemoteServer {
         const title = this.getCurrentThreadTitle();
         const threadOptions = this.getRemoteCodeThreads();
         const effortOptions = [
-            { id: 'medium', name: 'Средний' },
             { id: 'low', name: 'Низкий' },
+            { id: 'medium', name: 'Средний' },
             { id: 'high', name: 'Высокий' },
             { id: 'xhigh', name: 'Очень высокий' }
         ];
