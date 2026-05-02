@@ -1006,6 +1006,35 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    fun deleteCodexThread(threadId: String) {
+        if (threadId.isBlank()) return
+        viewModelScope.launch {
+            try {
+                val api = ApiClient.getApi(_uiState.value.serverConfig)
+                val response = api.deleteCodexThread(mapOf("threadId" to threadId))
+                if (response.isSuccessful) {
+                    val remaining = _uiState.value.codexThreads.filterNot { it.id == threadId }
+                    val nextCurrent = when {
+                        _uiState.value.currentCodexThreadId != threadId -> _uiState.value.currentCodexThreadId
+                        else -> remaining.firstOrNull()?.id.orEmpty()
+                    }
+                    _uiState.value = _uiState.value.copy(
+                        codexThreads = remaining,
+                        currentCodexThreadId = nextCurrent,
+                        codexChatHistory = if (nextCurrent.isBlank()) emptyList() else _uiState.value.codexChatHistory,
+                        codexActionEvents = if (nextCurrent.isBlank()) emptyList() else _uiState.value.codexActionEvents,
+                        codexError = null
+                    )
+                    loadCodexThreads(loadCurrent = nextCurrent.isNotBlank())
+                } else {
+                    _uiState.value = _uiState.value.copy(codexError = "Delete chat failed: ${response.code()}")
+                }
+            } catch (e: Exception) {
+                _uiState.value = _uiState.value.copy(codexError = e.message)
+            }
+        }
+    }
+
     fun respondToCodexAction(actionId: String, approve: Boolean) {
         viewModelScope.launch {
             try {

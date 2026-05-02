@@ -129,6 +129,7 @@ export class RemoteServer {
     private gitChangeSummaryCache: Map<string, GitChangeSummary | undefined> = new Map();
     private activeChatCancellation?: vscode.CancellationTokenSource;
     private activeChatThreadId?: string;
+    private hiddenCodexThreadIds: Set<string> = new Set();
     private workspaceStorageCache?: { timestamp: number; dirs: string[] };
 
     // Internet tunnel
@@ -369,6 +370,8 @@ export class RemoteServer {
                     return this.handleRemoteCodeThreads(req, res);
                 case pathname === '/api/codex/new':
                     return this.handleRemoteCodeNewThread(req, res);
+                case pathname === '/api/codex/delete':
+                    return this.handleRemoteCodeDeleteThread(req, res);
                 case pathname === '/api/codex/launch':
                     return this.handleCodexLaunch(req, res);
 
@@ -1372,6 +1375,7 @@ export class RemoteServer {
             const savedIncludeContext = this._context.globalState.get<boolean>('remote_code_include_context', this.selectedIncludeContext);
             const savedWorkMode = this._context.globalState.get<string>('remote_code_work_mode', this.selectedWorkMode);
             const savedProfile = this._context.globalState.get<string>('remote_code_profile', this.selectedProfile);
+            const savedHiddenCodexThreads = this._context.globalState.get<string[]>('remote_code_hidden_codex_threads', []);
             const allowedModelIds = new Set(this.getDefaultCodexModels().map(model => model.id));
             this.codexHistory = Array.isArray(savedHistory) ? savedHistory.slice(-200) : [];
             this.codexActionEvents = Array.isArray(savedActions) ? savedActions.slice(-250) : [];
@@ -1391,6 +1395,7 @@ export class RemoteServer {
             this.selectedIncludeContext = savedIncludeContext !== false;
             this.selectedWorkMode = savedWorkMode === 'workspace' ? 'workspace' : 'local';
             this.selectedProfile = ['user', 'review', 'fast'].includes(savedProfile || '') ? savedProfile : 'user';
+            this.hiddenCodexThreadIds = new Set(Array.isArray(savedHiddenCodexThreads) ? savedHiddenCodexThreads.filter(Boolean) : []);
             if (this.codexHistory.length === 0) {
                 this.codexHistory.push({
                     id: `remote_system_${Date.now()}`,
@@ -1433,6 +1438,7 @@ export class RemoteServer {
         void this._context.globalState.update('remote_code_include_context', this.selectedIncludeContext);
         void this._context.globalState.update('remote_code_work_mode', this.selectedWorkMode);
         void this._context.globalState.update('remote_code_profile', this.selectedProfile);
+        void this._context.globalState.update('remote_code_hidden_codex_threads', Array.from(this.hiddenCodexThreadIds).slice(-250));
     }
 
     private upsertRemoteCodeThread(threadId: string, title?: string, timestamp?: number): void {
@@ -1478,6 +1484,7 @@ export class RemoteServer {
         }
         for (const thread of this.getCodexThreadSummariesFast()) {
             const id = this.toCodexThreadId(thread.id);
+            if (this.hiddenCodexThreadIds.has(id)) continue;
             const existing = byThread.get(id);
             byThread.set(id, {
                 id,
@@ -1952,6 +1959,11 @@ export class RemoteServer {
                     this.broadcast({ type: 'codex:threads-update', threads: this.getRemoteCodeThreads(), currentThreadId: this.currentRemoteThreadId, timestamp: Date.now() });
                 }
                 return;
+            case 'deleteThread':
+                if (typeof msg.threadId === 'string' && msg.threadId.trim()) {
+                    await this.deleteRemoteThread(msg.threadId.trim());
+                }
+                return;
             case 'clearChat':
                 this.codexHistory = this.codexHistory.filter(message => message.threadId !== this.currentRemoteThreadId);
                 this.codexActionEvents = this.codexActionEvents.filter(event => event.threadId !== this.currentRemoteThreadId);
@@ -2019,9 +2031,43 @@ export class RemoteServer {
             case 'stopGeneration':
                 this.stopActiveGeneration(true);
                 return;
+            case 'dismissActionEvent':
+                if (typeof msg.actionId === 'string' && msg.actionId.trim()) {
+                    this.dismissActionEvent(msg.actionId.trim());
+                }
+                return;
             default:
                 await vscode.window.showInformationMessage(`Remote Code: ${action}`);
         }
+    }
+
+    private async deleteRemoteThread(threadId: string): Promise<void> {
+        if (!threadId) return;
+        if (this.currentRemoteThreadId === threadId) {
+            this.stopActiveGeneration(false);
+        }
+        if (threadId.startsWith('codex-file:')) {
+            this.hiddenCodexThreadIds.add(threadId);
+        }
+        this.remoteCodeThreads = this.remoteCodeThreads.filter(thread => thread.id !== threadId);
+        this.codexHistory = this.codexHistory.filter(message => (message.threadId || this.currentRemoteThreadId) !== threadId);
+        this.codexActionEvents = this.codexActionEvents.filter(event => event.threadId !== threadId);
+        this.remoteCodeThreadsCache = undefined;
+        if (this.currentRemoteThreadId === threadId) {
+            const next = this.getRemoteCodeThreads().find(thread => thread.id !== threadId);
+            this.currentRemoteThreadId = next?.id || this.createRemoteCodeThread();
+        }
+        this.saveRemoteCodeState(true);
+        this.refreshPcChatPanel(true);
+        this.broadcast({ type: 'codex:threads-update', threads: this.getRemoteCodeThreads(), currentThreadId: this.currentRemoteThreadId, timestamp: Date.now() });
+        await vscode.window.setStatusBarMessage('Remote Code: чат удалён из списка', 1600);
+    }
+
+    private dismissActionEvent(actionId: string): void {
+        this.codexActionEvents = this.codexActionEvents.filter(event => event.id !== actionId);
+        this.saveRemoteCodeState(true);
+        this.refreshPcChatPanel(true);
+        this.broadcast({ type: 'codex:action-update', events: this.getActionEventsForThread(this.currentRemoteThreadId), timestamp: Date.now() });
     }
 
     private stopActiveGeneration(showStatus: boolean): void {
@@ -2454,6 +2500,7 @@ export class RemoteServer {
             more: '<svg viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="19" cy="12" r="1.5"/></svg>',
             play: '<svg viewBox="0 0 24 24"><path d="m8 5 11 7-11 7Z"/></svg>',
             terminal: '<svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="m8 9 3 3-3 3"/><path d="M13 15h4"/></svg>',
+            trash: '<svg viewBox="0 0 24 24"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v5"/><path d="M14 11v5"/></svg>',
             settings: '<svg viewBox="0 0 24 24"><path d="M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Z"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.88l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06A1.7 1.7 0 0 0 15 19.4a1.7 1.7 0 0 0-1 .6 1.7 1.7 0 0 0-.4 1.1V21a2 2 0 1 1-4 0v-.09A1.7 1.7 0 0 0 8 19.4a1.7 1.7 0 0 0-1.88.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.7 1.7 0 0 0 3.6 15a1.7 1.7 0 0 0-.6-1 1.7 1.7 0 0 0-1.1-.4H1.8a2 2 0 1 1 0-4h.09A1.7 1.7 0 0 0 3.6 8a1.7 1.7 0 0 0-.34-1.88l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.7 1.7 0 0 0 8 3.6a1.7 1.7 0 0 0 1-.6 1.7 1.7 0 0 0 .4-1.1V1.8a2 2 0 1 1 4 0v.09A1.7 1.7 0 0 0 15 3.6a1.7 1.7 0 0 0 1.88-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.7 1.7 0 0 0 19.4 8c.11.36.32.7.6 1 .31.26.7.4 1.1.4h.1a2 2 0 1 1 0 4h-.1A1.7 1.7 0 0 0 19.4 15Z"/></svg>',
             plus: '<svg viewBox="0 0 24 24"><path d="M12 5v14"/><path d="M5 12h14"/></svg>',
             chevron: '<svg viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg>',
@@ -2487,14 +2534,22 @@ export class RemoteServer {
                 </div>
             </section>`;
         }).join('');
-        const actionRows = actions.map(event => `<section class="action ${this.escapeHtml(event.status)}">
-            <div class="action-head"><strong>${this.escapeHtml(event.title)}</strong><span>${this.escapeHtml(event.status)}</span></div>
-            <pre>${this.escapeHtml(event.detail || event.diff || '')}</pre>
+        const actionRows = actions.map(event => {
+            const resolved = !event.actionable && event.status !== 'running' && event.status !== 'pending';
+            const body = this.escapeHtml(event.detail || event.diff || '');
+            return `<section class="action ${this.escapeHtml(event.status)} ${resolved ? 'resolved collapsed' : ''}" data-action-event-id="${this.escapeHtml(event.id)}">
+            <div class="action-head">
+                <strong>${this.escapeHtml(event.title)}</strong>
+                <span class="action-status">${this.escapeHtml(event.status)}</span>
+                ${resolved ? `<button type="button" class="action-toggle" data-action-toggle="${this.escapeHtml(event.id)}">Показать</button><button type="button" class="action-dismiss" data-dismiss-action-id="${this.escapeHtml(event.id)}" title="Убрать">×</button>` : ''}
+            </div>
+            <pre>${body}</pre>
             ${event.actionable && event.status === 'pending' ? `<div class="action-buttons">
                 <button type="button" data-action-id="${this.escapeHtml(event.id)}" data-decision="deny">Отклонить</button>
                 <button type="button" data-action-id="${this.escapeHtml(event.id)}" data-decision="approve">Разрешить</button>
             </div>` : ''}
-        </section>`).join('');
+        </section>`;
+        }).join('');
         return `<!doctype html>
 <html>
 <head>
@@ -2519,10 +2574,15 @@ svg{width:15px;height:15px;display:block;fill:none;stroke:currentColor;stroke-wi
 .top-menu{display:none;position:absolute;right:0;top:31px;width:180px;background:#202123;border:1px solid #33363a;border-radius:8px;padding:5px;z-index:12;box-shadow:0 14px 40px rgba(0,0,0,.45)}
 .top-menu-wrap.open .top-menu{display:block}
 .top-menu .item{font-size:13px}
-.thread-item{width:100%;border:0;background:transparent;color:#d8d8d8;text-align:left;border-radius:6px;padding:7px 9px;cursor:pointer;font-size:13px}
-.thread-item:hover{background:#2b2d30}
-.thread-item.selected{background:#303337;color:#f2f2f2}
+.thread-row{display:flex;align-items:stretch;gap:4px;border-radius:6px}
+.thread-row:hover{background:#2b2d30}
+.thread-row.selected{background:#303337;color:#f2f2f2}
+.thread-item{flex:1;min-width:0;border:0;background:transparent;color:#d8d8d8;text-align:left;border-radius:6px;padding:7px 9px;cursor:pointer;font-size:13px}
 .thread-item small{display:block;color:#8d8d8d;margin-top:2px;font-size:11px}
+.thread-delete{width:28px;border:0;background:transparent;color:#858585;border-radius:6px;display:flex;align-items:center;justify-content:center;cursor:pointer;opacity:.75}
+.thread-delete svg{width:13px;height:13px}
+.thread-row:hover .thread-delete{opacity:1}
+.thread-delete:hover{background:#4a2f31;color:#ffb3b3}
 .messages{flex:1;overflow:auto;padding:16px min(3vw,32px) 10px}
 .msg{position:relative;padding:2px 0 14px;margin:0 auto;background:transparent;border:0;max-width:960px}
 .msg.user{max-width:620px;margin-left:auto;margin-right:min(2vw,20px);color:#f0f0f0}
@@ -2560,9 +2620,15 @@ pre{margin:0;white-space:pre-wrap;word-wrap:break-word;font:inherit}
 .hover-btn svg{width:14px;height:14px}
 .hover-btn:hover{background:#2b2d30;color:#e6e6e6}
 .action{max-width:960px;margin:0 auto 12px;padding:9px 11px;background:#222325;border:1px solid #303236;border-radius:8px}
-.action-head{display:flex;align-items:center;justify-content:space-between;gap:12px;color:#e2e2e2;margin-bottom:8px}
-.action-head span{font-size:12px;color:#999}
+.action.resolved{padding:8px 10px}
+.action-head{display:flex;align-items:center;gap:10px;color:#e2e2e2;margin-bottom:8px}
+.action-head strong{flex:1}
+.action-status{font-size:12px;color:#999}
 .action pre{max-height:220px;overflow:auto;color:#cfcfcf;font:12px/1.45 var(--vscode-editor-font-family, monospace)}
+.action.resolved.collapsed pre{display:none}
+.action-toggle,.action-dismiss{border:0;background:transparent;color:#9b9b9b;border-radius:5px;cursor:pointer;padding:2px 4px;font:inherit;font-size:12px}
+.action-toggle:hover,.action-dismiss:hover{background:#34363a;color:#e8e8e8}
+.action-dismiss{font-size:16px;line-height:1}
 .action-buttons{display:flex;gap:8px;justify-content:flex-end;margin-top:10px}
 .action-buttons button{border:1px solid #3a3d42;background:#2c2e31;color:#d9d9d9;border-radius:8px;padding:6px 10px;cursor:pointer}
 .action-buttons button:hover{background:#383b3f}
@@ -2616,7 +2682,10 @@ button.send.stop:hover{background:#fff}
       <span class="chev">${icon.chevron}</span>
     </button>
     <div class="thread-menu" id="threadMenu">
-      ${threadOptions.map(thread => `<button class="thread-item ${thread.id === this.currentRemoteThreadId ? 'selected' : ''}" type="button" data-thread-id="${this.escapeHtml(thread.id)}">${this.escapeHtml(thread.title)}<small>${this.escapeHtml(thread.source === 'codex' ? 'Codex' : 'Remote Code')} · ${this.escapeHtml(new Date(thread.timestamp || Date.now()).toLocaleString())}</small></button>`).join('')}
+      ${threadOptions.map(thread => `<div class="thread-row ${thread.id === this.currentRemoteThreadId ? 'selected' : ''}">
+        <button class="thread-item" type="button" data-thread-id="${this.escapeHtml(thread.id)}">${this.escapeHtml(thread.title)}<small>${this.escapeHtml(thread.source === 'codex' ? 'Codex' : 'Remote Code')} · ${this.escapeHtml(new Date(thread.timestamp || Date.now()).toLocaleString())}</small></button>
+        <button class="thread-delete" type="button" data-delete-thread-id="${this.escapeHtml(thread.id)}" title="Удалить чат">${icon.trash}</button>
+      </div>`).join('')}
     </div>
   </div>
   <div class="top-menu-wrap" id="topMoreDrop">
@@ -2776,6 +2845,15 @@ document.querySelectorAll('[data-thread-id]').forEach(button => {
     vscode.postMessage({ type: 'action', action: 'switchThread', threadId: button.dataset.threadId });
   });
 });
+document.querySelectorAll('[data-delete-thread-id]').forEach(button => {
+  button.addEventListener('click', event => {
+    event.preventDefault();
+    event.stopPropagation();
+    const threadId = button.dataset.deleteThreadId;
+    if (!threadId) return;
+    vscode.postMessage({ type: 'action', action: 'deleteThread', threadId });
+  });
+});
 document.addEventListener('click', event => {
   if (!event.target.closest('.dropdown')) {
     document.querySelectorAll('.dropdown.open').forEach(drop => drop.classList.remove('open'));
@@ -2796,6 +2874,21 @@ document.querySelectorAll('[data-action]').forEach(button => {
 document.querySelectorAll('[data-action-id]').forEach(button => {
   button.addEventListener('click', () => {
     vscode.postMessage({ type: 'actionResponse', actionId: button.dataset.actionId, decision: button.dataset.decision });
+  });
+});
+document.querySelectorAll('[data-action-toggle]').forEach(button => {
+  button.addEventListener('click', event => {
+    const card = event.currentTarget.closest('.action');
+    card?.classList.toggle('collapsed');
+    event.currentTarget.textContent = card?.classList.contains('collapsed') ? 'Показать' : 'Скрыть';
+  });
+});
+document.querySelectorAll('[data-dismiss-action-id]').forEach(button => {
+  button.addEventListener('click', event => {
+    event.preventDefault();
+    const actionId = event.currentTarget.dataset.dismissActionId;
+    if (!actionId) return;
+    vscode.postMessage({ type: 'action', action: 'dismissActionEvent', actionId });
   });
 });
 document.getElementById('topRun').addEventListener('click', () => form.requestSubmit());
@@ -3693,6 +3786,25 @@ prompt.addEventListener('keydown', event => {
             });
         } catch (err: any) {
             this.jsonResponse(res, 500, { error: err.message });
+        }
+    }
+
+    private async handleRemoteCodeDeleteThread(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
+        try {
+            const body = JSON.parse(await this.readBody(req) || '{}');
+            const threadId = typeof body.threadId === 'string' ? body.threadId.trim() : '';
+            if (!threadId) {
+                this.jsonResponse(res, 400, { success: false, error: 'threadId is required' });
+                return;
+            }
+            await this.deleteRemoteThread(threadId);
+            this.jsonResponse(res, 200, {
+                success: true,
+                currentThreadId: this.currentRemoteThreadId,
+                threads: this.getRemoteCodeThreads()
+            });
+        } catch (err: any) {
+            this.jsonResponse(res, 500, { success: false, error: err.message });
         }
     }
 

@@ -81,6 +81,7 @@ fun CodexScreen(
     onNewThread: () -> Unit,
     onLoadThreads: () -> Unit,
     onSwitchThread: (String) -> Unit,
+    onDeleteThread: (String) -> Unit,
     onRespondToAction: (String, Boolean) -> Unit,
     // Files callbacks (same as VSCodeScreen)
     onNavigateToDir: (String) -> Unit,
@@ -166,6 +167,7 @@ fun CodexScreen(
                 onNewThread = onNewThread,
                 onLoadThreads = onLoadThreads,
                 onSwitchThread = onSwitchThread,
+                onDeleteThread = onDeleteThread,
                 onRespondToAction = onRespondToAction
             )
             1 -> FilesScreen(
@@ -205,6 +207,7 @@ fun CodexChatTab(
     onNewThread: () -> Unit,
     onLoadThreads: () -> Unit,
     onSwitchThread: (String) -> Unit,
+    onDeleteThread: (String) -> Unit,
     onRespondToAction: (String, Boolean) -> Unit
 ) {
     var messageText by remember { mutableStateOf("") }
@@ -288,10 +291,23 @@ fun CodexChatTab(
                     LazyColumn(modifier = Modifier.heightIn(max = 420.dp)) {
                         if (threads.isEmpty()) item { Text("\u041D\u0435\u0442 \u0430\u043A\u0442\u0438\u0432\u043D\u044B\u0445 \u0447\u0430\u0442\u043E\u0432", color = TextSecondary) }
                         else items(threads) { thread ->
-                            Surface(onClick = { onSwitchThread(thread.id); showThreads = false }, color = if (thread.id == currentThreadId) Color(0xFF2A2D2E) else Color.Transparent, shape = RoundedCornerShape(6.dp), modifier = Modifier.fillMaxWidth()) {
-                                Column(modifier = Modifier.padding(10.dp)) {
-                                    Text(thread.title, color = TextPrimary, fontSize = 14.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                                    Text(thread.id, color = TextSecondary, fontSize = 10.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            Surface(color = if (thread.id == currentThreadId) Color(0xFF2A2D2E) else Color.Transparent, shape = RoundedCornerShape(6.dp), modifier = Modifier.fillMaxWidth()) {
+                                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().padding(start = 10.dp, end = 2.dp, top = 6.dp, bottom = 6.dp)) {
+                                    Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
+                                        TextButton(
+                                            onClick = { onSwitchThread(thread.id); showThreads = false },
+                                            contentPadding = PaddingValues(0.dp),
+                                            modifier = Modifier.fillMaxWidth()
+                                        ) {
+                                            Column(modifier = Modifier.fillMaxWidth()) {
+                                                Text(thread.title, color = TextPrimary, fontSize = 14.sp, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.fillMaxWidth())
+                                                Text(thread.id, color = TextSecondary, fontSize = 10.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.fillMaxWidth())
+                                            }
+                                        }
+                                    }
+                                    IconButton(onClick = { onDeleteThread(thread.id) }, modifier = Modifier.size(34.dp)) {
+                                        Icon(Icons.Outlined.Delete, contentDescription = "Удалить чат", tint = TextSecondary, modifier = Modifier.size(18.dp))
+                                    }
                                 }
                             }
                         }
@@ -306,7 +322,7 @@ fun CodexChatTab(
 
         LazyColumn(state = listState, modifier = Modifier.fillMaxWidth().weight(1f).padding(horizontal = 12.dp), verticalArrangement = Arrangement.spacedBy(12.dp), contentPadding = PaddingValues(top = 16.dp, bottom = 12.dp)) {
             if (sendResult?.success == true) item { DesktopStatusLine("\u041E\u0442\u043F\u0440\u0430\u0432\u043B\u0435\u043D\u043E", AccentGreen) }
-            items(actionEvents.takeLast(8)) { event -> DesktopToolBlock(event, onRespondToAction) }
+            items(actionEvents.filter { it.actionable || it.status == "pending" || it.status == "running" }.takeLast(8)) { event -> DesktopToolBlock(event, onRespondToAction) }
             items(chatHistory) { msg -> CodexMessageBubble(msg) }
             if (chatHistory.isEmpty() && sendResult == null && actionEvents.isEmpty()) item {
                 Column(modifier = Modifier.padding(top = 32.dp)) {
