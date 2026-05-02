@@ -754,7 +754,7 @@ private fun cleanMobileMessageContent(content: String): String {
     var index = 0
     while (index < lines.size) {
         val trimmed = lines[index].trim()
-        if (trimmed.matches(Regex("""::git-(stage|commit|push)\{.*}"""))) {
+        if (isGitDirectiveLine(trimmed)) {
             index++
             continue
         }
@@ -794,6 +794,18 @@ private fun parseMobileChangeSummary(content: String): CodexChangeSummary? {
 
 private fun isChangeFileLine(line: String): Boolean {
     return Regex("""^\s*(?:[-*•]\s*)?.+?\s+\+\d+(?:\s+-\d+)?\s*$""").matches(line)
+}
+
+private fun isGitDirectiveLine(line: String): Boolean {
+    if (!line.startsWith("::git-")) return false
+    val action = line.substringAfter("::git-").substringBefore("{")
+    return action in setOf(
+        "stage",
+        "commit",
+        "push",
+        "create-branch",
+        "create-pr"
+    )
 }
 
 private fun pluralRu(count: Int, one: String, few: String, many: String): String {
