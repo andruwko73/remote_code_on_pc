@@ -134,6 +134,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun updateServerConfig(config: ServerConfig) {
         _uiState.value = _uiState.value.copy(serverConfig = config)
         saveConfig(config)
+        ApiClient.reset()
     }
 
     fun connect() {
@@ -1145,6 +1146,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                             useTunnel = body.tunnelActive
                         )
                         _uiState.value = _uiState.value.copy(serverConfig = updatedConfig)
+                        saveConfig(updatedConfig)
                     }
                 }
             } catch (e: Exception) {
@@ -1157,7 +1159,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _uiState.value = _uiState.value.copy(isTunnelStarting = true, tunnelError = null)
         viewModelScope.launch {
             try {
-                val api = ApiClient.getApi(_uiState.value.serverConfig)
+                val api = ApiClient.getApi(_uiState.value.serverConfig.copy(useTunnel = false, tunnelUrl = ""))
                 val response = api.startTunnel()
                 if (response.isSuccessful) {
                     val body = response.body()
@@ -1175,7 +1177,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                             tunnelUrl = url
                         )
                         _uiState.value = _uiState.value.copy(serverConfig = updatedConfig)
+                        saveConfig(updatedConfig)
                         // РџРµСЂРµРїРѕРґРєР»СЋС‡Р°РµРј WebSocket С‡РµСЂРµР· С‚СѓРЅРЅРµР»СЊ
+                        ApiClient.reset()
                         connectWebSocket()
                     }
                 } else {
@@ -1208,7 +1212,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         tunnelUrl = ""
                     )
                 )
+                saveConfig(_uiState.value.serverConfig)
                 // РџРµСЂРµРїРѕРґРєР»СЋС‡Р°РµРј WebSocket РѕР±СЂР°С‚РЅРѕ РЅР° LAN
+                ApiClient.reset()
                 connectWebSocket()
             } catch (e: Exception) {
                 _uiState.value = _uiState.value.copy(tunnelError = e.message)
@@ -1223,6 +1229,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 tunnelUrl = _uiState.value.tunnelUrl ?: ""
             )
             _uiState.value = _uiState.value.copy(serverConfig = updatedConfig)
+            saveConfig(updatedConfig)
             // РЎР±СЂРѕСЃРёРј API, С‡С‚РѕР±С‹ РїРµСЂРµСЃРѕР·РґР°С‚СЊ СЃ РЅРѕРІС‹Рј URL
             ApiClient.reset()
             connectWebSocket()
@@ -1232,6 +1239,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 tunnelUrl = ""
             )
             _uiState.value = _uiState.value.copy(serverConfig = updatedConfig)
+            saveConfig(updatedConfig)
             ApiClient.reset()
             connectWebSocket()
         }

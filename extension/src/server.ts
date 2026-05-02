@@ -399,6 +399,15 @@ export class RemoteServer {
             appName: vscode.env.appName,
             isRunning: true,
             platform: process.platform,
+            remoteCode: {
+                port: this._port,
+                host: this._host,
+                localIp: this._localIp,
+                localUrl: `http://${this._localIp}:${this._port}`,
+                publicUrl: this._tunnelUrl,
+                tunnelActive: !!this._tunnelUrl,
+                authRequired: !!this._authToken
+            },
             workspace: {
                 folders: workspaceFolders.map(f => ({
                     name: f.name,
@@ -3601,7 +3610,8 @@ prompt.addEventListener('keydown', event => {
             localIp: this._localIp,
             port: this._port,
             localUrl: `http://${this._localIp}:${this._port}`,
-            publicUrl: this._tunnelUrl
+            publicUrl: this._tunnelUrl,
+            authRequired: !!this._authToken
         });
     }
 

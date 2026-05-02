@@ -6,6 +6,7 @@ import com.remotecodeonpc.app.CrashLogger
 import com.remotecodeonpc.app.ServerConfig
 import kotlinx.coroutines.*
 import okhttp3.*
+import java.net.URLEncoder
 import java.util.concurrent.TimeUnit
 
 interface WebSocketListener {
@@ -42,7 +43,7 @@ class WebSocketClient(private val config: ServerConfig) {
     }
 
     private fun doConnect() {
-        val wsUrl = if (config.useTunnel && config.tunnelUrl.isNotBlank()) {
+        val baseWsUrl = if (config.useTunnel && config.tunnelUrl.isNotBlank()) {
             config.tunnelUrl
                 .replace("http://", "ws://")
                 .replace("https://", "wss://")
@@ -50,8 +51,14 @@ class WebSocketClient(private val config: ServerConfig) {
         } else {
             "ws://${config.host}:${config.port}/ws"
         }
+        val wsUrl = if (config.authToken.isNotBlank()) {
+            "$baseWsUrl?token=${URLEncoder.encode(config.authToken, "UTF-8")}"
+        } else {
+            baseWsUrl
+        }
 
-        CrashLogger.d("WSClient", "Connecting to $wsUrl (attempt ${retryCount + 1})")
+        val logUrl = if (config.authToken.isNotBlank()) "$baseWsUrl?token=***" else baseWsUrl
+        CrashLogger.d("WSClient", "Connecting to $logUrl (attempt ${retryCount + 1})")
 
         val request = Request.Builder()
             .url(wsUrl)
@@ -65,7 +72,7 @@ class WebSocketClient(private val config: ServerConfig) {
 
         webSocket = client.newWebSocket(request, object : okhttp3.WebSocketListener() {
             override fun onOpen(webSocket: WebSocket, response: Response) {
-                CrashLogger.i("WSClient", "Connected to $wsUrl (protocol=${response.protocol})")
+                CrashLogger.i("WSClient", "Connected to $logUrl (protocol=${response.protocol})")
                 retryCount = 0 // сброс счётчика при успехе
                 this@WebSocketClient.listener?.onConnected()
             }
