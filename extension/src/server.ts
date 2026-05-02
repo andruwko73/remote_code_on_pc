@@ -2178,7 +2178,8 @@ export class RemoteServer {
             copy: '<svg viewBox="0 0 24 24"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>',
             up: '<svg viewBox="0 0 24 24"><path d="M7 10v11"/><path d="M15 5.9 14 10h5.8a2 2 0 0 1 2 2.4l-1.4 7A2 2 0 0 1 18.4 21H4a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2h2.8a2 2 0 0 0 1.7-1L12 3a2 2 0 0 1 3 2.9Z"/></svg>',
             down: '<svg viewBox="0 0 24 24"><path d="M17 14V3"/><path d="M9 18.1 10 14H4.2a2 2 0 0 1-2-2.4l1.4-7A2 2 0 0 1 5.6 3H20a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2h-2.8a2 2 0 0 0-1.7 1L12 21a2 2 0 0 1-3-2.9Z"/></svg>',
-            layout: '<svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M12 4v16"/></svg>'
+            layout: '<svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M12 4v16"/></svg>',
+            vscode: '<svg class="vscode-icon" viewBox="0 0 24 24"><path d="M17.8 3 8.4 12l9.4 9 2.2-.9V3.9Z"/><path d="m8.4 12-4 3.2L2.5 14 6.4 12 2.5 10 4.4 8.8Z"/></svg>'
         };
         const rows = messages.map(message => {
             const role = message.role === 'system' ? 'Система' : '';
@@ -2213,17 +2214,19 @@ export class RemoteServer {
 html,body{height:100%}
 body{margin:0;background:#101112;color:#d7d7d7;font:14px/1.55 var(--vscode-font-family);display:flex;flex-direction:column;letter-spacing:0}
 button{font:inherit}
-svg{width:16px;height:16px;display:block;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
-.top{height:44px;border-bottom:1px solid #222326;background:#111213;display:flex;align-items:center;gap:7px;padding:0 min(3vw,32px)}
+svg{width:15px;height:15px;display:block;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.top{height:42px;border-bottom:1px solid #222326;background:#111213;display:flex;align-items:center;gap:5px;padding:0 min(2.8vw,28px)}
 .edit-icon{color:#9c9c9c}
 .thread-title{font-size:14px;color:#f1f1f1;font-weight:650;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:600px}
 .toolbar-spacer{flex:1}
-.icon-btn{width:26px;height:26px;border:0;border-radius:7px;background:transparent;color:#9b9b9b;display:inline-flex;align-items:center;justify-content:center;cursor:pointer;padding:0}
+.icon-btn{width:24px;height:24px;border:0;border-radius:6px;background:transparent;color:#9b9b9b;display:inline-flex;align-items:center;justify-content:center;cursor:pointer;padding:0}
 .icon-btn:hover{background:#202123;color:#ededed}
-.pill-btn{height:27px;border:1px solid #2c2f33;border-radius:8px;background:#17191b;color:#d8d8d8;padding:0 9px;cursor:pointer;display:inline-flex;align-items:center;gap:6px;font-size:13px}
+.pill-btn{height:28px;border:1px solid #2c2f33;border-radius:8px;background:#17191b;color:#d8d8d8;padding:0 8px;cursor:pointer;display:inline-flex;align-items:center;gap:6px;font-size:13px}
+.pill-btn .mini-chev{color:#9a9a9a;margin-left:1px}
+.vscode-icon{width:17px;height:17px;color:#1688d9;stroke-width:1.8}
 .pill-btn:hover{background:#222426;color:#f1f1f1}
 .thread-menu-wrap{position:relative;min-width:0;display:flex;align-items:center;gap:6px}
-.thread-menu-btn{border:0;background:transparent;color:#f0f0f0;display:flex;align-items:center;gap:7px;min-width:0;max-width:620px;cursor:pointer;border-radius:7px;padding:4px 6px}
+.thread-menu-btn{border:0;background:transparent;color:#f0f0f0;display:flex;align-items:center;gap:5px;min-width:0;max-width:620px;cursor:pointer;border-radius:7px;padding:4px 5px}
 .thread-menu-btn:hover,.thread-menu-wrap.open .thread-menu-btn{background:#1f2123}
 .thread-menu{display:none;position:absolute;left:0;top:32px;width:min(390px,70vw);max-height:330px;overflow:auto;background:#202123;border:1px solid #33363a;border-radius:8px;padding:5px;z-index:10;box-shadow:0 14px 40px rgba(0,0,0,.45)}
 .thread-menu-wrap.open .thread-menu{display:block}
@@ -2254,22 +2257,23 @@ pre{margin:0;white-space:pre-wrap;word-wrap:break-word;font:inherit}
 .action-buttons{display:flex;gap:8px;justify-content:flex-end;margin-top:10px}
 .action-buttons button{border:1px solid #3a3d42;background:#2c2e31;color:#d9d9d9;border-radius:8px;padding:6px 10px;cursor:pointer}
 .action-buttons button:hover{background:#383b3f}
-.composer-wrap{padding:8px min(3vw,32px) 11px;background:#101112}
+.composer-wrap{padding:8px min(3vw,32px) 10px;background:#101112}
 .composer{max-width:960px;margin:0 auto;border:1px solid #2a2c2f;background:#2c2c2e;border-radius:16px;padding:9px 11px 8px;display:flex;flex-direction:column;gap:6px;box-shadow:0 8px 22px rgba(0,0,0,.14)}
-.controls{display:flex;gap:7px;align-items:center;min-width:0}
-.subcontrols{display:flex;gap:18px;align-items:center;margin:5px auto 0;max-width:960px;color:#8e8e8e;font-size:12px}
+.controls{display:flex;gap:6px;align-items:center;min-width:0}
+.subcontrols{display:flex;gap:12px;align-items:center;margin:4px auto 0;max-width:960px;color:#8e8e8e;font-size:12px}
 .plus{color:#bcbcbc;background:transparent;border:0;width:28px;height:28px;display:inline-flex;align-items:center;justify-content:center;padding:0;cursor:pointer;border-radius:7px;flex:0 0 auto}
 .plus:hover{background:#36373a;color:#ededed}
 textarea{width:100%;box-sizing:border-box;resize:none;min-height:58px;max-height:180px;overflow:hidden;border:0;background:transparent;color:#e8e8e8;padding:0;font:inherit;font-size:14px;outline:none;line-height:1.45}
 textarea.scroll{overflow:auto}
 textarea::placeholder{color:#777}
-.dropdown{position:relative;flex:0 1 122px;min-width:0}
-.dropdown.effort{flex-basis:98px}
-.dropdown.profile{flex-basis:150px}
-.dropdown.workmode{flex:0 1 150px}
-.dropdown-btn{height:28px;width:100%;border:0;background:transparent;color:#c7c7c7;padding:0 6px;font-size:12.5px;display:flex;align-items:center;justify-content:space-between;gap:7px;border-radius:7px;cursor:pointer;white-space:nowrap}
+.dropdown{position:relative;flex:0 0 auto;min-width:0}
+.dropdown#modelDrop{width:82px}
+.dropdown.effort{width:86px}
+.dropdown.profile{width:178px}
+.dropdown.workmode{width:143px}
+.dropdown-btn{height:28px;width:100%;border:0;background:transparent;color:#c7c7c7;padding:0 6px;font-size:12.5px;display:flex;align-items:center;justify-content:flex-start;gap:4px;border-radius:7px;cursor:pointer;white-space:nowrap}
 .dropdown-btn:hover,.dropdown.open .dropdown-btn{background:#343537;color:#e0e0e0}
-.dropdown-btn .label{min-width:0;overflow:hidden;text-overflow:ellipsis}
+.dropdown-btn .label{min-width:0;overflow:hidden;text-overflow:ellipsis;flex:0 1 auto}
 .chev{color:#9a9a9a;display:inline-flex;align-items:center}
 .chev svg{width:13px;height:13px}
 .menu{display:none;position:absolute;left:0;bottom:34px;min-width:100%;max-height:250px;overflow:auto;background:#252526;border:1px solid #3a3a3a;border-radius:8px;padding:5px;box-shadow:0 10px 30px rgba(0,0,0,.45);z-index:5}
@@ -2283,7 +2287,7 @@ textarea::placeholder{color:#777}
 .context .spark{display:inline-flex;color:#18a8ff}
 button.send{border:0;border-radius:999px;background:#d9d9d9;color:#111;width:34px;height:34px;min-width:34px;max-width:34px;aspect-ratio:1/1;display:inline-flex;align-items:center;justify-content:center;cursor:pointer;white-space:nowrap;padding:0;flex:0 0 34px}
 button.send:hover{background:#fff}
-.link-btn{border:0;background:transparent;color:#8e8e8e;cursor:pointer;padding:4px 0;display:inline-flex;align-items:center;gap:6px}
+.link-btn{border:0;background:transparent;color:#8e8e8e;cursor:pointer;padding:3px 0;display:inline-flex;align-items:center;gap:5px}
 .link-btn:hover{color:#d0d0d0}
 @media (max-width: 680px){.top{padding:0 10px}.messages{padding-left:14px;padding-right:14px}.composer-wrap{padding-left:8px;padding-right:8px}.controls{flex-wrap:wrap}.context{margin-left:0}button.send{margin-left:auto}.subcontrols{gap:8px;flex-wrap:wrap}.dropdown.profile{flex-basis:132px}}
 </style>
@@ -2303,7 +2307,7 @@ button.send:hover{background:#fff}
   <button class="icon-btn" type="button" data-action="clearChat" title="&#1054;&#1095;&#1080;&#1089;&#1090;&#1080;&#1090;&#1100; &#1095;&#1072;&#1090;">${icon.more}</button>
   <div class="toolbar-spacer"></div>
   <button class="icon-btn" type="button" id="topRun" title="&#1054;&#1090;&#1087;&#1088;&#1072;&#1074;&#1080;&#1090;&#1100;">${icon.play}</button>
-  <button class="pill-btn" type="button" data-action="showUsageStatus" title="&#1055;&#1088;&#1086;&#1074;&#1077;&#1088;&#1080;&#1090;&#1100; &#1083;&#1086;&#1082;&#1072;&#1083;&#1100;&#1085;&#1099;&#1081; &#1088;&#1077;&#1078;&#1080;&#1084;">VS Code</button>
+  <button class="pill-btn" type="button" data-action="showUsageStatus" title="&#1055;&#1088;&#1086;&#1074;&#1077;&#1088;&#1080;&#1090;&#1100; &#1083;&#1086;&#1082;&#1072;&#1083;&#1100;&#1085;&#1099;&#1081; &#1088;&#1077;&#1078;&#1080;&#1084;">${icon.vscode}<span>VS Code</span><span class="mini-chev">${icon.chevron}</span></button>
   <button class="icon-btn" type="button" data-action="openTerminal" title="&#1058;&#1077;&#1088;&#1084;&#1080;&#1085;&#1072;&#1083;">${icon.terminal}</button>
   <button class="icon-btn" type="button" data-action="toggleLayout" title="&#1055;&#1072;&#1085;&#1077;&#1083;&#1100;">${icon.layout}</button>
 </div>
