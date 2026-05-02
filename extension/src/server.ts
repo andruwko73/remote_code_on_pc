@@ -1582,7 +1582,8 @@ export class RemoteServer {
         agentName: string,
         onChunk?: (content: string) => void,
         includeContext: boolean = true,
-        cancellationToken?: vscode.CancellationToken
+        cancellationToken?: vscode.CancellationToken,
+        attachments: LocalAttachment[] = []
     ): Promise<string> {
         // Используем VS Code LanguageModel API для отправки в Copilot Chat
         try {
@@ -1636,7 +1637,7 @@ export class RemoteServer {
             const messages = [
                 new vscode.LanguageModelChatMessage(
                     vscode.LanguageModelChatMessageRole.User,
-                    prompt
+                    this.createLanguageModelContent(prompt, attachments)
                 )
             ];
 
@@ -1684,7 +1685,14 @@ export class RemoteServer {
         }
     }
 
-    private async answerInPcMirror(message: string, threadId: string, model?: string, reasoningEffort?: string, includeContext: boolean = true): Promise<void> {
+    private async answerInPcMirror(
+        message: string,
+        threadId: string,
+        model?: string,
+        reasoningEffort?: string,
+        includeContext: boolean = true,
+        attachments: LocalAttachment[] = []
+    ): Promise<void> {
         const effort = this.normalizeReasoningEffort(reasoningEffort || this.selectedReasoningEffort);
         this.stopActiveGeneration(false);
         const cancellation = new vscode.CancellationTokenSource();
@@ -1726,7 +1734,8 @@ export class RemoteServer {
                 });
             },
                 includeContext,
-                cancellation.token
+                cancellation.token,
+                attachments
             );
             const cleanResponse = this.stripActionDirectives(response);
             const changeSummary = this.getGitChangeSummaryFromMessage(cleanResponse);
@@ -1812,7 +1821,7 @@ export class RemoteServer {
         this.broadcast({ type: 'codex:sent', message: messageForAgent, model, reasoningEffort: effort, includeContext: this.selectedIncludeContext, threadId: targetThreadId, timestamp: Date.now() });
         this.broadcast({ type: 'codex:threads-update', threads: this.getRemoteCodeThreads(), timestamp: Date.now() });
 
-        this.answerInPcMirror(messageForAgent, targetThreadId, model, effort, this.selectedIncludeContext).catch(err => {
+        this.answerInPcMirror(messageForAgent, targetThreadId, model, effort, this.selectedIncludeContext, attachmentFiles).catch(err => {
             const errorMessage: CodexChatMessage = {
                 id: `remote_assistant_error_${Date.now()}`,
                 role: 'assistant',
@@ -4475,11 +4484,81 @@ prompt.addEventListener('keydown', event => {
             saved.push({
                 name: rawName,
                 path: filePath,
-                mimeType: attachment.mimeType || 'application/octet-stream',
+                mimeType: this.normalizeAttachmentMime(filePath, attachment.mimeType),
                 size: data.length
             });
         }
         return saved;
+    }
+
+    private normalizeAttachmentMime(filePath: string, mimeType?: string): string {
+        const value = typeof mimeType === 'string' ? mimeType.trim().toLowerCase() : '';
+        if (value && value !== 'application/octet-stream') return value;
+        return this.guessMimeType(filePath);
+    }
+
+    private isImageAttachment(file: LocalAttachment): boolean {
+        const mime = this.normalizeAttachmentMime(file.path, file.mimeType);
+        return ['image/png', 'image/jpeg', 'image/jpg', 'image/webp', 'image/gif'].includes(mime);
+    }
+
+    private isTextAttachment(file: LocalAttachment): boolean {
+        const mime = this.normalizeAttachmentMime(file.path, file.mimeType);
+        return mime.startsWith('text/') || [
+            'application/json',
+            'application/xml',
+            'application/javascript',
+            'application/typescript'
+        ].includes(mime);
+    }
+
+    private createLanguageModelContent(
+        prompt: string,
+        attachments: LocalAttachment[]
+    ): string | Array<vscode.LanguageModelTextPart | vscode.LanguageModelDataPart> {
+        const safeAttachments = this.normalizeLocalAttachments(attachments);
+        if (safeAttachments.length === 0) return prompt;
+
+        const parts: Array<vscode.LanguageModelTextPart | vscode.LanguageModelDataPart> = [
+            new vscode.LanguageModelTextPart(prompt)
+        ];
+        let imageCount = 0;
+
+        for (const file of safeAttachments.slice(0, 6)) {
+            const mime = this.normalizeAttachmentMime(file.path, file.mimeType);
+            const label = `\n\nAttachment: ${file.name} (${mime}, ${file.size} bytes)\nLocal path: ${file.path}`;
+
+            if (this.isImageAttachment({ ...file, mimeType: mime })) {
+                try {
+                    const data = fs.readFileSync(file.path);
+                    parts.push(new vscode.LanguageModelTextPart(`${label}\nThe next message part is the actual image data. Inspect it visually.`));
+                    parts.push(vscode.LanguageModelDataPart.image(data, mime === 'image/jpg' ? 'image/jpeg' : mime));
+                    imageCount++;
+                    continue;
+                } catch (err: any) {
+                    parts.push(new vscode.LanguageModelTextPart(`${label}\nCould not attach image bytes: ${err?.message || String(err)}`));
+                    continue;
+                }
+            }
+
+            if (this.isTextAttachment({ ...file, mimeType: mime }) && file.size <= 128 * 1024) {
+                try {
+                    const text = fs.readFileSync(file.path, 'utf8');
+                    parts.push(new vscode.LanguageModelTextPart(`${label}\n\nFile content:\n${text.slice(0, 120000)}`));
+                    continue;
+                } catch {
+                    // Fall through to the path-only note below.
+                }
+            }
+
+            parts.push(new vscode.LanguageModelTextPart(`${label}\nUse the local path if you need to inspect this file.`));
+        }
+
+        if (imageCount > 0) {
+            parts.push(new vscode.LanguageModelTextPart('\n\nImportant: answer using the attached image content; do not ask the user to describe the screenshot unless the image is unreadable.'));
+        }
+
+        return parts;
     }
 
     private withAttachmentInstructions(message: string, attachments: Array<{ name: string; path: string; mimeType: string; size: number }>): string {
