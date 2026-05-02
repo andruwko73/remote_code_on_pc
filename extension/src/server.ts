@@ -2153,9 +2153,9 @@ export class RemoteServer {
             { id: 'xhigh', name: 'Очень высокий' }
         ];
         const profileOptions = [
-            { id: 'user', name: 'Пользовательские' },
+            { id: 'fast', name: 'Быстрый режим' },
             { id: 'review', name: 'Проверка' },
-            { id: 'fast', name: 'Быстрый режим' }
+            { id: 'user', name: 'Пользовательские' }
         ];
         const workModeOptions = [
             { id: 'local', name: 'Работать локально' },
