@@ -64,6 +64,7 @@ fun CodexScreen(
     models: List<CodexModel>,
     selectedModel: String,
     selectedReasoningEffort: String,
+    selectedProfile: String,
     includeContext: Boolean,
     chatHistory: List<CodexChatMessage>,
     actionEvents: List<CodexActionEvent>,
@@ -81,6 +82,7 @@ fun CodexScreen(
     onSendMessage: (String, List<MessageAttachment>) -> Unit,
     onSelectModel: (String) -> Unit,
     onSelectReasoningEffort: (String) -> Unit,
+    onSelectProfile: (String) -> Unit,
     onToggleContext: () -> Unit,
     onLaunchCodex: () -> Unit,
     onNewThread: () -> Unit,
@@ -157,6 +159,7 @@ fun CodexScreen(
                 models = models,
                 selectedModel = selectedModel,
                 selectedReasoningEffort = selectedReasoningEffort,
+                selectedProfile = selectedProfile,
                 includeContext = includeContext,
                 chatHistory = chatHistory,
                 actionEvents = actionEvents,
@@ -168,6 +171,7 @@ fun CodexScreen(
                 onSendMessage = onSendMessage,
                 onSelectModel = onSelectModel,
                 onSelectReasoningEffort = onSelectReasoningEffort,
+                onSelectProfile = onSelectProfile,
                 onToggleContext = onToggleContext,
                 onLaunchCodex = onLaunchCodex,
                 onNewThread = onNewThread,
@@ -199,6 +203,7 @@ fun CodexChatTab(
     models: List<CodexModel>,
     selectedModel: String,
     selectedReasoningEffort: String,
+    selectedProfile: String,
     includeContext: Boolean,
     chatHistory: List<CodexChatMessage>,
     actionEvents: List<CodexActionEvent>,
@@ -210,6 +215,7 @@ fun CodexChatTab(
     onSendMessage: (String, List<MessageAttachment>) -> Unit,
     onSelectModel: (String) -> Unit,
     onSelectReasoningEffort: (String) -> Unit,
+    onSelectProfile: (String) -> Unit,
     onToggleContext: () -> Unit,
     onLaunchCodex: () -> Unit,
     onNewThread: () -> Unit,
@@ -223,6 +229,7 @@ fun CodexChatTab(
     var messageText by remember { mutableStateOf("") }
     var showModelSelector by remember { mutableStateOf(false) }
     var showReasoningSelector by remember { mutableStateOf(false) }
+    var showProfileSelector by remember { mutableStateOf(false) }
     var showThreads by remember { mutableStateOf(false) }
     var attachments by remember { mutableStateOf<List<MessageAttachment>>(emptyList()) }
     val listState = rememberLazyListState()
@@ -262,8 +269,17 @@ fun CodexChatTab(
         "high" to "\u0412\u044B\u0441\u043E\u043A\u0438\u0439",
         "xhigh" to "\u041E\u0447\u0435\u043D\u044C \u0432\u044B\u0441\u043E\u043A\u0438\u0439"
     )
+    val profileOptions = listOf(
+        "user" to "\u041F\u043E\u043B\u044C\u0437.",
+        "review" to "\u041F\u0440\u043E\u0432\u0435\u0440\u043A\u0430",
+        "fast" to "\u0411\u044B\u0441\u0442\u0440\u044B\u0439"
+    )
     val reasoningLabel = reasoningOptions.firstOrNull { it.first == selectedReasoningEffort }?.second ?: "\u0421\u0440\u0435\u0434\u043D\u0438\u0439"
+    val profileLabel = profileOptions.firstOrNull { it.first == selectedProfile }?.second ?: "\u041F\u043E\u043B\u044C\u0437."
     val currentThread = threads.find { it.id == currentThreadId }
+    val activeActionEvents = actionEvents
+        .filter { it.actionable || it.status == "pending" || it.status == "running" }
+        .takeLast(8)
 
     fun submitMessage() {
         if (messageText.isBlank() && attachments.isEmpty()) return
@@ -272,8 +288,15 @@ fun CodexChatTab(
         attachments = emptyList()
     }
 
-    LaunchedEffect(chatHistory.size, chatHistory.lastOrNull()?.content) {
-        if (chatHistory.isNotEmpty()) listState.animateScrollToItem(chatHistory.size - 1)
+    LaunchedEffect(
+        chatHistory.size,
+        chatHistory.lastOrNull()?.content,
+        activeActionEvents.size,
+        activeActionEvents.lastOrNull()?.status
+    ) {
+        val statusRows = if (sendResult?.success == true) 1 else 0
+        val targetIndex = statusRows + chatHistory.size + activeActionEvents.size - 1
+        if (targetIndex >= 0) listState.animateScrollToItem(targetIndex)
     }
 
     Column(modifier = Modifier.fillMaxSize().imePadding().background(Color(0xFF151617))) {
@@ -332,8 +355,8 @@ fun CodexChatTab(
 
         LazyColumn(state = listState, modifier = Modifier.fillMaxWidth().weight(1f).padding(horizontal = 12.dp), verticalArrangement = Arrangement.spacedBy(12.dp), contentPadding = PaddingValues(top = 16.dp, bottom = 12.dp)) {
             if (sendResult?.success == true) item { DesktopStatusLine("\u041E\u0442\u043F\u0440\u0430\u0432\u043B\u0435\u043D\u043E", AccentGreen) }
-            items(actionEvents.filter { it.actionable || it.status == "pending" || it.status == "running" }.takeLast(8)) { event -> DesktopToolBlock(event, onRespondToAction) }
             items(chatHistory) { msg -> CodexMessageBubble(msg, onOpenFile) }
+            items(activeActionEvents) { event -> DesktopToolBlock(event, onRespondToAction) }
             if (chatHistory.isEmpty() && sendResult == null && actionEvents.isEmpty()) item {
                 Column(modifier = Modifier.padding(top = 32.dp)) {
                     Text("\u0417\u0430\u043F\u0440\u043E\u0441\u0438\u0442\u0435 \u0438\u0437\u043C\u0435\u043D\u0435\u043D\u0438\u044F, \u043F\u0440\u043E\u0432\u0435\u0440\u043A\u0443 \u0438\u043B\u0438 \u0440\u0430\u0431\u043E\u0442\u0443 \u0441 \u0444\u0430\u0439\u043B\u0430\u043C\u0438.", color = TextSecondary, fontSize = 15.sp)
@@ -383,9 +406,39 @@ fun CodexChatTab(
                     }
                     Box {
                         TextButton(
+                            onClick = { showProfileSelector = true },
+                            contentPadding = PaddingValues(horizontal = 4.dp),
+                            modifier = Modifier.widthIn(min = 82.dp, max = 112.dp)
+                        ) {
+                            Icon(Icons.Outlined.Settings, contentDescription = null, tint = TextSecondary, modifier = Modifier.size(18.dp))
+                            Spacer(modifier = Modifier.width(3.dp))
+                            Text(
+                                profileLabel,
+                                color = TextSecondary,
+                                fontSize = 12.sp,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.weight(1f, fill = false)
+                            )
+                            Icon(Icons.Default.ArrowDropDown, contentDescription = null, tint = TextSecondary, modifier = Modifier.size(16.dp))
+                        }
+                        DropdownMenu(expanded = showProfileSelector, onDismissRequest = { showProfileSelector = false }, modifier = Modifier.background(Color(0xFF202123))) {
+                            profileOptions.forEach { option ->
+                                DropdownMenuItem(
+                                    text = { Text(option.second, color = if (option.first == selectedProfile) AccentBlue else TextPrimary) },
+                                    onClick = {
+                                        onSelectProfile(option.first)
+                                        showProfileSelector = false
+                                    }
+                                )
+                            }
+                        }
+                    }
+                    Box {
+                        TextButton(
                             onClick = { showModelSelector = true },
                             contentPadding = PaddingValues(horizontal = 6.dp),
-                            modifier = Modifier.widthIn(min = 92.dp, max = 156.dp)
+                            modifier = Modifier.widthIn(min = 78.dp, max = 126.dp)
                         ) {
                             Text(
                                 modelLabel,
@@ -405,7 +458,7 @@ fun CodexChatTab(
                         TextButton(
                             onClick = { showReasoningSelector = true },
                             contentPadding = PaddingValues(horizontal = 6.dp),
-                            modifier = Modifier.widthIn(min = 82.dp, max = 134.dp)
+                            modifier = Modifier.widthIn(min = 76.dp, max = 118.dp)
                         ) {
                             Text(
                                 reasoningLabel,

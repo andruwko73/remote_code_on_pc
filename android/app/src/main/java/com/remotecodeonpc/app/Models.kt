@@ -163,6 +163,7 @@ data class CodexModelsResponse(
     val models: List<CodexModel> = emptyList(),
     val selected: String = "",
     val reasoningEffort: String = "medium",
+    val profile: String = "user",
     val note: String? = null,
     val error: String? = null
 )

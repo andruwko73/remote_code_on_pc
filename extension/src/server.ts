@@ -1677,11 +1677,25 @@ export class RemoteServer {
     private profileInstruction(value?: string): string {
         switch (value) {
             case 'fast':
-                return 'Profile: fast. Prefer a concise direct answer and avoid extra exploration unless needed.';
+                return [
+                    'Profile: fast.',
+                    'You may request safe read-only terminal checks such as dir, ls, pwd, git status, git diff, git log, and diagnostics.',
+                    'The extension may auto-run clearly read-only commands.',
+                    'For file writes, patches, installs, deletes, moves, network changes, or long-running commands, request approval first.'
+                ].join(' ');
             case 'review':
-                return 'Profile: review. Prioritize concrete bugs, risks, regressions, and missing tests before general summary.';
+                return [
+                    'Profile: review/read-only.',
+                    'Prioritize concrete bugs, risks, regressions, and missing tests.',
+                    'Prefer diagnostics, reading files, and git diff/status.',
+                    'Do not request file writes or destructive terminal commands unless the user explicitly asks.'
+                ].join(' ');
             default:
-                return 'Profile: custom/user. Follow the user request and use the available VS Code context when relevant.';
+                return [
+                    'Profile: custom/user.',
+                    'Follow the user request and use the available VS Code context when relevant.',
+                    'Request approval for terminal commands, file writes, and patches before they run.'
+                ].join(' ');
         }
     }
 
@@ -2234,11 +2248,19 @@ export class RemoteServer {
     private async runApprovedCommand(command: string, cwd?: string): Promise<{ code: number; stdout: string; stderr: string }> {
         const workspace = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
         const finalCwd = cwd && path.isAbsolute(cwd) ? cwd : workspace || process.cwd();
+        const finalCommand = process.platform === 'win32'
+            ? `chcp 65001>nul & ${command}`
+            : command;
         return new Promise(resolve => {
-            const child = spawn(command, {
+            const child = spawn(finalCommand, {
                 cwd: finalCwd,
                 shell: true,
-                windowsHide: true
+                windowsHide: true,
+                env: {
+                    ...process.env,
+                    PYTHONIOENCODING: 'utf-8',
+                    PYTHONUTF8: '1'
+                }
             });
             let stdout = '';
             let stderr = '';
@@ -2405,6 +2427,7 @@ export class RemoteServer {
         if (created.length === 0) return;
         this.codexActionEvents = this.codexActionEvents.concat(created).slice(-250);
         this.saveRemoteCodeState();
+        this.refreshPcChatPanel();
         for (const event of created) {
             this.broadcast({
                 type: 'codex:approval-request',
@@ -2413,7 +2436,31 @@ export class RemoteServer {
                 events: this.getActionEventsForThread(threadId),
                 timestamp: Date.now()
             });
+            if (this.shouldAutoApproveAction(event)) {
+                void this.applyActionResponse(event.id, true);
+            }
         }
+    }
+
+    private shouldAutoApproveAction(event: RemoteCodeActionEvent): boolean {
+        if (this.selectedProfile !== 'fast') return false;
+        if (event.type !== 'command_approval' || !event.command) return false;
+        return this.isSafeReadOnlyCommand(event.command);
+    }
+
+    private isSafeReadOnlyCommand(command: string): boolean {
+        const normalized = command
+            .trim()
+            .replace(/^cmd\s+\/c\s+/i, '')
+            .replace(/^powershell(?:\.exe)?\s+(-command\s+)?/i, '')
+            .trim();
+        if (!normalized) return false;
+        const lower = normalized.toLowerCase();
+        if (/[;&|`]/.test(lower)) return false;
+        if (/\b(del|erase|rd|rmdir|rm|remove-item|move|mv|copy|cp|set-content|add-content|out-file|new-item|mkdir|ni|git\s+(?:add|commit|push|pull|reset|checkout|switch|merge|rebase|clean|apply)|npm\s+(?:install|i|update|run)|pnpm|yarn|pip|python|node)\b/i.test(lower)) {
+            return false;
+        }
+        return /^(dir|ls|pwd|cd|git\s+(status|diff|log|show|branch)(\s|$)|type\s+|cat\s+|get-content\s+)/i.test(lower);
     }
 
     private stripActionDirectives(content: string): string {
@@ -3713,7 +3760,7 @@ prompt.addEventListener('keydown', event => {
     // POST /api/codex/send
     private async handleCodexSendRealtime(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
         const body = await this.readBody(req);
-        const { message, model, threadId, attachments, reasoningEffort, includeContext } = JSON.parse(body);
+        const { message, model, threadId, attachments, reasoningEffort, includeContext, profile } = JSON.parse(body);
 
         if (!message) {
             this.jsonResponse(res, 400, { error: 'Message is required' });
@@ -3721,6 +3768,11 @@ prompt.addEventListener('keydown', event => {
         }
 
         try {
+            if (typeof profile === 'string' && ['user', 'review', 'fast'].includes(profile)) {
+                this.selectedProfile = profile;
+                this.saveRemoteCodeState();
+                this.refreshPcChatPanel();
+            }
             const targetThreadId = await this.enqueueRemoteCodeMessage(
                 message,
                 typeof model === 'string' ? model : '',
@@ -3803,12 +3855,15 @@ prompt.addEventListener('keydown', event => {
                 })),
                 selected,
                 reasoningEffort: this.selectedReasoningEffort,
+                profile: this.selectedProfile,
                 note: 'Only Codex/OpenAI-compatible VS Code models are shown.'
             });
         } catch (err: any) {
             this.jsonResponse(res, 200, {
                 models: this.getDefaultCodexModels(),
                 selected: this.selectedAgent,
+                reasoningEffort: this.selectedReasoningEffort,
+                profile: this.selectedProfile,
                 error: err.message
             });
         }

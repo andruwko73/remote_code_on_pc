@@ -63,6 +63,7 @@ data class AppUiState(
     val codexModels: List<CodexModel> = emptyList(),
     val codexSelectedModel: String = "gpt-5.5",
     val codexReasoningEffort: String = "medium",
+    val codexProfile: String = "user",
     val codexIncludeContext: Boolean = true,
     val codexChatHistory: List<CodexChatMessage> = emptyList(),
     val codexActionEvents: List<CodexActionEvent> = emptyList(),
@@ -879,7 +880,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     _uiState.value = _uiState.value.copy(
                         codexModels = body?.models ?: emptyList(),
                         codexSelectedModel = body?.selected?.takeIf { it.isNotBlank() } ?: "gpt-5.5",
-                        codexReasoningEffort = body?.reasoningEffort ?: _uiState.value.codexReasoningEffort
+                        codexReasoningEffort = body?.reasoningEffort ?: _uiState.value.codexReasoningEffort,
+                        codexProfile = body?.profile?.takeIf { it in listOf("user", "review", "fast") }
+                            ?: _uiState.value.codexProfile
                     )
                 }
             } catch (e: Exception) {
@@ -906,6 +909,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             else -> "medium"
         }
         _uiState.value = _uiState.value.copy(codexReasoningEffort = normalized)
+    }
+
+    fun selectCodexProfile(profile: String) {
+        val normalized = when (profile) {
+            "user", "review", "fast" -> profile
+            else -> "user"
+        }
+        _uiState.value = _uiState.value.copy(codexProfile = normalized)
     }
 
     fun toggleCodexContext() {
@@ -939,6 +950,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         "message" to text,
                         "model" to _uiState.value.codexSelectedModel,
                         "reasoningEffort" to _uiState.value.codexReasoningEffort,
+                        "profile" to _uiState.value.codexProfile,
                         "includeContext" to _uiState.value.codexIncludeContext,
                         "threadId" to threadId,
                         "attachments" to attachments
