@@ -12,6 +12,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.*
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -307,7 +308,7 @@ fun CodexChatTab(
                 .padding(horizontal = 12.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Text(currentThread?.title ?: "\u0414\u043E\u0440\u0430\u0431\u043E\u0442\u0430\u0442\u044C \u0443\u0434\u0430\u043B\u0451\u043D\u043D\u044B\u0439 \u0434\u043E\u0441\u0442\u0443\u043F", color = TextBright, fontSize = 16.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+            Text(currentThread?.let { threadDisplayTitle(it) } ?: "\u0414\u043E\u0440\u0430\u0431\u043E\u0442\u0430\u0442\u044C \u0443\u0434\u0430\u043B\u0451\u043D\u043D\u044B\u0439 \u0434\u043E\u0441\u0442\u0443\u043F", color = TextBright, fontSize = 16.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
             IconButton(onClick = { onLoadThreads(); showThreads = true }, modifier = Modifier.size(36.dp)) {
                 Icon(Icons.Default.MoreHoriz, contentDescription = "\u0418\u0441\u0442\u043E\u0440\u0438\u044F", tint = TextSecondary, modifier = Modifier.size(22.dp))
             }
@@ -318,27 +319,50 @@ fun CodexChatTab(
 
         if (showThreads) {
             AlertDialog(
+                modifier = Modifier.fillMaxWidth(0.94f),
                 onDismissRequest = { showThreads = false },
                 title = { Text("\u0418\u0441\u0442\u043E\u0440\u0438\u044F Codex", color = TextBright) },
                 text = {
-                    LazyColumn(modifier = Modifier.heightIn(max = 420.dp)) {
+                    LazyColumn(
+                        modifier = Modifier.fillMaxWidth().heightIn(max = 480.dp),
+                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
                         if (threads.isEmpty()) item { Text("\u041D\u0435\u0442 \u0430\u043A\u0442\u0438\u0432\u043D\u044B\u0445 \u0447\u0430\u0442\u043E\u0432", color = TextSecondary) }
                         else items(threads) { thread ->
                             Surface(color = if (thread.id == currentThreadId) Color(0xFF2A2D2E) else Color.Transparent, shape = RoundedCornerShape(6.dp), modifier = Modifier.fillMaxWidth()) {
-                                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().padding(start = 10.dp, end = 2.dp, top = 6.dp, bottom = 6.dp)) {
-                                    Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
-                                        TextButton(
-                                            onClick = { onSwitchThread(thread.id); showThreads = false },
-                                            contentPadding = PaddingValues(0.dp),
-                                            modifier = Modifier.fillMaxWidth()
-                                        ) {
-                                            Column(modifier = Modifier.fillMaxWidth()) {
-                                                Text(thread.title, color = TextPrimary, fontSize = 14.sp, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.fillMaxWidth())
-                                                Text(thread.id, color = TextSecondary, fontSize = 10.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.fillMaxWidth())
-                                            }
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clickable {
+                                            onSwitchThread(thread.id)
+                                            showThreads = false
                                         }
+                                        .padding(start = 16.dp, end = 4.dp, top = 10.dp, bottom = 10.dp)
+                                ) {
+                                    Column(modifier = Modifier.weight(1f).padding(end = 10.dp)) {
+                                        Text(
+                                            threadDisplayTitle(thread),
+                                            color = TextPrimary,
+                                            fontSize = 14.sp,
+                                            lineHeight = 18.sp,
+                                            fontWeight = FontWeight.SemiBold,
+                                            maxLines = 2,
+                                            overflow = TextOverflow.Ellipsis,
+                                            modifier = Modifier.fillMaxWidth()
+                                        )
+                                        Spacer(modifier = Modifier.height(2.dp))
+                                        Text(
+                                            threadDisplaySubtitle(thread),
+                                            color = TextSecondary,
+                                            fontSize = 11.sp,
+                                            lineHeight = 13.sp,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis,
+                                            modifier = Modifier.fillMaxWidth()
+                                        )
                                     }
-                                    IconButton(onClick = { onDeleteThread(thread.id) }, modifier = Modifier.size(34.dp)) {
+                                    IconButton(onClick = { onDeleteThread(thread.id) }, modifier = Modifier.size(40.dp)) {
                                         Icon(Icons.Outlined.Delete, contentDescription = "Удалить чат", tint = TextSecondary, modifier = Modifier.size(18.dp))
                                     }
                                 }
@@ -508,6 +532,28 @@ fun CodexChatTab(
             }
         }
     }
+}
+
+private fun threadDisplayTitle(thread: CodexThread): String {
+    val rawTitle = thread.title.trim()
+    if (rawTitle.isBlank()) return "\u041D\u043E\u0432\u044B\u0439 \u0447\u0430\u0442"
+    if (rawTitle.startsWith("rollout-", ignoreCase = true)) return "\u0421\u0435\u0441\u0441\u0438\u044F Codex"
+    if (rawTitle.startsWith("codex-file:", ignoreCase = true)) return "\u0421\u0435\u0441\u0441\u0438\u044F Codex"
+    if (rawTitle.startsWith("remote-code-", ignoreCase = true)) return "\u041D\u043E\u0432\u044B\u0439 \u0447\u0430\u0442"
+    return rawTitle.replace(Regex("\\s+"), " ")
+}
+
+private fun threadDisplaySubtitle(thread: CodexThread): String {
+    val source = when {
+        thread.id.startsWith("codex-file:", ignoreCase = true) -> "Codex Desktop"
+        thread.id.startsWith("remote-code-", ignoreCase = true) -> "Remote Code"
+        else -> "\u0427\u0430\u0442"
+    }
+    val rolloutDate = Regex("""rollout-(\d{4})-(\d{2})-(\d{2})T(\d{2})-(\d{2})""")
+        .find(thread.title)
+        ?.destructured
+        ?.let { (year, month, day, hour, minute) -> "$day.$month.$year $hour:$minute" }
+    return listOfNotNull(source, rolloutDate).joinToString(" · ")
 }
 
 @Composable
