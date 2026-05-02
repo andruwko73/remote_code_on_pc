@@ -1524,6 +1524,17 @@ export class RemoteServer {
         }
     }
 
+    private profileInstruction(value?: string): string {
+        switch (value) {
+            case 'fast':
+                return 'Profile: fast. Prefer a concise direct answer and avoid extra exploration unless needed.';
+            case 'review':
+                return 'Profile: review. Prioritize concrete bugs, risks, regressions, and missing tests before general summary.';
+            default:
+                return 'Profile: custom/user. Follow the user request and use the available VS Code context when relevant.';
+        }
+    }
+
     private async answerInPcMirror(message: string, threadId: string, model?: string, reasoningEffort?: string, includeContext: boolean = true): Promise<void> {
         const effort = this.normalizeReasoningEffort(reasoningEffort || this.selectedReasoningEffort);
         const thinking: CodexChatMessage = {
@@ -1544,7 +1555,7 @@ export class RemoteServer {
         this.broadcast({ type: 'codex:message', message: thinking, threadId, timestamp: Date.now() });
 
         const response = await this.sendToChatStreaming(
-            `${message}\n\nReasoning effort: ${this.reasoningEffortLabel(effort)} (${effort}).\nProfile: ${this.selectedProfile}.\nWork mode: ${this.selectedWorkMode}.`,
+            `${message}\n\nReasoning effort: ${this.reasoningEffortLabel(effort)} (${effort}).\n${this.profileInstruction(this.selectedProfile)}`,
             model || this.selectedAgent || 'auto',
             (content) => {
             thinking.content = this.stripActionDirectives(content || '...');
@@ -1692,6 +1703,23 @@ export class RemoteServer {
                 await this.pcChatPanel?.webview.postMessage({ type: 'appendPrompt', text: `${text}\n` });
                 return;
             }
+            case 'selectModel':
+                if (typeof msg.model === 'string' && this.getDefaultCodexModels().some(model => model.id === msg.model)) {
+                    this.selectedAgent = msg.model;
+                    this.saveRemoteCodeState();
+                    this.broadcast({ type: 'codex:model-changed', model: msg.model, timestamp: Date.now() });
+                }
+                return;
+            case 'selectEffort':
+                if (typeof msg.effort === 'string') {
+                    this.selectedReasoningEffort = this.normalizeReasoningEffort(msg.effort);
+                    this.saveRemoteCodeState();
+                }
+                return;
+            case 'toggleContext':
+                this.selectedIncludeContext = msg.includeContext !== false;
+                this.saveRemoteCodeState();
+                return;
             case 'newChat':
                 this.createRemoteCodeThread();
                 return;
@@ -2142,7 +2170,6 @@ export class RemoteServer {
     private renderPcChatHtml(messages: CodexChatMessage[], actions: RemoteCodeActionEvent[] = []): string {
         const modelOptions = this.getDefaultCodexModels();
         const selectedModel = modelOptions.some(model => model.id === this.selectedAgent) ? this.selectedAgent : 'gpt-5.5';
-        const workspaceName = vscode.workspace.workspaceFolders?.[0]?.name || 'Нет рабочей папки';
         const branchLabel = this.getGitBranchLabel();
         const title = this.getCurrentThreadTitle();
         const threadOptions = this.getRemoteCodeThreads();
@@ -2156,10 +2183,6 @@ export class RemoteServer {
             { id: 'fast', name: 'Быстрый режим' },
             { id: 'review', name: 'Проверка' },
             { id: 'user', name: 'Пользовательские' }
-        ];
-        const workModeOptions = [
-            { id: 'local', name: 'Работать локально' },
-            { id: 'workspace', name: workspaceName }
         ];
         const selectedEffort = effortOptions.some(option => option.id === this.selectedReasoningEffort)
             ? this.selectedReasoningEffort
@@ -2221,15 +2244,15 @@ svg{width:15px;height:15px;display:block;fill:none;stroke:currentColor;stroke-wi
 .toolbar-spacer{flex:1}
 .icon-btn{width:24px;height:24px;border:0;border-radius:6px;background:transparent;color:#9b9b9b;display:inline-flex;align-items:center;justify-content:center;cursor:pointer;padding:0}
 .icon-btn:hover{background:#202123;color:#ededed}
-.pill-btn{height:28px;border:1px solid #2c2f33;border-radius:8px;background:#17191b;color:#d8d8d8;padding:0 8px;cursor:pointer;display:inline-flex;align-items:center;gap:6px;font-size:13px}
-.pill-btn .mini-chev{color:#9a9a9a;margin-left:1px}
-.vscode-icon{width:17px;height:17px;color:#1688d9;stroke-width:1.8}
-.pill-btn:hover{background:#222426;color:#f1f1f1}
 .thread-menu-wrap{position:relative;min-width:0;display:flex;align-items:center;gap:6px}
 .thread-menu-btn{border:0;background:transparent;color:#f0f0f0;display:flex;align-items:center;gap:5px;min-width:0;max-width:620px;cursor:pointer;border-radius:7px;padding:4px 5px}
 .thread-menu-btn:hover,.thread-menu-wrap.open .thread-menu-btn{background:#1f2123}
 .thread-menu{display:none;position:absolute;left:0;top:32px;width:min(390px,70vw);max-height:330px;overflow:auto;background:#202123;border:1px solid #33363a;border-radius:8px;padding:5px;z-index:10;box-shadow:0 14px 40px rgba(0,0,0,.45)}
 .thread-menu-wrap.open .thread-menu{display:block}
+.top-menu-wrap{position:relative;display:inline-flex}
+.top-menu{display:none;position:absolute;right:0;top:31px;width:180px;background:#202123;border:1px solid #33363a;border-radius:8px;padding:5px;z-index:12;box-shadow:0 14px 40px rgba(0,0,0,.45)}
+.top-menu-wrap.open .top-menu{display:block}
+.top-menu .item{font-size:13px}
 .thread-item{width:100%;border:0;background:transparent;color:#d8d8d8;text-align:left;border-radius:6px;padding:7px 9px;cursor:pointer;font-size:13px}
 .thread-item:hover{background:#2b2d30}
 .thread-item.selected{background:#303337;color:#f2f2f2}
@@ -2270,7 +2293,6 @@ textarea::placeholder{color:#777}
 .dropdown#modelDrop{width:82px}
 .dropdown.effort{width:86px}
 .dropdown.profile{width:178px}
-.dropdown.workmode{width:143px}
 .dropdown-btn{height:28px;width:100%;border:0;background:transparent;color:#c7c7c7;padding:0 6px;font-size:12.5px;display:flex;align-items:center;justify-content:flex-start;gap:4px;border-radius:7px;cursor:pointer;white-space:nowrap}
 .dropdown-btn:hover,.dropdown.open .dropdown-btn{background:#343537;color:#e0e0e0}
 .dropdown-btn .label{min-width:0;overflow:hidden;text-overflow:ellipsis;flex:0 1 auto}
@@ -2304,10 +2326,15 @@ button.send:hover{background:#fff}
       ${threadOptions.map(thread => `<button class="thread-item ${thread.id === this.currentRemoteThreadId ? 'selected' : ''}" type="button" data-thread-id="${this.escapeHtml(thread.id)}">${this.escapeHtml(thread.title)}<small>${this.escapeHtml(new Date(thread.timestamp || Date.now()).toLocaleString())}</small></button>`).join('')}
     </div>
   </div>
-  <button class="icon-btn" type="button" data-action="clearChat" title="&#1054;&#1095;&#1080;&#1089;&#1090;&#1080;&#1090;&#1100; &#1095;&#1072;&#1090;">${icon.more}</button>
+  <div class="top-menu-wrap" id="topMoreDrop">
+    <button class="icon-btn" type="button" id="topMoreBtn" title="&#1052;&#1077;&#1085;&#1102;">${icon.more}</button>
+    <div class="top-menu">
+      <button class="item" type="button" data-action="clearChat">&#1054;&#1095;&#1080;&#1089;&#1090;&#1080;&#1090;&#1100; &#1095;&#1072;&#1090;</button>
+      <button class="item" type="button" data-action="openSettings">&#1053;&#1072;&#1089;&#1090;&#1088;&#1086;&#1081;&#1082;&#1080;</button>
+    </div>
+  </div>
   <div class="toolbar-spacer"></div>
   <button class="icon-btn" type="button" id="topRun" title="&#1054;&#1090;&#1087;&#1088;&#1072;&#1074;&#1080;&#1090;&#1100;">${icon.play}</button>
-  <button class="pill-btn" type="button" data-action="showUsageStatus" title="&#1055;&#1088;&#1086;&#1074;&#1077;&#1088;&#1080;&#1090;&#1100; &#1083;&#1086;&#1082;&#1072;&#1083;&#1100;&#1085;&#1099;&#1081; &#1088;&#1077;&#1078;&#1080;&#1084;">${icon.vscode}<span>VS Code</span><span class="mini-chev">${icon.chevron}</span></button>
   <button class="icon-btn" type="button" data-action="openTerminal" title="&#1058;&#1077;&#1088;&#1084;&#1080;&#1085;&#1072;&#1083;">${icon.terminal}</button>
   <button class="icon-btn" type="button" data-action="toggleLayout" title="&#1055;&#1072;&#1085;&#1077;&#1083;&#1100;">${icon.layout}</button>
 </div>
@@ -2337,10 +2364,6 @@ ${actionRows}
     </div>
   </form>
   <div class="subcontrols">
-    <div class="dropdown workmode" id="workModeDrop">
-      <button class="dropdown-btn" type="button"><span id="workModeLabel" class="label"></span><span class="chev">${icon.chevron}</span></button>
-      <div class="menu" id="workModeMenu"></div>
-    </div>
     <button class="link-btn" type="button" data-action="showBranch">${icon.branch} &#1074;&#1077;&#1090;&#1082;&#1072; ${this.escapeHtml(branchLabel)}</button>
   </div>
 </div>
@@ -2352,11 +2375,9 @@ const messages = document.getElementById('messages');
 const modelOptions = ${JSON.stringify(modelOptions)};
 const effortOptions = ${JSON.stringify(effortOptions)};
 const profileOptions = ${JSON.stringify(profileOptions)};
-const workModeOptions = ${JSON.stringify(workModeOptions)};
 let selectedModel = ${JSON.stringify(selectedModel)};
 let selectedEffort = ${JSON.stringify(selectedEffort)};
 let selectedProfile = ${JSON.stringify(this.selectedProfile)};
-let selectedWorkMode = ${JSON.stringify(this.selectedWorkMode)};
 let includeContext = ${JSON.stringify(this.selectedIncludeContext)};
 function renderDropdown(rootId, menuId, labelId, options, selected, onSelect) {
   const root = document.getElementById(rootId);
@@ -2380,20 +2401,17 @@ function renderDropdown(rootId, menuId, labelId, options, selected, onSelect) {
 function refreshControls() {
   renderDropdown('modelDrop', 'modelMenu', 'modelLabel', modelOptions, selectedModel, value => {
     selectedModel = value;
+    vscode.postMessage({ type: 'action', action: 'selectModel', model: selectedModel });
     refreshControls();
   });
   renderDropdown('effortDrop', 'effortMenu', 'effortLabel', effortOptions, selectedEffort, value => {
     selectedEffort = value;
+    vscode.postMessage({ type: 'action', action: 'selectEffort', effort: selectedEffort });
     refreshControls();
   });
   renderDropdown('profileDrop', 'profileMenu', 'profileLabel', profileOptions, selectedProfile, value => {
     selectedProfile = value;
     vscode.postMessage({ type: 'action', action: 'selectProfile', profile: selectedProfile });
-    refreshControls();
-  });
-  renderDropdown('workModeDrop', 'workModeMenu', 'workModeLabel', workModeOptions, selectedWorkMode, value => {
-    selectedWorkMode = value;
-    vscode.postMessage({ type: 'action', action: 'selectWorkMode', mode: selectedWorkMode });
     refreshControls();
   });
   document.getElementById('contextToggle').classList.toggle('off', !includeContext);
@@ -2410,6 +2428,10 @@ document.querySelector('#threadDrop .thread-menu-btn').addEventListener('click',
   event.stopPropagation();
   document.getElementById('threadDrop').classList.toggle('open');
 });
+document.getElementById('topMoreBtn').addEventListener('click', event => {
+  event.stopPropagation();
+  document.getElementById('topMoreDrop').classList.toggle('open');
+});
 document.querySelectorAll('[data-thread-id]').forEach(button => {
   button.addEventListener('click', () => {
     vscode.postMessage({ type: 'action', action: 'switchThread', threadId: button.dataset.threadId });
@@ -2422,13 +2444,18 @@ document.addEventListener('click', event => {
   if (!event.target.closest('#threadDrop')) {
     document.getElementById('threadDrop').classList.remove('open');
   }
+  if (!event.target.closest('#topMoreDrop')) {
+    document.getElementById('topMoreDrop').classList.remove('open');
+  }
 });
 document.getElementById('contextToggle').addEventListener('click', () => {
   includeContext = !includeContext;
+  vscode.postMessage({ type: 'action', action: 'toggleContext', includeContext });
   refreshControls();
 });
 document.querySelectorAll('[data-action]').forEach(button => {
   button.addEventListener('click', () => {
+    document.getElementById('topMoreDrop')?.classList.remove('open');
     vscode.postMessage({ type: 'action', action: button.dataset.action });
   });
 });
@@ -2477,7 +2504,7 @@ form.addEventListener('submit', event => {
   event.preventDefault();
   const message = prompt.value.trim();
   if (!message) return;
-  vscode.postMessage({ type: 'send', message, model: selectedModel, reasoningEffort: selectedEffort, includeContext, profile: selectedProfile, workMode: selectedWorkMode });
+  vscode.postMessage({ type: 'send', message, model: selectedModel, reasoningEffort: selectedEffort, includeContext, profile: selectedProfile });
   prompt.value = '';
   autoGrowPrompt();
 });
