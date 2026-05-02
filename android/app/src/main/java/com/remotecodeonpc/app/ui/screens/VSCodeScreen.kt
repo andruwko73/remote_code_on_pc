@@ -54,6 +54,7 @@ fun VSCodeScreen(
     onLoadCodexThreads: () -> Unit,
     onSwitchCodexThread: (String) -> Unit,
     onDeleteCodexThread: (String) -> Unit,
+    onStopCodexGeneration: () -> Unit,
     onRespondToCodexAction: (String, Boolean) -> Unit,
     onNavigateToDir: (String) -> Unit,
     onOpenFile: (String) -> Unit,
@@ -137,7 +138,9 @@ fun VSCodeScreen(
                 onLoadThreads = onLoadCodexThreads,
                 onSwitchThread = onSwitchCodexThread,
                 onDeleteThread = onDeleteCodexThread,
-                onRespondToAction = onRespondToCodexAction
+                onStopGeneration = onStopCodexGeneration,
+                onRespondToAction = onRespondToCodexAction,
+                onOpenFile = onOpenFile
             )
             1 -> FilesScreen(
                 folders = folders,

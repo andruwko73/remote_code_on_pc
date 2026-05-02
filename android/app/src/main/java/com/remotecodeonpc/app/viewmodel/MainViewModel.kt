@@ -283,6 +283,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     "codex:sent" -> {
                         // Codex Р·Р°РїСЂРѕСЃ РѕС‚РїСЂР°РІР»РµРЅ вЂ” РјРѕР¶РµРј РѕР±РЅРѕРІРёС‚СЊ СЃС‚Р°С‚СѓСЃ
                         val threadId = data["threadId"] as? String
+                        _uiState.value = _uiState.value.copy(isCodexLoading = true)
                         viewModelScope.launch {
                             loadCodexStatus()
                             loadCodexThreads(loadCurrent = false)
@@ -306,6 +307,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         val message = messageMap?.toCodexChatMessage()
                         if (message != null) {
                             upsertCodexMessage(message)
+                            _uiState.value = _uiState.value.copy(isCodexLoading = message.isStreaming)
                         } else {
                             viewModelScope.launch {
                                 loadCodexHistory(threadId)
@@ -320,6 +322,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                             ?: (data["timestamp"] as? Long)
                             ?: System.currentTimeMillis()
                         updateCodexStreamingMessage(messageId, content, timestamp)
+                        _uiState.value = _uiState.value.copy(isCodexLoading = true)
                     }
                     "codex:sessions-update" -> {
                         viewModelScope.launch {
@@ -698,7 +701,27 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 ?: 0L,
             model = this["model"] as? String,
             reasoningEffort = this["reasoningEffort"] as? String,
-            isStreaming = this["isStreaming"] as? Boolean ?: false
+            isStreaming = this["isStreaming"] as? Boolean ?: false,
+            changeSummary = (this["changeSummary"] as? Map<*, *>)?.toCodexChangeSummary()
+        )
+    }
+
+    private fun Map<*, *>.toCodexChangeSummary(): CodexChangeSummary {
+        @Suppress("UNCHECKED_CAST")
+        val rawFiles = this["files"] as? List<Map<*, *>> ?: emptyList()
+        val files = rawFiles.map { file ->
+            CodexChangeFile(
+                path = file["path"] as? String ?: "",
+                additions = (file["additions"] as? Double)?.toInt() ?: (file["additions"] as? Int) ?: 0,
+                deletions = (file["deletions"] as? Double)?.toInt() ?: (file["deletions"] as? Int) ?: 0
+            )
+        }.filter { it.path.isNotBlank() }
+        return CodexChangeSummary(
+            commit = this["commit"] as? String,
+            cwd = this["cwd"] as? String,
+            files = files,
+            additions = (this["additions"] as? Double)?.toInt() ?: (this["additions"] as? Int) ?: files.sumOf { it.additions },
+            deletions = (this["deletions"] as? Double)?.toInt() ?: (this["deletions"] as? Int) ?: files.sumOf { it.deletions }
         )
     }
 
@@ -921,12 +944,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     _uiState.value = _uiState.value.copy(
                         codexSendResult = body,
                         currentCodexThreadId = nextThreadId,
-                        isCodexLoading = false
+                        isCodexLoading = true
                     )
                     loadCodexThreads(loadCurrent = true)
                     loadCodexEvents(nextThreadId)
-                    delay(4000)
-                    loadCodexHistory(nextThreadId)
                 } else {
                     _uiState.value = _uiState.value.copy(
                         codexError = "Ошибка ${response.code()}",
@@ -1028,6 +1049,21 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     loadCodexThreads(loadCurrent = nextCurrent.isNotBlank())
                 } else {
                     _uiState.value = _uiState.value.copy(codexError = "Delete chat failed: ${response.code()}")
+                }
+            } catch (e: Exception) {
+                _uiState.value = _uiState.value.copy(codexError = e.message)
+            }
+        }
+    }
+
+    fun stopCodexGeneration() {
+        _uiState.value = _uiState.value.copy(isCodexLoading = false)
+        viewModelScope.launch {
+            try {
+                val api = ApiClient.getApi(_uiState.value.serverConfig)
+                val response = api.stopCodexGeneration()
+                if (!response.isSuccessful) {
+                    _uiState.value = _uiState.value.copy(codexError = "Stop failed: ${response.code()}")
                 }
             } catch (e: Exception) {
                 _uiState.value = _uiState.value.copy(codexError = e.message)

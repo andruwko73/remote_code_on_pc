@@ -30,6 +30,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
@@ -41,6 +44,8 @@ import com.remotecodeonpc.app.CodexStatus
 import com.remotecodeonpc.app.CodexSendResponse
 import com.remotecodeonpc.app.CodexChatMessage
 import com.remotecodeonpc.app.CodexActionEvent
+import com.remotecodeonpc.app.CodexChangeFile
+import com.remotecodeonpc.app.CodexChangeSummary
 import com.remotecodeonpc.app.CodexThread
 import com.remotecodeonpc.app.FileContent
 import com.remotecodeonpc.app.FileTreeItem
@@ -82,6 +87,7 @@ fun CodexScreen(
     onLoadThreads: () -> Unit,
     onSwitchThread: (String) -> Unit,
     onDeleteThread: (String) -> Unit,
+    onStopGeneration: () -> Unit,
     onRespondToAction: (String, Boolean) -> Unit,
     // Files callbacks (same as VSCodeScreen)
     onNavigateToDir: (String) -> Unit,
@@ -168,7 +174,9 @@ fun CodexScreen(
                 onLoadThreads = onLoadThreads,
                 onSwitchThread = onSwitchThread,
                 onDeleteThread = onDeleteThread,
-                onRespondToAction = onRespondToAction
+                onStopGeneration = onStopGeneration,
+                onRespondToAction = onRespondToAction,
+                onOpenFile = onOpenFile
             )
             1 -> FilesScreen(
                 folders = folders,
@@ -208,7 +216,9 @@ fun CodexChatTab(
     onLoadThreads: () -> Unit,
     onSwitchThread: (String) -> Unit,
     onDeleteThread: (String) -> Unit,
-    onRespondToAction: (String, Boolean) -> Unit
+    onStopGeneration: () -> Unit,
+    onRespondToAction: (String, Boolean) -> Unit,
+    onOpenFile: (String) -> Unit
 ) {
     var messageText by remember { mutableStateOf("") }
     var showModelSelector by remember { mutableStateOf(false) }
@@ -323,7 +333,7 @@ fun CodexChatTab(
         LazyColumn(state = listState, modifier = Modifier.fillMaxWidth().weight(1f).padding(horizontal = 12.dp), verticalArrangement = Arrangement.spacedBy(12.dp), contentPadding = PaddingValues(top = 16.dp, bottom = 12.dp)) {
             if (sendResult?.success == true) item { DesktopStatusLine("\u041E\u0442\u043F\u0440\u0430\u0432\u043B\u0435\u043D\u043E", AccentGreen) }
             items(actionEvents.filter { it.actionable || it.status == "pending" || it.status == "running" }.takeLast(8)) { event -> DesktopToolBlock(event, onRespondToAction) }
-            items(chatHistory) { msg -> CodexMessageBubble(msg) }
+            items(chatHistory) { msg -> CodexMessageBubble(msg, onOpenFile) }
             if (chatHistory.isEmpty() && sendResult == null && actionEvents.isEmpty()) item {
                 Column(modifier = Modifier.padding(top = 32.dp)) {
                     Text("\u0417\u0430\u043F\u0440\u043E\u0441\u0438\u0442\u0435 \u0438\u0437\u043C\u0435\u043D\u0435\u043D\u0438\u044F, \u043F\u0440\u043E\u0432\u0435\u0440\u043A\u0443 \u0438\u043B\u0438 \u0440\u0430\u0431\u043E\u0442\u0443 \u0441 \u0444\u0430\u0439\u043B\u0430\u043C\u0438.", color = TextSecondary, fontSize = 15.sp)
@@ -357,7 +367,7 @@ fun CodexChatTab(
                     maxLines = 5,
                     colors = OutlinedTextFieldDefaults.colors(focusedTextColor = TextPrimary, unfocusedTextColor = TextPrimary, focusedBorderColor = Color.Transparent, unfocusedBorderColor = Color.Transparent, focusedContainerColor = Color.Transparent, unfocusedContainerColor = Color.Transparent, cursorColor = TextPrimary),
                     keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
-                    keyboardActions = KeyboardActions(onSend = { submitMessage() })
+                    keyboardActions = KeyboardActions(onSend = { if (!isLoading) submitMessage() })
                 )
                 Row(
                     modifier = Modifier
@@ -428,8 +438,18 @@ fun CodexChatTab(
                             modifier = Modifier.size(20.dp)
                         )
                     }
-                    FilledIconButton(onClick = { submitMessage() }, enabled = messageText.isNotBlank() || attachments.isNotEmpty(), shape = CircleShape, colors = IconButtonDefaults.filledIconButtonColors(containerColor = Color(0xFF8E8E8E), disabledContainerColor = Color(0xFF3A3A3A)), modifier = Modifier.size(44.dp)) {
-                        if (isLoading) Text("...", color = Color.Black) else Icon(Icons.AutoMirrored.Filled.Send, contentDescription = "\u041E\u0442\u043F\u0440\u0430\u0432\u0438\u0442\u044C", tint = Color.Black)
+                    FilledIconButton(
+                        onClick = { if (isLoading) onStopGeneration() else submitMessage() },
+                        enabled = isLoading || messageText.isNotBlank() || attachments.isNotEmpty(),
+                        shape = CircleShape,
+                        colors = IconButtonDefaults.filledIconButtonColors(containerColor = Color(0xFF8E8E8E), disabledContainerColor = Color(0xFF3A3A3A)),
+                        modifier = Modifier.size(44.dp)
+                    ) {
+                        if (isLoading) {
+                            Icon(Icons.Default.Stop, contentDescription = "Остановить", tint = Color.Black)
+                        } else {
+                            Icon(Icons.AutoMirrored.Filled.Send, contentDescription = "\u041E\u0442\u043F\u0440\u0430\u0432\u0438\u0442\u044C", tint = Color.Black)
+                        }
                     }
                 }
             }
@@ -590,8 +610,15 @@ private fun CodexActionStrip(
 }
 
 @Composable
-private fun CodexMessageBubble(message: CodexChatMessage) {
+private fun CodexMessageBubble(
+    message: CodexChatMessage,
+    onOpenFile: (String) -> Unit
+) {
     val isUser = message.role == "user"
+    val cleanedContent = remember(message.content) { cleanMobileMessageContent(message.content) }
+    val changeSummary = remember(message.content, message.changeSummary) {
+        message.changeSummary?.takeIf { it.files.isNotEmpty() } ?: parseMobileChangeSummary(message.content)
+    }
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -614,12 +641,168 @@ private fun CodexMessageBubble(message: CodexChatMessage) {
             }
         }
         Spacer(modifier = Modifier.height(4.dp))
-        Text(
-            message.content.ifBlank { "..." },
-            color = TextPrimary,
-            fontSize = 15.sp,
-            lineHeight = 22.sp
+        HighlightedMessageText(cleanedContent.ifBlank { "..." })
+        if (changeSummary != null) {
+            Spacer(modifier = Modifier.height(10.dp))
+            MobileChangeCard(changeSummary, onOpenFile)
+        }
+    }
+}
+
+@Composable
+private fun HighlightedMessageText(text: String) {
+    Text(
+        highlightedText(text),
+        color = TextPrimary,
+        fontSize = 15.sp,
+        lineHeight = 22.sp
+    )
+}
+
+@Composable
+private fun MobileChangeCard(
+    summary: CodexChangeSummary,
+    onOpenFile: (String) -> Unit
+) {
+    var expanded by remember(summary.files) { mutableStateOf(false) }
+    val visibleFiles = if (expanded) summary.files else summary.files.take(3)
+    Surface(
+        color = Color(0xFF242526),
+        shape = RoundedCornerShape(8.dp),
+        border = BorderStroke(1.dp, Color(0xFF323437)),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(Color(0xFF2B2C2E))
+                    .padding(horizontal = 10.dp, vertical = 9.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    "Изменено ${summary.files.size} ${pluralRu(summary.files.size, "файл", "файла", "файлов")} +${summary.additions} -${summary.deletions}",
+                    color = TextPrimary,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier.weight(1f)
+                )
+                TextButton(onClick = { expanded = !expanded }, contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp)) {
+                    Text(if (expanded) "Скрыть" else "Показать", color = TextSecondary, fontSize = 12.sp)
+                }
+            }
+            visibleFiles.forEach { file ->
+                ChangeFileRow(file, onOpenFile)
+            }
+        }
+    }
+}
+
+@Composable
+private fun ChangeFileRow(
+    file: CodexChangeFile,
+    onOpenFile: (String) -> Unit
+) {
+    Surface(
+        onClick = { onOpenFile(file.path) },
+        color = Color.Transparent,
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 9.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(file.path, color = TextPrimary, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+            if (file.additions > 0) Text("+${file.additions}", color = AccentGreen, fontSize = 12.sp, fontFamily = FontFamily.Monospace)
+            if (file.deletions > 0) {
+                Spacer(modifier = Modifier.width(6.dp))
+                Text("-${file.deletions}", color = ErrorRed, fontSize = 12.sp, fontFamily = FontFamily.Monospace)
+            }
+            Icon(Icons.Default.KeyboardArrowDown, contentDescription = null, tint = TextSecondary, modifier = Modifier.size(18.dp))
+        }
+    }
+}
+
+private fun highlightedText(text: String): AnnotatedString {
+    val tokenRegex = Regex("""(`[^`]+`|C:\\[^\s`]+|(?:[\w.-]+[\\/])+[\w.@%+\-()]+|\b\d+\.\d+\.\d+\b|\b[0-9a-f]{7,40}\b|\b(?:npm run compile|vsce package|assembleDebug|lintDebug|Developer: Reload Window|200 OK)\b)""", RegexOption.IGNORE_CASE)
+    return buildAnnotatedString {
+        var index = 0
+        tokenRegex.findAll(text).forEach { match ->
+            append(text.substring(index, match.range.first))
+            val raw = match.value.trim('`')
+            val start = length
+            append(raw)
+            addStyle(
+                SpanStyle(
+                    color = TextPrimary,
+                    background = Color(0xFF2B2C2E),
+                    fontFamily = FontFamily.Monospace,
+                    fontSize = 13.sp
+                ),
+                start,
+                length
+            )
+            index = match.range.last + 1
+        }
+        append(text.substring(index))
+    }
+}
+
+private fun cleanMobileMessageContent(content: String): String {
+    val lines = content.lines()
+    val cleaned = mutableListOf<String>()
+    var index = 0
+    while (index < lines.size) {
+        val trimmed = lines[index].trim()
+        if (trimmed.matches(Regex("""::git-(stage|commit|push)\{.*}"""))) {
+            index++
+            continue
+        }
+        if (trimmed.matches(Regex("""Изменено\s+\d+\s+файл.*""", RegexOption.IGNORE_CASE))) {
+            index++
+            while (index < lines.size && isChangeFileLine(lines[index])) index++
+            continue
+        }
+        cleaned += lines[index]
+        index++
+    }
+    return cleaned.joinToString("\n").replace(Regex("\n{3,}"), "\n\n").trimEnd()
+}
+
+private fun parseMobileChangeSummary(content: String): CodexChangeSummary? {
+    val lines = content.lines()
+    val headerIndex = lines.indexOfFirst { it.trim().matches(Regex("""Изменено\s+\d+\s+файл.*""", RegexOption.IGNORE_CASE)) }
+    if (headerIndex < 0) return null
+    val files = mutableListOf<CodexChangeFile>()
+    for (line in lines.drop(headerIndex + 1)) {
+        val match = Regex("""^\s*(?:[-*•]\s*)?(.+?)\s+\+(\d+)(?:\s+-(\d+))?\s*$""").find(line) ?: break
+        val path = match.groupValues[1].trim()
+        if (!path.contains("/") && !path.contains("\\") && !path.contains(".")) break
+        files += CodexChangeFile(
+            path = path,
+            additions = match.groupValues[2].toIntOrNull() ?: 0,
+            deletions = match.groupValues.getOrNull(3)?.toIntOrNull() ?: 0
         )
+    }
+    if (files.isEmpty()) return null
+    return CodexChangeSummary(
+        files = files,
+        additions = files.sumOf { it.additions },
+        deletions = files.sumOf { it.deletions }
+    )
+}
+
+private fun isChangeFileLine(line: String): Boolean {
+    return Regex("""^\s*(?:[-*•]\s*)?.+?\s+\+\d+(?:\s+-\d+)?\s*$""").matches(line)
+}
+
+private fun pluralRu(count: Int, one: String, few: String, many: String): String {
+    val mod10 = count % 10
+    val mod100 = count % 100
+    return when {
+        mod10 == 1 && mod100 != 11 -> one
+        mod10 in 2..4 && mod100 !in 12..14 -> few
+        else -> many
     }
 }
 @Composable

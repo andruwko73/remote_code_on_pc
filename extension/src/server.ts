@@ -35,6 +35,7 @@ interface CodexChatMessage {
     isStreaming?: boolean;
     threadId?: string;
     attachments?: LocalAttachment[];
+    changeSummary?: GitChangeSummary;
 }
 
 interface RemoteCodeThreadSummary {
@@ -372,6 +373,8 @@ export class RemoteServer {
                     return this.handleRemoteCodeNewThread(req, res);
                 case pathname === '/api/codex/delete':
                     return this.handleRemoteCodeDeleteThread(req, res);
+                case pathname === '/api/codex/stop':
+                    return this.handleRemoteCodeStopGeneration(req, res);
                 case pathname === '/api/codex/launch':
                     return this.handleCodexLaunch(req, res);
 
@@ -1726,12 +1729,14 @@ export class RemoteServer {
                 cancellation.token
             );
             const cleanResponse = this.stripActionDirectives(response);
+            const changeSummary = this.getGitChangeSummaryFromMessage(cleanResponse);
             const done: CodexChatMessage = {
                 ...thinking,
                 id: `codex_assistant_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
                 content: cleanResponse,
                 timestamp: Date.now(),
-                isStreaming: false
+                isStreaming: false,
+                changeSummary
             };
             this.codexHistory = this.codexHistory.filter(m => m.id !== thinking.id).concat(done).slice(-200);
             this.createActionsFromAssistantResponse(response, threadId);
@@ -3802,6 +3807,20 @@ prompt.addEventListener('keydown', event => {
                 success: true,
                 currentThreadId: this.currentRemoteThreadId,
                 threads: this.getRemoteCodeThreads()
+            });
+        } catch (err: any) {
+            this.jsonResponse(res, 500, { success: false, error: err.message });
+        }
+    }
+
+    private async handleRemoteCodeStopGeneration(_req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
+        try {
+            const hadActiveTask = !!this.activeChatCancellation && !this.activeChatCancellation.token.isCancellationRequested;
+            this.stopActiveGeneration(false);
+            this.jsonResponse(res, 200, {
+                success: true,
+                stopped: hadActiveTask,
+                threadId: this.activeChatThreadId || this.currentRemoteThreadId
             });
         } catch (err: any) {
             this.jsonResponse(res, 500, { success: false, error: err.message });

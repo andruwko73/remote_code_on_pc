@@ -90,6 +90,9 @@ interface RemoteCodeApi {
     @POST("/api/codex/delete")
     suspend fun deleteCodexThread(@Body body: Map<String, String>): Response<Map<String, Any>>
 
+    @POST("/api/codex/stop")
+    suspend fun stopCodexGeneration(): Response<Map<String, Any>>
+
     @POST("/api/codex/launch")
     suspend fun launchCodex(): Response<CodexLaunchResponse>
 

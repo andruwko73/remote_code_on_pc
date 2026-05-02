@@ -193,7 +193,22 @@ data class CodexChatMessage(
     val model: String? = null,
     val reasoningEffort: String? = null,
     val includeContext: Boolean? = null,
-    val isStreaming: Boolean = false
+    val isStreaming: Boolean = false,
+    val changeSummary: CodexChangeSummary? = null
+)
+
+data class CodexChangeFile(
+    val path: String = "",
+    val additions: Int = 0,
+    val deletions: Int = 0
+)
+
+data class CodexChangeSummary(
+    val commit: String? = null,
+    val cwd: String? = null,
+    val files: List<CodexChangeFile> = emptyList(),
+    val additions: Int = 0,
+    val deletions: Int = 0
 )
 
 data class CodexActionEvent(
