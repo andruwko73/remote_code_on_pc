@@ -58,6 +58,20 @@ interface LocalAttachment {
     size: number;
 }
 
+interface GitChangeFile {
+    path: string;
+    additions: number;
+    deletions: number;
+}
+
+interface GitChangeSummary {
+    commit?: string;
+    cwd?: string;
+    files: GitChangeFile[];
+    additions: number;
+    deletions: number;
+}
+
 interface DiagnosticItem {
     file: string;
     line: number;
@@ -109,6 +123,12 @@ export class RemoteServer {
     private remoteCodeThreads: RemoteCodeThreadSummary[] = [];
     private currentRemoteThreadId: string = 'remote-code-default';
     private pcChatPanel?: vscode.WebviewPanel;
+    private pcChatRefreshTimer?: ReturnType<typeof setTimeout>;
+    private remoteCodeStateSaveTimer?: ReturnType<typeof setTimeout>;
+    private remoteCodeThreadsCache?: { timestamp: number; threads: RemoteCodeThreadSummary[] };
+    private gitChangeSummaryCache: Map<string, GitChangeSummary | undefined> = new Map();
+    private activeChatCancellation?: vscode.CancellationTokenSource;
+    private activeChatThreadId?: string;
     private workspaceStorageCache?: { timestamp: number; dirs: string[] };
 
     // Internet tunnel
@@ -1387,8 +1407,23 @@ export class RemoteServer {
         }
     }
 
-    private saveRemoteCodeState(): void {
-        this.remoteCodeThreads = this.getRemoteCodeThreads();
+    private saveRemoteCodeState(immediate = false): void {
+        if (!immediate) {
+            if (this.remoteCodeStateSaveTimer) return;
+            this.remoteCodeStateSaveTimer = setTimeout(() => {
+                this.remoteCodeStateSaveTimer = undefined;
+                this.persistRemoteCodeState();
+            }, 350);
+            return;
+        }
+        if (this.remoteCodeStateSaveTimer) {
+            clearTimeout(this.remoteCodeStateSaveTimer);
+            this.remoteCodeStateSaveTimer = undefined;
+        }
+        this.persistRemoteCodeState();
+    }
+
+    private persistRemoteCodeState(): void {
         void this._context.globalState.update('remote_code_history', this.codexHistory.slice(-200));
         void this._context.globalState.update('remote_code_actions', this.codexActionEvents.slice(-250));
         void this._context.globalState.update('remote_code_threads', this.remoteCodeThreads.slice(-80));
@@ -1416,6 +1451,7 @@ export class RemoteServer {
         ]
             .sort((a, b) => b.timestamp - a.timestamp)
             .slice(0, 80);
+        this.remoteCodeThreadsCache = undefined;
     }
 
     private toCodexThreadId(codexId: string): string {
@@ -1427,6 +1463,9 @@ export class RemoteServer {
     }
 
     private getRemoteCodeThreads(): RemoteCodeThreadSummary[] {
+        if (this.remoteCodeThreadsCache && Date.now() - this.remoteCodeThreadsCache.timestamp < 5000) {
+            return this.remoteCodeThreadsCache.threads;
+        }
         const byThread = new Map<string, RemoteCodeThreadSummary>();
         for (const thread of this.remoteCodeThreads) {
             if (!thread?.id) continue;
@@ -1465,7 +1504,9 @@ export class RemoteServer {
                 source: this.currentRemoteThreadId.startsWith('codex-file:') ? 'codex' : 'remote'
             });
         }
-        return Array.from(byThread.values()).sort((a, b) => b.timestamp - a.timestamp);
+        const threads = Array.from(byThread.values()).sort((a, b) => b.timestamp - a.timestamp);
+        this.remoteCodeThreadsCache = { timestamp: Date.now(), threads };
+        return threads;
     }
 
     private getMessagesForRemoteThread(threadId: string, limit = 120): CodexChatMessage[] {
@@ -1530,7 +1571,8 @@ export class RemoteServer {
         message: string,
         agentName: string,
         onChunk?: (content: string) => void,
-        includeContext: boolean = true
+        includeContext: boolean = true,
+        cancellationToken?: vscode.CancellationToken
     ): Promise<string> {
         // Используем VS Code LanguageModel API для отправки в Copilot Chat
         try {
@@ -1589,10 +1631,13 @@ export class RemoteServer {
             ];
 
             // Отправляем запрос и собираем стриминг-ответ
-            const response = await model.sendRequest(messages, {});
+            const response = await model.sendRequest(messages, {}, cancellationToken);
 
             let result = '';
             for await (const chunk of response.text) {
+                if (cancellationToken?.isCancellationRequested) {
+                    throw new Error('cancelled');
+                }
                 result += chunk;
                 onChunk?.(result);
             }
@@ -1631,6 +1676,10 @@ export class RemoteServer {
 
     private async answerInPcMirror(message: string, threadId: string, model?: string, reasoningEffort?: string, includeContext: boolean = true): Promise<void> {
         const effort = this.normalizeReasoningEffort(reasoningEffort || this.selectedReasoningEffort);
+        this.stopActiveGeneration(false);
+        const cancellation = new vscode.CancellationTokenSource();
+        this.activeChatCancellation = cancellation;
+        this.activeChatThreadId = threadId;
         const thinking: CodexChatMessage = {
             id: `codex_assistant_thinking_${Date.now()}`,
             role: 'assistant',
@@ -1648,38 +1697,66 @@ export class RemoteServer {
         this.refreshPcChatPanel();
         this.broadcast({ type: 'codex:message', message: thinking, threadId, timestamp: Date.now() });
 
-        const response = await this.sendToChatStreaming(
-            `${message}\n\nReasoning effort: ${this.reasoningEffortLabel(effort)} (${effort}).\n${this.profileInstruction(this.selectedProfile)}`,
-            model || this.selectedAgent || 'auto',
-            (content) => {
-            thinking.content = this.stripActionDirectives(content || '...');
-            thinking.timestamp = Date.now();
-            this.codexHistory = this.codexHistory.map(m => m.id === thinking.id ? { ...thinking } : m);
+        try {
+            const response = await this.sendToChatStreaming(
+                `${message}\n\nReasoning effort: ${this.reasoningEffortLabel(effort)} (${effort}).\n${this.profileInstruction(this.selectedProfile)}`,
+                model || this.selectedAgent || 'auto',
+                (content) => {
+                thinking.content = this.stripActionDirectives(content || '...');
+                thinking.timestamp = Date.now();
+                this.codexHistory = this.codexHistory.map(m => m.id === thinking.id ? { ...thinking } : m);
+                this.saveRemoteCodeState();
+                this.refreshPcChatPanel();
+                this.broadcast({
+                    type: 'codex:chunk',
+                    messageId: thinking.id,
+                    content: thinking.content,
+                    threadId,
+                    timestamp: thinking.timestamp
+                });
+            },
+                includeContext,
+                cancellation.token
+            );
+            const cleanResponse = this.stripActionDirectives(response);
+            const done: CodexChatMessage = {
+                ...thinking,
+                id: `codex_assistant_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+                content: cleanResponse,
+                timestamp: Date.now(),
+                isStreaming: false
+            };
+            this.codexHistory = this.codexHistory.filter(m => m.id !== thinking.id).concat(done).slice(-200);
+            this.createActionsFromAssistantResponse(response, threadId);
             this.saveRemoteCodeState();
             this.refreshPcChatPanel();
-            this.broadcast({
-                type: 'codex:chunk',
-                messageId: thinking.id,
-                content: thinking.content,
-                threadId,
-                timestamp: thinking.timestamp
-            });
-        },
-            includeContext
-        );
-        const cleanResponse = this.stripActionDirectives(response);
-        const done: CodexChatMessage = {
-            ...thinking,
-            id: `codex_assistant_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
-            content: cleanResponse,
-            timestamp: Date.now(),
-            isStreaming: false
-        };
-        this.codexHistory = this.codexHistory.filter(m => m.id !== thinking.id).concat(done).slice(-200);
-        this.createActionsFromAssistantResponse(response, threadId);
-        this.saveRemoteCodeState();
-        this.refreshPcChatPanel();
-        this.broadcast({ type: 'codex:message', message: done, threadId, timestamp: Date.now() });
+            this.broadcast({ type: 'codex:message', message: done, threadId, timestamp: Date.now() });
+        } catch (err: any) {
+            if (cancellation.token.isCancellationRequested || err?.message === 'cancelled') {
+                const stopped: CodexChatMessage = {
+                    ...thinking,
+                    id: `codex_assistant_stopped_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+                    content: thinking.content && thinking.content !== '...'
+                        ? `${thinking.content}\n\nОстановлено.`
+                        : 'Остановлено.',
+                    timestamp: Date.now(),
+                    isStreaming: false
+                };
+                this.codexHistory = this.codexHistory.filter(m => m.id !== thinking.id).concat(stopped).slice(-200);
+                this.saveRemoteCodeState();
+                this.refreshPcChatPanel(true);
+                this.broadcast({ type: 'codex:message', message: stopped, threadId, timestamp: Date.now() });
+                return;
+            }
+            throw err;
+        } finally {
+            if (this.activeChatCancellation === cancellation) {
+                this.activeChatCancellation = undefined;
+                this.activeChatThreadId = undefined;
+            }
+            cancellation.dispose();
+            this.refreshPcChatPanel(true);
+        }
     }
 
     private async enqueueRemoteCodeMessage(
@@ -1778,12 +1855,38 @@ export class RemoteServer {
             }
         });
         this.pcChatPanel.onDidDispose(() => {
+            if (this.pcChatRefreshTimer) {
+                clearTimeout(this.pcChatRefreshTimer);
+                this.pcChatRefreshTimer = undefined;
+            }
+            if (this.remoteCodeStateSaveTimer) {
+                clearTimeout(this.remoteCodeStateSaveTimer);
+                this.remoteCodeStateSaveTimer = undefined;
+                this.persistRemoteCodeState();
+            }
             this.pcChatPanel = undefined;
         });
-        this.refreshPcChatPanel();
+        this.refreshPcChatPanel(true);
     }
 
-    private refreshPcChatPanel(): void {
+    private refreshPcChatPanel(immediate = false): void {
+        if (!this.pcChatPanel) return;
+        if (immediate) {
+            if (this.pcChatRefreshTimer) {
+                clearTimeout(this.pcChatRefreshTimer);
+                this.pcChatRefreshTimer = undefined;
+            }
+            this.renderPcChatPanelNow();
+            return;
+        }
+        if (this.pcChatRefreshTimer) return;
+        this.pcChatRefreshTimer = setTimeout(() => {
+            this.pcChatRefreshTimer = undefined;
+            this.renderPcChatPanelNow();
+        }, 180);
+    }
+
+    private renderPcChatPanelNow(): void {
         if (!this.pcChatPanel) return;
         const messages = this.getMessagesForRemoteThread(this.currentRemoteThreadId, 80)
             .filter(m => m.role !== 'system');
@@ -1902,9 +2005,46 @@ export class RemoteServer {
             case 'showBranch':
                 await vscode.window.showInformationMessage(`Ветка Remote Code: ${this.getGitBranchLabel()}`);
                 return;
+            case 'openChangeFile':
+                if (typeof msg.path === 'string' && msg.path.trim()) {
+                    await this.openChangeFile(msg.path);
+                }
+                return;
+            case 'reviewChangeBlock':
+                await vscode.commands.executeCommand('workbench.view.scm');
+                if (typeof msg.commit === 'string' && msg.commit.trim()) {
+                    await vscode.window.setStatusBarMessage(`Remote Code: изменения коммита ${msg.commit.trim()} показаны в блоке чата`, 1800);
+                }
+                return;
+            case 'stopGeneration':
+                this.stopActiveGeneration(true);
+                return;
             default:
                 await vscode.window.showInformationMessage(`Remote Code: ${action}`);
         }
+    }
+
+    private stopActiveGeneration(showStatus: boolean): void {
+        if (!this.activeChatCancellation || this.activeChatCancellation.token.isCancellationRequested) {
+            if (showStatus) void vscode.window.setStatusBarMessage('Remote Code: сейчас нет активной задачи', 1400);
+            return;
+        }
+        this.activeChatCancellation.cancel();
+        if (showStatus) void vscode.window.setStatusBarMessage('Remote Code: задача остановлена', 1800);
+        this.refreshPcChatPanel(true);
+    }
+
+    private async openChangeFile(filePath: string): Promise<void> {
+        const workspace = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+        const absolute = path.isAbsolute(filePath)
+            ? filePath
+            : path.resolve(workspace || process.cwd(), filePath);
+        if (!fs.existsSync(absolute)) {
+            await vscode.window.showWarningMessage(`Remote Code: файл не найден: ${absolute}`);
+            return;
+        }
+        const document = await vscode.workspace.openTextDocument(absolute);
+        await vscode.window.showTextDocument(document, { preview: true });
     }
 
     private async showLocalUsageStatus(): Promise<void> {
@@ -2294,6 +2434,7 @@ export class RemoteServer {
         const branchLabel = this.getGitBranchLabel();
         const title = this.getCurrentThreadTitle();
         const threadOptions = this.getRemoteCodeThreads();
+        const isBusy = !!this.activeChatCancellation && !this.activeChatCancellation.token.isCancellationRequested;
         const effortOptions = [
             { id: 'low', name: 'Низкий' },
             { id: 'medium', name: 'Средний' },
@@ -2317,6 +2458,7 @@ export class RemoteServer {
             plus: '<svg viewBox="0 0 24 24"><path d="M12 5v14"/><path d="M5 12h14"/></svg>',
             chevron: '<svg viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg>',
             send: '<svg viewBox="0 0 24 24"><path d="M12 19V5"/><path d="m5 12 7-7 7 7"/></svg>',
+            stop: '<svg viewBox="0 0 24 24"><rect x="7" y="7" width="10" height="10" rx="1.5"/></svg>',
             sparkle: '<svg viewBox="0 0 24 24"><path d="M12 3 14.2 9.8 21 12l-6.8 2.2L12 21l-2.2-6.8L3 12l6.8-2.2Z"/></svg>',
             branch: '<svg viewBox="0 0 24 24"><path d="M6 3v12"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="6" r="3"/><path d="M8.5 15.5 18 6"/></svg>',
             copy: '<svg viewBox="0 0 24 24"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>',
@@ -2401,11 +2543,16 @@ svg{width:15px;height:15px;display:block;fill:none;stroke:currentColor;stroke-wi
 .change-card{margin:10px 0;background:#242526;border:1px solid #323437;border-radius:8px;overflow:hidden;color:#dcdcdc}
 .change-head{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:8px 10px;background:#2b2c2e;border-bottom:1px solid #37393d;font-weight:600}
 .change-summary{color:#dcdcdc}
-.change-row{display:flex;align-items:center;gap:10px;padding:8px 10px;border-top:1px solid #303235}
+.change-actions{display:flex;align-items:center;gap:8px;color:#9b9b9b;font-weight:500}
+.change-action{border:0;background:transparent;color:#9b9b9b;padding:2px 4px;border-radius:5px;cursor:pointer;font:inherit;font-size:12.5px}
+.change-action:hover{background:#37393d;color:#e8e8e8}
+.change-row{display:flex;align-items:center;gap:10px;padding:8px 10px;border:0;border-top:1px solid #303235;background:transparent;color:#dcdcdc;width:100%;text-align:left;cursor:pointer;font:inherit}
+.change-row:hover{background:#2c2d30}
 .change-row:first-of-type{border-top:0}
 .change-path{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .delta{font-family:var(--vscode-editor-font-family, monospace);font-size:12px}
 .delta.plus{color:#38c172}.delta.minus{color:#ff6b6b}
+.change-card.collapsed .change-row:nth-of-type(n+4){display:none}
 pre{margin:0;white-space:pre-wrap;word-wrap:break-word;font:inherit}
 .msg-tools{position:absolute;right:2px;bottom:0;display:flex;gap:4px;opacity:0;transform:translateY(2px);transition:opacity .12s ease, transform .12s ease}
 .msg:hover .msg-tools{opacity:1;transform:translateY(0)}
@@ -2453,6 +2600,8 @@ textarea::placeholder{color:#777}
 .item.selected{color:#f1f1f1;background:#313438}
 button.send{border:0;border-radius:999px;background:#d9d9d9;color:#111;width:34px;height:34px;min-width:34px;max-width:34px;aspect-ratio:1/1;display:inline-flex;align-items:center;justify-content:center;cursor:pointer;white-space:nowrap;padding:0;flex:0 0 34px;margin-left:4px}
 button.send:hover{background:#fff}
+button.send.stop{background:#f0f0f0;color:#111}
+button.send.stop:hover{background:#fff}
 .link-btn{border:0;background:transparent;color:#8e8e8e;cursor:pointer;padding:3px 0;display:inline-flex;align-items:center;gap:5px}
 .link-btn:hover{color:#d0d0d0}
 @media (max-width: 680px){.top{padding:0 10px}.messages{padding-left:14px;padding-right:14px}.composer-wrap{padding-left:8px;padding-right:8px}.controls{flex-wrap:wrap}button.send{margin-left:auto}.subcontrols{gap:8px;flex-wrap:wrap}.dropdown.profile{flex-basis:132px}}
@@ -2505,7 +2654,7 @@ ${actionRows}
         <button class="dropdown-btn" type="button"><span id="effortLabel" class="label"></span><span class="chev">${icon.chevron}</span></button>
         <div class="menu" id="effortMenu"></div>
       </div>
-      <button class="send" id="send" type="submit" title="&#1054;&#1090;&#1087;&#1088;&#1072;&#1074;&#1080;&#1090;&#1100;">${icon.send}</button>
+      <button class="send ${isBusy ? 'stop' : ''}" id="send" type="${isBusy ? 'button' : 'submit'}" title="${isBusy ? 'Остановить' : 'Отправить'}">${isBusy ? icon.stop : icon.send}</button>
     </div>
   </form>
   <div class="subcontrols">
@@ -2524,6 +2673,7 @@ let selectedModel = ${JSON.stringify(selectedModel)};
 let selectedEffort = ${JSON.stringify(selectedEffort)};
 let selectedProfile = ${JSON.stringify(this.selectedProfile)};
 let attachedFiles = [];
+const isBusy = ${JSON.stringify(isBusy)};
 const includeContext = true;
 function formatBytes(bytes) {
   if (!bytes || bytes < 1) return '';
@@ -2649,6 +2799,11 @@ document.querySelectorAll('[data-action-id]').forEach(button => {
   });
 });
 document.getElementById('topRun').addEventListener('click', () => form.requestSubmit());
+document.getElementById('send').addEventListener('click', event => {
+  if (!isBusy) return;
+  event.preventDefault();
+  vscode.postMessage({ type: 'action', action: 'stopGeneration' });
+});
 window.addEventListener('message', event => {
   const data = event.data || {};
   if (data.type === 'appendPrompt' && typeof data.text === 'string') {
@@ -2718,8 +2873,31 @@ document.querySelectorAll('.message-tool').forEach(button => {
     }
   });
 });
+document.querySelectorAll('.change-row').forEach(button => {
+  button.addEventListener('click', event => {
+    const row = event.currentTarget;
+    vscode.postMessage({ type: 'action', action: 'openChangeFile', path: row.dataset.path || '' });
+  });
+});
+document.querySelectorAll('.change-action').forEach(button => {
+  button.addEventListener('click', event => {
+    const action = event.currentTarget.dataset.changeAction;
+    const card = event.currentTarget.closest('.change-card');
+    if (action === 'toggle') {
+      card?.classList.toggle('collapsed');
+      return;
+    }
+    if (action === 'review') {
+      vscode.postMessage({ type: 'action', action: 'reviewChangeBlock', commit: card?.dataset.commit || '' });
+    }
+  });
+});
 form.addEventListener('submit', event => {
   event.preventDefault();
+  if (isBusy) {
+    vscode.postMessage({ type: 'action', action: 'stopGeneration' });
+    return;
+  }
   const message = prompt.value.trim();
   if (!message && attachedFiles.length === 0) return;
   vscode.postMessage({ type: 'send', message, attachments: attachedFiles, model: selectedModel, reasoningEffort: selectedEffort, includeContext, profile: selectedProfile });
@@ -2729,7 +2907,8 @@ form.addEventListener('submit', event => {
   autoGrowPrompt();
 });
 prompt.addEventListener('keydown', event => {
-  if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) {
+  if (event.key === 'Enter' && !event.shiftKey && !event.isComposing) {
+    event.preventDefault();
     form.requestSubmit();
   }
 });
@@ -2749,9 +2928,15 @@ prompt.addEventListener('keydown', event => {
     }
 
     private renderMessageContent(content: string): string {
-        const lines = content.replace(/\r\n/g, '\n').split('\n');
+        const gitSummary = this.getGitChangeSummaryFromMessage(content);
+        const cleanedContent = content
+            .replace(/^\s*::git-(?:stage|commit|push)\{[^\n]*\}\s*$/gmi, '')
+            .replace(/\n{3,}/g, '\n\n')
+            .trimEnd();
+        const lines = cleanedContent.replace(/\r\n/g, '\n').split('\n');
         const chunks: string[] = [];
         let buffer: string[] = [];
+        let renderedExplicitChanges = false;
         const flush = () => {
             if (buffer.length === 0) return;
             chunks.push(buffer.map(line => this.renderInlineContent(line)).join('\n'));
@@ -2775,7 +2960,8 @@ prompt.addEventListener('keydown', event => {
                 }
                 if (changes.length > 0) {
                     flush();
-                    chunks.push(this.renderChangeCard(header, changes));
+                    chunks.push(this.renderExplicitChangeCard(header, changes));
+                    renderedExplicitChanges = true;
                     i = j - 1;
                     continue;
                 }
@@ -2783,6 +2969,9 @@ prompt.addEventListener('keydown', event => {
             buffer.push(header);
         }
         flush();
+        if (gitSummary && !renderedExplicitChanges) {
+            chunks.push(this.renderGitChangeCard(gitSummary));
+        }
         return chunks.join('\n');
     }
 
@@ -2794,16 +2983,130 @@ prompt.addEventListener('keydown', event => {
         return { path: filePath, plus: match[2], minus: match[3] };
     }
 
-    private renderChangeCard(header: string, changes: Array<{ path: string; plus?: string; minus?: string }>): string {
-        const rows = changes.map(change => `<div class="change-row">
-            <span class="change-path">${this.escapeHtml(change.path)}</span>
-            ${change.plus ? `<span class="delta plus">${this.escapeHtml(change.plus)}</span>` : ''}
-            ${change.minus ? `<span class="delta minus">${this.escapeHtml(change.minus)}</span>` : ''}
-        </div>`).join('');
-        return `<div class="change-card">
-            <div class="change-head"><span class="change-summary">${this.renderInlineContent(header)}</span></div>
+    private renderExplicitChangeCard(header: string, changes: Array<{ path: string; plus?: string; minus?: string }>): string {
+        const rows = changes.map(change => this.renderChangeRow({
+            path: change.path,
+            additions: this.parseDelta(change.plus),
+            deletions: Math.abs(this.parseDelta(change.minus))
+        })).join('');
+        return `<div class="change-card collapsed">
+            <div class="change-head">
+                <span class="change-summary">${this.renderInlineContent(header)}</span>
+                <span class="change-actions">
+                    <button type="button" class="change-action" data-change-action="review">Проверить</button>
+                    <button type="button" class="change-action" data-change-action="toggle">↕</button>
+                </span>
+            </div>
             ${rows}
         </div>`;
+    }
+
+    private renderGitChangeCard(summary: GitChangeSummary): string {
+        const fileWord = this.pluralRu(summary.files.length, 'файл', 'файла', 'файлов');
+        const header = `Изменено ${summary.files.length} ${fileWord} +${summary.additions} -${summary.deletions}`;
+        const rows = summary.files.map(file => this.renderChangeRow(file)).join('');
+        return `<div class="change-card collapsed" data-commit="${this.escapeHtml(summary.commit || '')}">
+            <div class="change-head">
+                <span class="change-summary">${this.escapeHtml(header)}</span>
+                <span class="change-actions">
+                    <button type="button" class="change-action" data-change-action="review">Проверить</button>
+                    <button type="button" class="change-action" data-change-action="toggle">↕</button>
+                </span>
+            </div>
+            ${rows}
+        </div>`;
+    }
+
+    private renderChangeRow(change: GitChangeFile): string {
+        return `<button type="button" class="change-row" data-path="${this.escapeHtml(change.path)}">
+            <span class="change-path">${this.escapeHtml(change.path)}</span>
+            ${change.additions ? `<span class="delta plus">+${this.escapeHtml(String(change.additions))}</span>` : ''}
+            ${change.deletions ? `<span class="delta minus">-${this.escapeHtml(String(change.deletions))}</span>` : ''}
+            <span class="chev">⌄</span>
+        </button>`;
+    }
+
+    private parseDelta(value?: string): number {
+        if (!value) return 0;
+        const parsed = Number(value.replace(/[+-]/g, ''));
+        return Number.isFinite(parsed) ? parsed : 0;
+    }
+
+    private pluralRu(count: number, one: string, few: string, many: string): string {
+        const mod10 = count % 10;
+        const mod100 = count % 100;
+        if (mod10 === 1 && mod100 !== 11) return one;
+        if (mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)) return few;
+        return many;
+    }
+
+    private getGitChangeSummaryFromMessage(content: string): GitChangeSummary | undefined {
+        if (!/::git-(?:stage|commit|push)\{/.test(content)) return undefined;
+        const commit = this.extractCommitHash(content) || 'HEAD';
+        const cwd = this.extractDirectiveCwd(content) || vscode.workspace.workspaceFolders?.[0]?.uri.fsPath || process.cwd();
+        const key = `${cwd}:${commit}`;
+        if (this.gitChangeSummaryCache.has(key)) {
+            return this.gitChangeSummaryCache.get(key);
+        }
+        const summary = this.readGitChangeSummary(commit, cwd);
+        this.gitChangeSummaryCache.set(key, summary);
+        if (this.gitChangeSummaryCache.size > 40) {
+            const first = this.gitChangeSummaryCache.keys().next().value;
+            if (first) this.gitChangeSummaryCache.delete(first);
+        }
+        return summary;
+    }
+
+    private extractCommitHash(content: string): string | undefined {
+        const explicit = content.match(/(?:Commit|Коммит):\s*`?([0-9a-f]{7,40})`?/i);
+        if (explicit?.[1]) return explicit[1];
+        return undefined;
+    }
+
+    private extractDirectiveCwd(content: string): string | undefined {
+        const match = content.match(/::git-(?:stage|commit|push)\{[^}]*cwd="([^"]+)"/);
+        if (!match?.[1]) return undefined;
+        return match[1].replace(/\\\\/g, '\\');
+    }
+
+    private readGitChangeSummary(commit: string, cwd: string): GitChangeSummary | undefined {
+        try {
+            const safeCommit = /^[0-9a-f]{7,40}$/i.test(commit) ? commit : 'HEAD';
+            const finalCwd = cwd && path.isAbsolute(cwd) && fs.existsSync(cwd)
+                ? cwd
+                : vscode.workspace.workspaceFolders?.[0]?.uri.fsPath || process.cwd();
+            const output = execSync(`git show --numstat --format= --find-renames ${safeCommit}`, {
+                cwd: finalCwd,
+                encoding: 'utf8',
+                timeout: 2500,
+                windowsHide: true
+            }).trim();
+            const files: GitChangeFile[] = [];
+            for (const line of output.split(/\r?\n/)) {
+                const parts = line.split('\t');
+                if (parts.length < 3) continue;
+                const additions = Number(parts[0]);
+                const deletions = Number(parts[1]);
+                const filePath = parts.slice(2).join('\t').trim();
+                if (!filePath) continue;
+                if (!Number.isFinite(additions) || !Number.isFinite(deletions)) continue;
+                files.push({
+                    path: filePath,
+                    additions,
+                    deletions
+                });
+            }
+            if (files.length === 0) return undefined;
+            return {
+                commit: safeCommit,
+                cwd: finalCwd,
+                files,
+                additions: files.reduce((sum, file) => sum + file.additions, 0),
+                deletions: files.reduce((sum, file) => sum + file.deletions, 0)
+            };
+        } catch {
+            return undefined;
+        }
     }
 
     private renderInlineContent(value: string): string {
