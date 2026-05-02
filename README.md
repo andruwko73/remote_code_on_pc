@@ -1,261 +1,487 @@
-# Remote Code on PC 🚀
+# Remote Code on PC
 
-**Удаленное управление VS Code и OpenAI Codex с Android-телефона**
+Remote Code on PC связывает Android-приложение с расширением VS Code на Windows-ПК. Телефон становится удаленным интерфейсом к рабочему окну VS Code: можно писать в единый чат Remote Code Agent, прикреплять файлы и скриншоты, просматривать историю, открывать файлы проекта, запускать действия после подтверждения и получать потоковые ответы через WebSocket.
 
-Android-приложение для подключения к VS Code на Windows ПК. Позволяет управлять файлами, общаться с AI-агентами (GitHub Copilot), работать с OpenAI Codex, просматривать ошибки и запускать команды прямо с телефона — **по локальной сети или через интернет**.
+Проект сейчас состоит из двух основных частей:
 
-## 📱 Возможности
+- `extension/` - расширение VS Code с HTTP/WebSocket сервером, webview-чатом и Remote Code Agent.
+- `android/` - Android APK на Kotlin/Jetpack Compose.
 
-| Функция | Описание |
-|---|---|
-| 💬 **Чат с AI Copilot** | Отправка сообщений в Copilot Chat, выбор агента (Ask, Explain, Fix, Review, Explore и др.) |
-| 🤖 **OpenAI Codex** | Отдельный экран для Codex: выбор модели, отправка запросов, управление тредами |
-| 📂 **Файловый менеджер** | Просмотр дерева папок, открытие/чтение файлов с подсветкой синтаксиса |
-| 🔍 **Ошибки** | Мониторинг диагностики VS Code — ошибки и предупреждения проекта |
-| ⚡ **Терминал** | Отправка команд в терминал VS Code |
-| 🌐 **Интернет-доступ** | Встроенная поддержка ngrok для подключения из любой точки мира |
-| 🖥 **Статус** | Информация о VS Code — версия, открытые папки, активный файл |
+Актуальные артефакты:
 
-## 🔧 Быстрый старт
+- APK: `apk/app-debug.apk`, версия `1.0.42`.
+- VSIX: `extension/remote-code-on-pc-1.1.37.vsix`, версия `1.1.37`.
+- APK raw URL: https://raw.githubusercontent.com/andruwko73/remote_code_on_pc/main/apk/app-debug.apk
+- VSIX raw URL: https://raw.githubusercontent.com/andruwko73/remote_code_on_pc/main/extension/remote-code-on-pc-1.1.37.vsix
+- Порт по умолчанию: `8799`.
 
-### 1. Расширение VS Code
+После установки нового VSIX в уже открытом VS Code нужно выполнить `Developer: Reload Window`, иначе активное окно может продолжить работать на старой версии расширения.
 
-```bash
-cd extension
-npm install
-npm run compile   # или: npx tsc -p ./
+## Что работает
+
+### Расширение VS Code
+
+Расширение запускает локальный сервер и открывает окно `Remote Code`, похожее на чат Codex. Оно отвечает за связь с телефоном, хранение истории Remote Code, работу с VS Code Language Model API и выполнение подтвержденных действий.
+
+Основные возможности:
+
+- единый чат в VS Code и на телефоне;
+- потоковая генерация ответа;
+- история Remote Code-чатов и частичная загрузка найденных Codex Desktop session-файлов;
+- выбор модели из Codex/OpenAI-совместимого списка;
+- выбор усилия рассуждения: `Низкий`, `Средний`, `Высокий`, `Очень высокий`;
+- профили работы: `Пользовательские`, `Проверка`, `Быстрый режим`;
+- отправка файлов из VS Code через кнопку `+`;
+- вставка файлов и изображений через `Ctrl+V` в composer webview;
+- прием файлов и скриншотов с телефона;
+- отправка изображений в модель как image data part, если это поддерживает выбранная модель VS Code;
+- показ измененных файлов в карточке изменений;
+- открытие файла из карточки изменений;
+- открытие SCM/проверки изменений;
+- запуск терминала VS Code;
+- показ диагностики VS Code;
+- подтверждения действий `approve/deny` на ПК и телефоне;
+- запуск терминальных команд только после подтверждения, кроме явно безопасных read-only команд в быстром профиле;
+- запись/патч файлов только после подтверждения;
+- кнопка остановки генерации во время активного ответа;
+- внешний доступ через ngrok или cloudflared;
+- токен авторизации через настройку `remoteCodeOnPC.authToken`;
+- live sync через WebSocket.
+
+### Android APK
+
+Приложение подключается к серверу расширения по локальной сети или по публичному URL туннеля. Интерфейс сделан компактно, ближе к Codex: верхняя навигация `CODEX / ФАЙЛЫ`, история чатов, composer с моделью, усилием, вложениями, голосовым вводом и кнопкой отправки/стоп.
+
+Основные возможности:
+
+- подключение по IP/порту;
+- подключение через публичный URL;
+- поддержка токена доступа;
+- автообновление APK из GitHub;
+- отправка логов и очистка логов;
+- отображение версии APK и версии VS Code-сервера;
+- чат Remote Code Agent;
+- история чатов с удалением;
+- создание нового чата кнопкой-карандашом;
+- выбор модели и усилия;
+- выбор профиля работы;
+- включение/выключение IDE-контекста;
+- отправка текста по кнопке отправки или через IME action клавиатуры;
+- кнопка стоп во время генерации;
+- прикрепление файлов и скриншотов;
+- отправка вложений base64 в `/api/codex/send`;
+- голосовой ввод через системный `RecognizerIntent`;
+- отображение action-карточек с `Разрешить`/`Отклонить`;
+- просмотр файлов проекта во вкладке `ФАЙЛЫ`;
+- compact settings screen для локальной сети, внешней сети, токена и обновлений.
+
+## Ограничения и важные замечания ревью
+
+Это собственный Remote Code Agent, а не встроенная копия официального Codex Desktop. Расширение использует VS Code Language Model API и собственные директивы действий:
+
+- `::run-command{...}` - запрос запуска команды;
+- `::read-file{...}` - запрос чтения файла;
+- `::show-diagnostics{}` - запрос диагностики;
+- `::write-file{...}` - запрос записи файла;
+- `::apply-patch{...}` - запрос применения patch.
+
+Из-за этого:
+
+- модель не имеет всех внутренних инструментов настольного Codex автоматически;
+- поведение approve/deny, diff, stdout/stderr и карточек действий реализовано в этом проекте отдельно;
+- для полного Codex-уровня нужно дальше усиливать передачу истории диалога в запрос модели, работу с diff, интерактивные изменения и тестирование всех кнопок на реальном UI;
+- после установки расширения всегда нужен reload активного окна VS Code;
+- если телефон показывает старую ошибку туннеля или старый интерфейс, почти всегда активное окно VS Code еще не подхватило новый VSIX.
+
+Технические хвосты, найденные ревью:
+
+- В `android/app/src/main/java/com/remotecodeonpc/app/RemoteCodeApp.kt` рядом существуют старая `SettingsScreen` и новая `SettingsScreenV2`; внутри `SettingsScreenV2` остался временный `if (true)` и недостижимый старый блок настроек. Это не ломает сборку, но усложняет поддержку.
+- В `android/app/src/main/java/com/remotecodeonpc/app/viewmodel/MainViewModel.kt` у `startTunnel()` есть ранний `return` на `startTunnelImproved()`, а старый код ниже стал недостижимым. Его стоит удалить в отдельной чистящей правке.
+- В `extension/src/server.ts` запрос в модель сейчас строится вокруг текущего сообщения, workspace context и вложений; прошлые реплики хранятся в UI, но не передаются в модель как полноценная история Codex-разговора. Это снижает качество длинных многошаговых задач.
+- В локальном `git remote` не стоит хранить токен в URL. Лучше использовать Git Credential Manager или обычный URL `https://github.com/andruwko73/remote_code_on_pc.git`.
+- В репозитории есть локальные диагностические untracked-файлы (`extension/check_chat_data*.py`, `.remote-code-uploads/`, `extension/launch_log.txt`). Их не нужно публиковать без отдельного решения.
+
+## Установка расширения
+
+Из готового VSIX:
+
+```powershell
+code --install-extension C:\Users\Admin\Documents\git\remote_code_on_pc\extension\remote-code-on-pc-1.1.37.vsix --force
+```
+После установки:
+
+1. Откройте VS Code.
+2. Выполните `Developer: Reload Window`.
+3. Откройте команду `Remote Code on PC: Open Chat`.
+4. Убедитесь, что в статус-баре есть `Remote :8799` или сервер доступен по `http://IP-ПК:8799/api/status`.
+
+## Установка APK
+
+Готовый APK лежит здесь:
+
+```text
+C:\Users\Admin\Documents\git\remote_code_on_pc\apk\app-debug.apk
 ```
 
-В VS Code: `F5` (Run Extension) — сервер запустится автоматически на порту `8799`.
+Его же приложение скачивает по кнопке `Обновить из GitHub`:
 
-### 2. Сборка Android APK
-
-**Требования:**
-- Java JDK 17+ ([скачать](https://adoptium.net/))
-- Android Studio ([скачать](https://developer.android.com/studio))
-
-**Способ A — Android Studio (рекомендуется):**
-1. File → Open → выбрать `android/` папку
-2. Подождать синхронизацию Gradle
-3. Build → Build Bundle(s) / APK → Build APK
-4. APK появится: `android/app/build/outputs/apk/debug/app-debug.apk`
-
-**Способ B — командная строка:**
-```bash
-cd android
-# Убедитесь, что JAVA_HOME и ANDROID_HOME установлены
-gradlew assembleDebug
-# APK: android/app/build/outputs/apk/debug/app-debug.apk
+```text
+https://raw.githubusercontent.com/andruwko73/remote_code_on_pc/main/apk/app-debug.apk
 ```
 
-### 3. Подключение
+Если Android просит разрешение на установку из неизвестного источника, после выдачи разрешения нажмите обновление еще раз или вернитесь в приложение. Текущая логика должна продолжать установку, но поведение зависит от оболочки Android.
 
-1. Установите APK на телефон
-2. Убедитесь, что телефон в одной сети Wi-Fi с ПК (или используйте интернет-туннель)
-3. В приложении введите IP-адрес ПК и порт 8799
-4. Нажмите **"Подключиться"**
+## Подключение по локальной сети
 
----
+1. ПК и телефон должны быть в одной сети Wi-Fi.
+2. В VS Code должно быть установлено и запущено расширение Remote Code on PC.
+3. В приложении укажите IP ПК, например `192.168.1.112`.
+4. Порт: `8799`.
+5. Если токен в настройках расширения пустой, поле токена в приложении тоже оставьте пустым.
+6. Нажмите `Подключиться`.
 
-## 🌐 Интернет-доступ (через ngrok)
+Проверка с ПК:
 
-Если телефон **не в одной локальной сети** с ПК:
-
-### На ПК:
-1. Скачайте ngrok: https://ngrok.com/download
-2. Разархивируйте `ngrok.exe` (или установите через `npm i -g ngrok`)
-3. Запустите расширение в VS Code (автоматически)
-
-### В VS Code (способ 1 — через палитру команд):
-- `Ctrl+Shift+P` → `Remote Code on PC: Запустить/остановить интернет-туннель (ngrok)`
-- Статус-бар покажет 🌐 когда туннель активен
-
-### На телефоне (способ 2 — из приложения):
-1. Откройте экран **Настройки** (шестерёнка в нижнем меню)
-2. Нажмите **"Запустить туннель (ngrok)"**
-3. Дождитесь статуса "🟢 Активен"
-4. Включите переключатель **"Использовать туннель"**
-5. Приложение автоматически переключится на интернет-канал
-
----
-
-## 🔀 Переключение между VS Code Chat и Codex
-
-| Экран | Функция |
-|---|---|
-| **Чат** | VS Code Copilot Chat: выбор агентов, история, отправка сообщений |
-| **Codex** | OpenAI Codex: выбор модели, отправка запросов, потоки (threads) |
-
-**Состояния полностью НЕЗАВИСИМЫ:**
-- Переключение между экранами НЕ сбрасывает чат
-- История VS Code и Codex хранятся отдельно
-- Выбранные агенты/модели сохраняются при переключении
-
----
-
-## 📡 API Эндпоинты (21 роут)
-
-| Метод | Путь | Описание |
-|---|---|---|
-| GET | `/api/status` | Статус VS Code |
-| GET | `/api/workspace/folders` | Папки проекта |
-| POST | `/api/workspace/open` | Открыть папку |
-| GET | `/api/workspace/tree` | Дерево файлов |
-| GET | `/api/workspace/read-file` | Чтение файла |
-| GET | `/api/chat/agents` | Агенты Copilot |
-| POST | `/api/chat/send` | Отправить сообщение |
-| GET | `/api/chat/history` | История чата |
-| POST | `/api/chat/select-agent` | Выбрать агента |
-| POST | `/api/chat/new` | Новый чат |
-| GET | `/api/chat/conversations` | Список чатов |
-| GET | `/api/diagnostics` | Ошибки проекта |
-| POST | `/api/terminal/exec` | Команда в терминал |
-| GET | `/api/codex/status` | Статус Codex CLI/Desktop |
-| POST | `/api/codex/send` | Отправить запрос в Codex |
-| GET/POST | `/api/codex/models` | Список/выбор моделей Codex |
-| GET | `/api/codex/threads` | Потоки (threads) Codex |
-| POST | `/api/codex/launch` | Запустить Codex Desktop |
-| GET | `/api/tunnel/status` | Статус интернет-туннеля |
-| POST | `/api/tunnel/start` | Запустить туннель ngrok |
-| POST | `/api/tunnel/stop` | Остановить туннель |
-
-**WebSocket**: `ws://<host>:8799` — push-уведомления (диагностика, статус чата).
-
----
-
-## 📁 Структура проекта
-
-```
-remote_code_on_pc/
-├── extension/                    # VS Code Extension (TypeScript)
-│   ├── src/
-│   │   ├── server.ts             # HTTP/WS сервер (22 хендлера, ~1200 строк)
-│   │   └── extension.ts          # Точка входа, статус-бар, 4 команды
-│   ├── test-extension.js         # Набор тестов (94 теста)
-│   └── package.json
-├── android/                      # Android App (Kotlin + Jetpack Compose)
-│   ├── app/
-│   │   └── src/main/java/com/remotecodeonpc/app/
-│   │       ├── Models.kt                 # Все data-классы
-│   │       ├── RemoteCodeApp.kt          # Scaffold, навигация, ConnectionScreen, SettingsScreen
-│   │       ├── viewmodel/MainViewModel.kt # Состояние, API-методы, WebSocket
-│   │       ├── network/
-│   │       │   ├── ApiClient.kt          # Retrofit (все эндпоинты)
-│   │       │   └── WebSocketClient.kt    # WS с авто-реконнектом
-│   │       ├── ui/screens/
-│   │       │   ├── DashboardScreen.kt    # Главная + Codex-карточка
-│   │       │   ├── ChatScreen.kt         # Чат Copilot
-│   │       │   ├── CodexScreen.kt        # Чат Codex
-│   │       │   ├── FilesScreen.kt        # Файловый менеджер
-│   │       │   └── DiagnosticsScreen.kt  # Ошибки проекта
-│   │       ├── ui/navigation/Screen.kt   # 6 экранов в BottomNav
-│   │       └── ui/theme/Color.kt         # Тёмная тема VS Code
-│   ├── gradlew.bat               # Gradle Wrapper
-│   └── build.gradle.kts           # MinSdk 26, Target 34
-└── README.md
+```powershell
+curl.exe http://127.0.0.1:8799/api/status
 ```
 
-## ✅ Результаты тестирования
+Проверка с телефона: подключение должно открыть экран `CODEX`.
 
-```
-📊 94 теста — 94 пройдено ✅
-   TypeScript компиляция: 0 ошибок
-   API эндпоинты: 21/21
-   Android файлы: 13/13
-   Codex интеграция: 10/10
-   Tunnel/Интернет: 5/5
-```
+## Подключение через внешнюю сеть
 
----
+Внешний доступ нужен, если телефон не в одной сети с ПК.
 
-## 🤖 Для чего нужен OpenAI Codex
+Расширение умеет запускать:
 
-OpenAI Codex — это AI-агент от OpenAI, который умеет:
-- Автономно выполнять задачи по кодингу
-- Работать с проектами любой сложности
-- Выбирать и использовать модели GPT-5, o3, o4-mini и др.
-- Создавать и запускать код в изолированной среде
+- ngrok, если найден рабочий `ngrok.exe`;
+- cloudflared, если ngrok не найден или не запускается.
 
-**Установка Codex CLI на ПК:**
-```bash
-npm i -g @openai/codex
-codex --version
+В приложении:
+
+1. Откройте настройки.
+2. Включите `Внешняя сеть`.
+3. Нажмите `Запустить туннель на ПК`.
+4. Если туннель запустился, приложение получит публичный URL.
+5. Если туннель не запустился, вставьте готовый публичный URL вручную.
+
+Для cloudflared пример ручной проверки:
+
+```powershell
+cloudflared tunnel --url http://localhost:8799 --no-autoupdate
 ```
 
-Либо скачайте Codex Desktop из Microsoft Store.
-│  Android App (Kotlin)   │ ◄──────────────────► │  VS Code Extension   │
-│  Jetpack Compose UI     │       JSON API        │  TypeScript Server   │
-│  Retrofit + OkHttp      │                       │  ws (WebSocket)      │
-└─────────────────────────┘                       └──────────────────────┘
+В приложение нужно вставлять URL вида:
+
+```text
+https://example.trycloudflare.com
 ```
 
-## 🛠 Установка
+## Токен доступа
 
-### 1. VS Code Extension
+Токен задается в настройках VS Code:
 
-```bash
-cd extension
+```text
+remoteCodeOnPC.authToken
+```
+
+Если токен задан:
+
+- HTTP-запросы должны идти с `Authorization: Bearer <token>`;
+- WebSocket подключается с тем же токеном;
+- в приложении нужно вставить тот же токен в поле `Токен доступа`.
+
+Если токен пустой, приложение подключается без авторизации. Для внешней сети токен лучше включить.
+
+## Интерфейс расширения
+
+Верхняя панель:
+
+- карандаш - создать новый чат;
+- название чата - открыть список чатов;
+- стрелка рядом с названием - раскрыть список чатов;
+- `...` - меню текущего чата;
+- play - запустить/проверить работу Remote Code;
+- `VS Code` - меню действий VS Code;
+- терминал - открыть терминал VS Code;
+- layout - переключить панель/auxiliary bar.
+
+Меню текущего чата:
+
+- `Переименовать чат`;
+- `Очистить чат`;
+- `Удалить чат`;
+- `Настройки`.
+
+Меню `VS Code`:
+
+- `Диагностика`;
+- `Изменения Git`;
+- `Терминал`.
+
+Область сообщений:
+
+- сообщения пользователя отображаются справа/плашкой;
+- ответы агента отображаются как обычный текст;
+- модель и effort выводятся под ответом;
+- inline-код подсвечивается серыми плашками;
+- карточка изменений показывает список файлов и `+/-`;
+- по строке файла можно открыть файл;
+- `Проверить` открывает SCM/изменения;
+- hover-кнопки сообщения: копировать, оценка вверх, оценка вниз, раскрытие.
+
+Composer:
+
+- `+` - прикрепить файлы;
+- шестеренка - профиль работы;
+- модель - выбор модели;
+- effort - выбор усилия;
+- микрофон/голос - пока системная функция доступнее в Android APK, в webview VS Code ограничена окружением Electron;
+- круглая стрелка - отправка;
+- во время генерации кнопка становится стопом;
+- `Enter` отправляет сообщение;
+- `Shift+Enter` переносит строку;
+- `Ctrl+V` вставляет файл/скриншот, если VS Code webview передает файл из буфера.
+
+## Интерфейс Android-приложения
+
+Экран подключения:
+
+- `IP-адрес ПК` - адрес компьютера в локальной сети;
+- `Порт` - обычно `8799`;
+- `Токен` - необязательный, нужен если включен в расширении;
+- `Подключиться`;
+- `Отправить логи`;
+- `Очистить логи`;
+- `Обновить из GitHub`;
+- версия APK под заголовком.
+
+Экран `CODEX`:
+
+- верхняя вкладка `CODEX` - чат агента;
+- верхняя вкладка `ФАЙЛЫ` - файлы проекта;
+- шестеренка - настройки;
+- название чата - текущий thread;
+- `...` - история чатов;
+- карандаш - новый чат;
+- сообщение и ответы синхронизируются с расширением через WebSocket;
+- карточки подтверждений появляются при запросе действий;
+- `Разрешить` запускает действие на ПК;
+- `Отклонить` отменяет действие.
+
+Composer на телефоне:
+
+- `+` - прикрепить файл/скриншот;
+- шестеренка - профиль;
+- `GPT-5.5 / Высокий` - модель и effort;
+- sparkle - IDE context;
+- микрофон - голосовой ввод Android;
+- круглая кнопка - отправить или остановить генерацию.
+
+Настройки:
+
+- статус подключения;
+- режим: локальная сеть или внешняя сеть;
+- версия APK;
+- версия VS Code-сервера;
+- IP ПК;
+- блок локальной сети;
+- блок внешней сети с публичным URL;
+- запуск туннеля на ПК;
+- токен доступа;
+- переподключение;
+- обновление APK;
+- логи.
+
+## API расширения
+
+Основные endpoint:
+
+```text
+GET  /api/status
+GET  /api/workspace/folders
+POST /api/workspace/open
+GET  /api/workspace/tree
+GET  /api/workspace/read-file
+GET  /api/diagnostics
+POST /api/terminal/exec
+
+GET  /api/codex/status
+POST /api/codex/send
+GET  /api/codex/history
+GET  /api/codex/events
+GET  /api/codex/actions
+POST /api/codex/actions
+GET  /api/codex/models
+POST /api/codex/models
+GET  /api/codex/threads
+POST /api/codex/new
+POST /api/codex/delete
+POST /api/codex/stop
+POST /api/codex/launch
+
+GET  /api/tunnel/status
+POST /api/tunnel/start
+POST /api/tunnel/stop
+
+WS   /ws
+```
+
+## Сборка и проверки
+
+Расширение:
+
+```powershell
+cd C:\Users\Admin\Documents\git\remote_code_on_pc\extension
 npm install
 npm run compile
+npx vsce package --allow-missing-repository
+code --install-extension .\remote-code-on-pc-1.1.37.vsix --force
 ```
 
-Затем откройте папку `extension` в VS Code и нажмите `F5` (Run Extension).
-Расширение запустится автоматически — сервер стартует на порту **8799**.
+APK:
 
-### 2. Android App
-
-Откройте папку `android` в Android Studio:
-- Соберите проект
-- Установите APK на телефон
-
-### 3. Подключение
-
-1. Убедитесь, что ПК и телефон в одной Wi-Fi сети
-2. Узнайте IP ПК (`ipconfig` в командной строке)
-3. Откройте приложение, введите IP и порт (по умолчанию `8799`)
-4. Нажмите "Подключиться" ✅
-
-## 🔧 Конфигурация VS Code Extension
-
-В настройках VS Code (`settings.json`):
-```json
-{
-  "remoteCodeOnPC.port": 8799,
-  "remoteCodeOnPC.host": "0.0.0.0",
-  "remoteCodeOnPC.authToken": ""
-}
+```powershell
+cd C:\Users\Admin\Documents\git\remote_code_on_pc\android
+.\gradlew.bat :app:assembleDebug
+.\gradlew.bat :app:lintDebug
 ```
 
-## 🔒 Безопасность
+Копирование APK в папку обновления:
 
-- Для продакшна установите `authToken` в настройках расширения
-- Приложение может работать только в локальной сети (VPN для удаленного доступа)
-- По умолчанию расширение слушает `0.0.0.0:8799`
+```powershell
+Copy-Item C:\Users\Admin\Documents\git\remote_code_on_pc\android\app\build\outputs\apk\debug\app-debug.apk C:\Users\Admin\Documents\git\remote_code_on_pc\apk\app-debug.apk -Force
+```
 
-## 📋 API Эндпоинты
+Проверка raw-ссылок:
 
-| Метод | Путь | Описание |
-|---|---|---|
-| GET | `/api/status` | Статус VS Code |
-| GET | `/api/workspace/folders` | Папки и проекты |
-| GET | `/api/workspace/tree?path=` | Дерево файлов |
-| GET | `/api/workspace/read-file?path=` | Чтение файла |
-| GET | `/api/chat/agents` | Список AI-агентов |
-| POST | `/api/chat/send` | Отправить сообщение в чат |
-| GET | `/api/chat/history` | История чата |
-| POST | `/api/chat/select-agent` | Выбрать агента |
-| GET | `/api/diagnostics` | Ошибки проекта |
+```powershell
+curl.exe -L -I https://raw.githubusercontent.com/andruwko73/remote_code_on_pc/main/apk/app-debug.apk
+curl.exe -L -I https://raw.githubusercontent.com/andruwko73/remote_code_on_pc/main/extension/remote-code-on-pc-1.1.37.vsix
+```
 
-## 🧪 Технологии
+Проверка на эмуляторе:
 
-**VS Code Extension:**
-- TypeScript, Node.js HTTP Server, ws (WebSocket)
+```powershell
+adb install -r C:\Users\Admin\Documents\git\remote_code_on_pc\apk\app-debug.apk
+adb shell monkey -p com.remotecodeonpc.app 1
+adb logcat -d | Select-String -Pattern "FATAL|AndroidRuntime|RemoteCode"
+```
 
-**Android App:**
-- Kotlin, Jetpack Compose, Material 3
-- Retrofit + OkHttp, Gson
-- ViewModel + StateFlow, Navigation Compose
+## Что проверять после каждой доработки
 
-## 📄 Лицензия
+Расширение:
 
-MIT
+- открывается окно `Remote Code`;
+- сервер отвечает на `/api/status`;
+- список чатов открывается;
+- новый чат создается карандашом;
+- чат можно удалить;
+- отправка по `Enter`;
+- `Shift+Enter` переносит строку;
+- во время генерации кнопка отправки становится стопом;
+- стоп реально отменяет текущую генерацию;
+- выбор модели сохраняется;
+- выбор effort сохраняется;
+- профиль сохраняется;
+- `+` прикрепляет файл;
+- `Ctrl+V` прикрепляет картинку из буфера;
+- карточка изменений рендерится компактно;
+- файл из карточки открывается;
+- hover-кнопка копирования пишет в clipboard;
+- лайк/дизлайк сохраняется;
+- `Диагностика`, `Git`, `Терминал`, `Настройки` открывают соответствующие окна VS Code;
+- action approval появляется в VS Code и на телефоне;
+- approve запускает действие;
+- deny отменяет действие.
+
+Приложение:
+
+- открывается без crash;
+- подключается по локальной сети;
+- показывает версию APK и VS Code;
+- подключается с токеном;
+- подключается через публичный URL;
+- кнопка запуска туннеля возвращает URL или понятную ошибку;
+- история чатов грузится;
+- удаление чата работает;
+- карандаш создает новый чат;
+- текст не обрезается в списке чатов;
+- `+` быстро открывает выбор файла;
+- скриншот отправляется как вложение;
+- модель видит изображение;
+- голосовой ввод вставляет текст;
+- кнопка отправки меняется на стоп;
+- approve/deny видны на телефоне;
+- обновление из GitHub скачивает свежий APK;
+- очистка логов очищает локальный лог.
+
+## Готовый запрос для продолжения работы с телефона
+
+Этот текст можно отправить в чат Remote Code с телефона, чтобы следующая сессия понимала состояние проекта и продолжила разработку расширения и APK:
+
+```text
+Продолжи работу над проектом Remote Code on PC в папке C:\Users\Admin\Documents\git\remote_code_on_pc.
+
+Цель проекта: Android-приложение должно быть удаленным интерфейсом к VS Code на ПК. Расширение VS Code должно давать Codex-похожий чат Remote Code Agent: единый чат в VS Code и на телефоне, live sync через WebSocket, потоковая генерация, история чатов, выбор модели/effort/профиля, работа с файлами проекта, прикрепление файлов и скриншотов с телефона, запуск команд и изменение файлов только после подтверждения пользователя на ПК или телефоне.
+
+Текущие версии:
+- Android APK: 1.0.42, файл apk/app-debug.apk.
+- VS Code extension: 1.1.37, файл extension/remote-code-on-pc-1.1.37.vsix.
+- Сервер расширения слушает порт 8799.
+- После установки VSIX нужно сделать Developer: Reload Window.
+
+Как устроено расширение:
+- extension/src/server.ts запускает HTTP/WebSocket сервер.
+- Главный чат находится в webview Remote Code.
+- POST /api/codex/send принимает сообщение, модель, effort, профиль, threadId и attachments.
+- Вложения с телефона сохраняются в .remote-code-uploads и передаются модели; изображения должны уходить как image data part.
+- Ответ модели идет через VS Code Language Model API и стримится в VS Code webview и Android через WebSocket.
+- История Remote Code хранится в VS Code globalState.
+- Список чатов должен показывать Remote Code threads и найденные Codex Desktop session-файлы.
+- Действия запрашиваются директивами ::run-command, ::read-file, ::show-diagnostics, ::write-file, ::apply-patch.
+- Подтверждения должны отображаться на ПК и телефоне, approve запускает действие, deny отменяет.
+- Карточка изменений должна выглядеть как в Codex: компактная шапка "Изменено N файлов +X -Y", строки файлов, раскрытие, кнопка "Проверить", открытие файла по клику.
+- Кнопки webview должны работать: новый чат, список чатов, удалить чат, переименовать, очистить, настройки, диагностика, Git/SCM, терминал, layout, + file, Ctrl+V для картинки, профиль, модель, effort, отправить, стоп.
+
+Как устроено Android-приложение:
+- android/app/src/main/java/com/remotecodeonpc/app/RemoteCodeApp.kt содержит навигацию и настройки.
+- android/app/src/main/java/com/remotecodeonpc/app/ui/screens/CodexScreen.kt содержит чат, список чатов, composer, вложения, voice input, карточки действий и изменений.
+- android/app/src/main/java/com/remotecodeonpc/app/viewmodel/MainViewModel.kt отвечает за подключение, WebSocket, отправку сообщений, модели, threads, actions, tunnel, update.
+- android/app/src/main/java/com/remotecodeonpc/app/network/ApiClient.kt содержит Retrofit API.
+- android/app/src/main/java/com/remotecodeonpc/app/network/WebSocketClient.kt содержит WebSocket reconnect.
+
+Интерфейс Android:
+- Экран подключения: IP ПК, порт, токен, подключиться, отправить логи, очистить логи, обновить из GitHub, версия APK.
+- Верхняя навигация после подключения: CODEX, ФАЙЛЫ, настройки.
+- В чате: заголовок текущего thread, кнопка истории, карандаш нового чата, сообщения, action-карточки, composer.
+- Composer: + вложения, профиль, модель+effort, IDE context, микрофон, отправить/стоп.
+- Настройки должны быть компактными на один экран: статус, режим, APK, VS Code, IP, локальная сеть, внешняя сеть/public URL, запуск туннеля, токен, переподключение, обновление, логи.
+
+Что обязательно проверить:
+1. npm run compile в extension.
+2. npx vsce package --allow-missing-repository.
+3. Установить VSIX в VS Code и сделать Developer: Reload Window.
+4. ./gradlew.bat :app:assembleDebug.
+5. ./gradlew.bat :app:lintDebug.
+6. Установить APK на эмулятор или телефон.
+7. Проверить подключение к http://IP-ПК:8799.
+8. Проверить отправку сообщения с телефона и из расширения.
+9. Проверить, что ответ стримится на оба устройства.
+10. Проверить прикрепление скриншота с телефона и Ctrl+V картинки в расширении.
+11. Проверить approve/deny на ПК и телефоне.
+12. Проверить кнопку стоп.
+13. Проверить историю и удаление чатов.
+14. Проверить внешний туннель через ngrok/cloudflared.
+15. Проверить обновление APK из GitHub.
+
+Известные хвосты для доработки:
+- В RemoteCodeApp.kt нужно убрать старую SettingsScreen/мертвый код и if (true) внутри SettingsScreenV2.
+- В MainViewModel.kt нужно удалить недостижимый старый код ниже startTunnelImproved().
+- В extension/src/server.ts нужно передавать в модель полноценную историю текущего thread, а не только последнее сообщение с workspace context.
+- Нужно довести UI webview и Android до максимально близкого вида Codex: размеры, шрифты, отступы, меню, карточки изменений, hover-меню.
+- Нужно сделать все кнопки либо рабочими, либо убрать их из UI.
+- Нужно не коммитить локальные .remote-code-uploads, launch_log и диагностические временные скрипты.
+
+После изменений собери APK и VSIX, обнови apk/app-debug.apk, установи VSIX локально, проверь сборки, сделай commit и push в GitHub.
+```
