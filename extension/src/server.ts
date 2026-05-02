@@ -1491,7 +1491,7 @@ export class RemoteServer {
             const existing = byThread.get(id);
             byThread.set(id, {
                 id,
-                title: thread.title || existing?.title || 'Codex',
+                title: existing?.title || thread.title || 'Codex',
                 timestamp: Math.max(existing?.timestamp || 0, Math.round(thread.timestamp || 0)),
                 source: 'codex'
             });
@@ -1956,6 +1956,9 @@ export class RemoteServer {
             case 'newChat':
                 this.createRemoteCodeThread();
                 return;
+            case 'renameThread':
+                await this.renameCurrentThread();
+                return;
             case 'switchThread':
                 if (typeof msg.threadId === 'string' && msg.threadId.trim()) {
                     this.currentRemoteThreadId = msg.threadId.trim();
@@ -1969,6 +1972,9 @@ export class RemoteServer {
                     await this.deleteRemoteThread(msg.threadId.trim());
                 }
                 return;
+            case 'deleteCurrentThread':
+                await this.confirmAndDeleteCurrentThread();
+                return;
             case 'clearChat':
                 this.codexHistory = this.codexHistory.filter(message => message.threadId !== this.currentRemoteThreadId);
                 this.codexActionEvents = this.codexActionEvents.filter(event => event.threadId !== this.currentRemoteThreadId);
@@ -1979,11 +1985,21 @@ export class RemoteServer {
             case 'openTerminal':
                 (vscode.window.activeTerminal || vscode.window.createTerminal('Remote Code')).show();
                 return;
+            case 'showProblems':
+                await vscode.commands.executeCommand('workbench.actions.view.problems');
+                return;
+            case 'openScm':
+                await vscode.commands.executeCommand('workbench.view.scm');
+                return;
             case 'openSettings':
                 await vscode.commands.executeCommand('workbench.action.openSettings', 'remoteCodeOnPC');
                 return;
             case 'toggleLayout':
-                await vscode.commands.executeCommand('workbench.action.togglePanel');
+                try {
+                    await vscode.commands.executeCommand('workbench.action.toggleAuxiliaryBar');
+                } catch {
+                    await vscode.commands.executeCommand('workbench.action.togglePanel');
+                }
                 return;
             case 'copyMessage':
                 if (typeof msg.text === 'string' && msg.text.trim()) {
@@ -2044,6 +2060,33 @@ export class RemoteServer {
             default:
                 await vscode.window.showInformationMessage(`Remote Code: ${action}`);
         }
+    }
+
+    private async renameCurrentThread(): Promise<void> {
+        const current = this.getRemoteCodeThreads().find(thread => thread.id === this.currentRemoteThreadId);
+        const value = await vscode.window.showInputBox({
+            title: 'Переименовать чат',
+            prompt: 'Название чата Remote Code',
+            value: current?.title || this.getCurrentThreadTitle(),
+            valueSelection: [0, (current?.title || this.getCurrentThreadTitle()).length]
+        });
+        const title = value?.replace(/\s+/g, ' ').trim();
+        if (!title) return;
+        this.upsertRemoteCodeThread(this.currentRemoteThreadId, title, Date.now());
+        this.saveRemoteCodeState(true);
+        this.refreshPcChatPanel(true);
+        this.broadcast({ type: 'codex:threads-update', threads: this.getRemoteCodeThreads(), currentThreadId: this.currentRemoteThreadId, timestamp: Date.now() });
+    }
+
+    private async confirmAndDeleteCurrentThread(): Promise<void> {
+        const current = this.getRemoteCodeThreads().find(thread => thread.id === this.currentRemoteThreadId);
+        const result = await vscode.window.showWarningMessage(
+            `Удалить чат "${current?.title || this.getCurrentThreadTitle()}" из Remote Code?`,
+            { modal: true },
+            'Удалить'
+        );
+        if (result !== 'Удалить') return;
+        await this.deleteRemoteThread(this.currentRemoteThreadId);
     }
 
     private async deleteRemoteThread(threadId: string): Promise<void> {
@@ -2513,6 +2556,7 @@ export class RemoteServer {
             stop: '<svg viewBox="0 0 24 24"><rect x="7" y="7" width="10" height="10" rx="1.5"/></svg>',
             sparkle: '<svg viewBox="0 0 24 24"><path d="M12 3 14.2 9.8 21 12l-6.8 2.2L12 21l-2.2-6.8L3 12l6.8-2.2Z"/></svg>',
             branch: '<svg viewBox="0 0 24 24"><path d="M6 3v12"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="6" r="3"/><path d="M8.5 15.5 18 6"/></svg>',
+            laptop: '<svg viewBox="0 0 24 24"><rect x="4" y="5" width="16" height="11" rx="2"/><path d="M2 19h20"/></svg>',
             copy: '<svg viewBox="0 0 24 24"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>',
             up: '<svg viewBox="0 0 24 24"><path d="M7 10v11"/><path d="M15 5.9 14 10h5.8a2 2 0 0 1 2 2.4l-1.4 7A2 2 0 0 1 18.4 21H4a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2h2.8a2 2 0 0 0 1.7-1L12 3a2 2 0 0 1 3 2.9Z"/></svg>',
             down: '<svg viewBox="0 0 24 24"><path d="M17 14V3"/><path d="M9 18.1 10 14H4.2a2 2 0 0 1-2-2.4l1.4-7A2 2 0 0 1 5.6 3H20a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2h-2.8a2 2 0 0 0-1.7 1L12 21a2 2 0 0 1-3-2.9Z"/></svg>',
@@ -2576,8 +2620,13 @@ svg{width:15px;height:15px;display:block;fill:none;stroke:currentColor;stroke-wi
 .thread-menu{display:none;position:absolute;left:0;top:32px;width:min(390px,70vw);max-height:330px;overflow:auto;background:#202123;border:1px solid #33363a;border-radius:8px;padding:5px;z-index:10;box-shadow:0 14px 40px rgba(0,0,0,.45)}
 .thread-menu-wrap.open .thread-menu{display:block}
 .top-menu-wrap{position:relative;display:inline-flex}
-.top-menu{display:none;position:absolute;right:0;top:31px;width:180px;background:#202123;border:1px solid #33363a;border-radius:8px;padding:5px;z-index:12;box-shadow:0 14px 40px rgba(0,0,0,.45)}
+.top-menu,.toolbar-menu{display:none;position:absolute;right:0;top:31px;width:210px;background:#202123;border:1px solid #33363a;border-radius:8px;padding:5px;z-index:12;box-shadow:0 14px 40px rgba(0,0,0,.45)}
 .top-menu-wrap.open .top-menu{display:block}
+.connector-menu-wrap{position:relative;display:inline-flex}
+.connector-menu-wrap.open .toolbar-menu{display:block}
+.connector-btn{height:30px;border:1px solid #2b2d31;background:#151618;color:#d3d3d3;border-radius:9px;display:inline-flex;align-items:center;gap:6px;padding:0 8px;cursor:pointer}
+.connector-btn:hover,.connector-menu-wrap.open .connector-btn{background:#202123;color:#f0f0f0}
+.connector-btn svg{width:15px;height:15px}
 .top-menu .item{font-size:13px}
 .thread-row{display:flex;align-items:stretch;gap:4px;border-radius:6px}
 .thread-row:hover{background:#2b2d30}
@@ -2655,21 +2704,26 @@ textarea::placeholder{color:#777}
 .composer-attachment button{border:0;background:transparent;color:#a5a5a5;padding:0;width:16px;height:16px;border-radius:999px;display:inline-flex;align-items:center;justify-content:center;cursor:pointer}
 .composer-attachment button:hover{background:#383a3f;color:#fff}
 .dropdown{position:relative;flex:0 0 auto;min-width:0}
-.dropdown#modelDrop{width:82px}
-.dropdown.effort{width:max-content;min-width:86px;max-width:150px}
+.dropdown.model-effort{width:max-content;min-width:156px;max-width:230px}
 .dropdown.profile{width:178px}
 .dropdown-btn{height:28px;width:100%;border:0;background:transparent;color:#c7c7c7;padding:0 6px;font-size:12.5px;display:flex;align-items:center;justify-content:flex-start;gap:4px;border-radius:7px;cursor:pointer;white-space:nowrap}
 .dropdown-btn:hover,.dropdown.open .dropdown-btn{background:#343537;color:#e0e0e0}
 .dropdown-btn .label{min-width:0;overflow:hidden;text-overflow:ellipsis;flex:0 1 auto}
-.dropdown.effort .dropdown-btn{width:max-content;min-width:86px;max-width:150px}
-.dropdown.effort .label{overflow:visible;text-overflow:clip}
+.model-effort-btn{width:max-content;min-width:156px;max-width:230px}
+.model-effort-btn .label{overflow:visible;text-overflow:clip}
+.bolt{display:inline-flex;color:#a9a9a9}
+.bolt svg{width:14px;height:14px;fill:currentColor;stroke:none}
 .chev{color:#9a9a9a;display:inline-flex;align-items:center}
 .chev svg{width:13px;height:13px}
 .menu{display:none;position:absolute;left:0;bottom:34px;min-width:100%;max-height:250px;overflow:auto;background:#252526;border:1px solid #3a3a3a;border-radius:8px;padding:5px;box-shadow:0 10px 30px rgba(0,0,0,.45);z-index:5}
 .dropdown.open .menu{display:block}
+.menu-label{padding:6px 9px 4px;color:#8f8f8f;font-size:12px}
 .item{width:100%;text-align:left;border:0;background:transparent;color:#d7d7d7;padding:7px 9px;border-radius:6px;cursor:pointer;white-space:nowrap;font-size:13px;line-height:1.35}
 .item:hover{background:#343638}
 .item.selected{color:#f1f1f1;background:#313438}
+.item.check{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.item.check::after{content:'';color:#dcdcdc}
+.item.check.selected::after{content:'✓'}
 button.send{border:0;border-radius:999px;background:#d9d9d9;color:#111;width:34px;height:34px;min-width:34px;max-width:34px;aspect-ratio:1/1;display:inline-flex;align-items:center;justify-content:center;cursor:pointer;white-space:nowrap;padding:0;flex:0 0 34px;margin-left:4px}
 button.send:hover{background:#fff}
 button.send.stop{background:#f0f0f0;color:#111}
@@ -2697,12 +2751,22 @@ button.send.stop:hover{background:#fff}
   <div class="top-menu-wrap" id="topMoreDrop">
     <button class="icon-btn" type="button" id="topMoreBtn" title="&#1052;&#1077;&#1085;&#1102;">${icon.more}</button>
     <div class="top-menu">
+      <button class="item" type="button" data-action="renameThread">&#1055;&#1077;&#1088;&#1077;&#1080;&#1084;&#1077;&#1085;&#1086;&#1074;&#1072;&#1090;&#1100; &#1095;&#1072;&#1090;</button>
       <button class="item" type="button" data-action="clearChat">&#1054;&#1095;&#1080;&#1089;&#1090;&#1080;&#1090;&#1100; &#1095;&#1072;&#1090;</button>
+      <button class="item" type="button" data-action="deleteCurrentThread">&#1059;&#1076;&#1072;&#1083;&#1080;&#1090;&#1100; &#1095;&#1072;&#1090;</button>
       <button class="item" type="button" data-action="openSettings">&#1053;&#1072;&#1089;&#1090;&#1088;&#1086;&#1081;&#1082;&#1080;</button>
     </div>
   </div>
   <div class="toolbar-spacer"></div>
   <button class="icon-btn" type="button" id="topRun" title="&#1054;&#1090;&#1087;&#1088;&#1072;&#1074;&#1080;&#1090;&#1100;">${icon.play}</button>
+  <div class="connector-menu-wrap" id="connectorDrop">
+    <button class="connector-btn" type="button" id="connectorBtn" title="VS Code">${icon.vscode}<span>VS Code</span><span class="chev">${icon.chevron}</span></button>
+    <div class="toolbar-menu">
+      <button class="item" type="button" data-action="showProblems">&#1044;&#1080;&#1072;&#1075;&#1085;&#1086;&#1089;&#1090;&#1080;&#1082;&#1072;</button>
+      <button class="item" type="button" data-action="openScm">&#1048;&#1079;&#1084;&#1077;&#1085;&#1077;&#1085;&#1080;&#1103; Git</button>
+      <button class="item" type="button" data-action="openTerminal">&#1058;&#1077;&#1088;&#1084;&#1080;&#1085;&#1072;&#1083;</button>
+    </div>
+  </div>
   <button class="icon-btn" type="button" data-action="openTerminal" title="&#1058;&#1077;&#1088;&#1084;&#1080;&#1085;&#1072;&#1083;">${icon.terminal}</button>
   <button class="icon-btn" type="button" data-action="toggleLayout" title="&#1055;&#1072;&#1085;&#1077;&#1083;&#1100;">${icon.layout}</button>
 </div>
@@ -2721,19 +2785,16 @@ ${actionRows}
         <div class="menu" id="profileMenu"></div>
       </div>
       <div class="controls-spacer"></div>
-      <div class="dropdown" id="modelDrop">
-        <button class="dropdown-btn" type="button"><span id="modelLabel" class="label"></span><span class="chev">${icon.chevron}</span></button>
-        <div class="menu" id="modelMenu"></div>
-      </div>
-      <div class="dropdown effort" id="effortDrop">
-        <button class="dropdown-btn" type="button"><span id="effortLabel" class="label"></span><span class="chev">${icon.chevron}</span></button>
-        <div class="menu" id="effortMenu"></div>
+      <div class="dropdown model-effort" id="modelEffortDrop">
+        <button class="dropdown-btn model-effort-btn" type="button"><span class="bolt">${icon.sparkle}</span><span id="modelEffortLabel" class="label"></span><span class="chev">${icon.chevron}</span></button>
+        <div class="menu" id="modelEffortMenu"></div>
       </div>
       <button class="send ${isBusy ? 'stop' : ''}" id="send" type="${isBusy ? 'button' : 'submit'}" title="${isBusy ? 'Остановить' : 'Отправить'}">${isBusy ? icon.stop : icon.send}</button>
     </div>
   </form>
   <div class="subcontrols">
-    <button class="link-btn" type="button" data-action="showBranch">${icon.branch} &#1074;&#1077;&#1090;&#1082;&#1072; ${this.escapeHtml(branchLabel)}</button>
+    <button class="link-btn" type="button" data-action="showUsageStatus">${icon.laptop} &#1056;&#1072;&#1073;&#1086;&#1090;&#1072;&#1090;&#1100; &#1083;&#1086;&#1082;&#1072;&#1083;&#1100;&#1085;&#1086; <span class="chev">${icon.chevron}</span></button>
+    <button class="link-btn" type="button" data-action="showBranch">${icon.branch} ${this.escapeHtml(branchLabel)} <span class="chev">${icon.chevron}</span></button>
   </div>
 </div>
 <script>
@@ -2813,22 +2874,59 @@ function renderDropdown(rootId, menuId, labelId, options, selected, onSelect) {
     menu.appendChild(item);
   });
 }
+function shortModelName(name) {
+  return String(name || '').replace(/^gpt-/i, '').replace(/^GPT-/i, '');
+}
+function renderModelEffortMenu() {
+  const root = document.getElementById('modelEffortDrop');
+  const menu = document.getElementById('modelEffortMenu');
+  const label = document.getElementById('modelEffortLabel');
+  const model = modelOptions.find(option => option.id === selectedModel) || modelOptions[0];
+  const effort = effortOptions.find(option => option.id === selectedEffort) || effortOptions[1] || effortOptions[0];
+  label.textContent = [shortModelName(model?.name || selectedModel), effort?.name].filter(Boolean).join(' ');
+  menu.innerHTML = '';
+  const modelLabel = document.createElement('div');
+  modelLabel.className = 'menu-label';
+  modelLabel.textContent = 'Модель';
+  menu.appendChild(modelLabel);
+  modelOptions.forEach(option => {
+    const item = document.createElement('button');
+    item.type = 'button';
+    item.className = 'item check' + (option.id === selectedModel ? ' selected' : '');
+    item.textContent = option.name;
+    item.addEventListener('click', () => {
+      selectedModel = option.id;
+      vscode.postMessage({ type: 'action', action: 'selectModel', model: selectedModel });
+      root.classList.remove('open');
+      refreshControls();
+    });
+    menu.appendChild(item);
+  });
+  const effortLabel = document.createElement('div');
+  effortLabel.className = 'menu-label';
+  effortLabel.textContent = 'Усилие';
+  menu.appendChild(effortLabel);
+  effortOptions.forEach(option => {
+    const item = document.createElement('button');
+    item.type = 'button';
+    item.className = 'item check' + (option.id === selectedEffort ? ' selected' : '');
+    item.textContent = option.name;
+    item.addEventListener('click', () => {
+      selectedEffort = option.id;
+      vscode.postMessage({ type: 'action', action: 'selectEffort', effort: selectedEffort });
+      root.classList.remove('open');
+      refreshControls();
+    });
+    menu.appendChild(item);
+  });
+}
 function refreshControls() {
-  renderDropdown('modelDrop', 'modelMenu', 'modelLabel', modelOptions, selectedModel, value => {
-    selectedModel = value;
-    vscode.postMessage({ type: 'action', action: 'selectModel', model: selectedModel });
-    refreshControls();
-  });
-  renderDropdown('effortDrop', 'effortMenu', 'effortLabel', effortOptions, selectedEffort, value => {
-    selectedEffort = value;
-    vscode.postMessage({ type: 'action', action: 'selectEffort', effort: selectedEffort });
-    refreshControls();
-  });
   renderDropdown('profileDrop', 'profileMenu', 'profileLabel', profileOptions, selectedProfile, value => {
     selectedProfile = value;
     vscode.postMessage({ type: 'action', action: 'selectProfile', profile: selectedProfile });
     refreshControls();
   });
+  renderModelEffortMenu();
 }
 document.querySelectorAll('.dropdown-btn').forEach(button => {
   button.addEventListener('click', event => {
@@ -2845,6 +2943,10 @@ document.querySelector('#threadDrop .thread-menu-btn').addEventListener('click',
 document.getElementById('topMoreBtn').addEventListener('click', event => {
   event.stopPropagation();
   document.getElementById('topMoreDrop').classList.toggle('open');
+});
+document.getElementById('connectorBtn').addEventListener('click', event => {
+  event.stopPropagation();
+  document.getElementById('connectorDrop').classList.toggle('open');
 });
 document.querySelectorAll('[data-thread-id]').forEach(button => {
   button.addEventListener('click', () => {
@@ -2870,10 +2972,14 @@ document.addEventListener('click', event => {
   if (!event.target.closest('#topMoreDrop')) {
     document.getElementById('topMoreDrop').classList.remove('open');
   }
+  if (!event.target.closest('#connectorDrop')) {
+    document.getElementById('connectorDrop').classList.remove('open');
+  }
 });
 document.querySelectorAll('[data-action]').forEach(button => {
   button.addEventListener('click', () => {
     document.getElementById('topMoreDrop')?.classList.remove('open');
+    document.getElementById('connectorDrop')?.classList.remove('open');
     vscode.postMessage({ type: 'action', action: button.dataset.action });
   });
 });
