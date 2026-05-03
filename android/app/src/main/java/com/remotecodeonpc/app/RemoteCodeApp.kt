@@ -368,7 +368,7 @@ private fun ConnectionScreen(
                     emitConfig(nextTunnelUrl = it)
                 },
                 label = { Text("Публичный URL", color = TextSecondary) },
-                placeholder = { Text("https://name.keenetic.link:8799", color = TextSecondary.copy(alpha = 0.5f)) },
+                placeholder = { Text("http://name.keenetic.link:8799", color = TextSecondary.copy(alpha = 0.5f)) },
                 singleLine = true,
                 leadingIcon = { Icon(Icons.Default.Public, contentDescription = null, tint = AccentGreen) },
                 modifier = Modifier.fillMaxWidth(),
@@ -624,7 +624,7 @@ private fun SettingsScreenV2(
     }
     val compactTunnelError = tunnelError
         ?.replace('\n', ' ')
-        ?.replace("Установите ngrok.exe и добавьте его в PATH либо вставьте готовый публичный URL вручную в настройках приложения.", "Укажите Keenetic URL в VS Code или вставьте публичный URL вручную.")
+        ?.replace("Установите ngrok.exe и добавьте его в PATH либо вставьте готовый публичный URL вручную в настройках приложения.", "Сформируйте Keenetic URL в VS Code или укажите публичный URL вручную.")
     val compactFieldHeight = 62.dp
 
     Column(
@@ -727,7 +727,7 @@ private fun SettingsScreenV2(
                         if (providerLabel == "Keenetic") {
                             "Keenetic URL используется вместо IP ПК из внешней сети."
                         } else {
-                            "Внешний URL задается в VS Code: Remote Code -> Подключение."
+                            "Кнопка сформирует URL в расширении или возьмет сохраненный."
                         },
                         color = TextSecondary,
                         fontSize = 11.sp,
@@ -776,7 +776,7 @@ private fun SettingsScreenV2(
                             Icon(if (externalSelected) Icons.Default.WifiOff else Icons.Default.Link, contentDescription = null, modifier = Modifier.size(18.dp))
                         }
                         Spacer(modifier = Modifier.width(6.dp))
-                        Text(if (externalSelected) "Локально" else "Взять URL", maxLines = 1, fontSize = 13.sp)
+                        Text(if (externalSelected) "Локально" else "Сформировать", maxLines = 1, fontSize = 13.sp)
                     }
                     Button(
                         onClick = {

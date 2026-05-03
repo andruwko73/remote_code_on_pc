@@ -1246,10 +1246,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             try {
                 val api = ApiClient.getApi(_uiState.value.serverConfig.copy(useTunnel = false, tunnelUrl = ""))
-                val response = api.getTunnelStatus()
+                val response = api.startTunnel()
                 val body = response.body()
-                val url = body?.publicUrl ?: body?.tunnelUrl
-                if (response.isSuccessful && !url.isNullOrBlank()) {
+                val url = body?.url
+                if (response.isSuccessful && body?.success == true && !url.isNullOrBlank()) {
                     val updatedConfig = _uiState.value.serverConfig.copy(
                         useTunnel = true,
                         tunnelUrl = url
@@ -1270,7 +1270,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                             isTunnelStarting = false,
                             tunnelActive = false,
                             tunnelUrl = url,
-                            tunnelProvider = body?.tunnelProvider,
+                            tunnelProvider = body.provider,
                             isConnected = false,
                             isWebSocketConnected = false,
                             tunnelError = errorText,
@@ -1283,7 +1283,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     _uiState.value = _uiState.value.copy(
                         tunnelActive = true,
                         tunnelUrl = url,
-                        tunnelProvider = body?.tunnelProvider ?: "keenetic",
+                        tunnelProvider = body.provider ?: "keenetic",
                         isTunnelStarting = false,
                         tunnelError = null
                     )
@@ -1296,7 +1296,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         "Требуется токен доступа для получения публичного URL."
                     } else {
                         response.errorBody()?.string()?.let { parseServerError(it) }
-                            ?: "Keenetic URL не задан в расширении. В VS Code откройте Remote Code: Подключение -> Задать публичный Keenetic URL или вставьте URL вручную в приложении."
+                            ?: body?.error?.takeIf { it.isNotBlank() }
+                            ?: body?.message?.takeIf { it.isNotBlank() }
+                            ?: "Keenetic URL не удалось сформировать. В VS Code откройте Remote Code: Подключение -> Задать имя KeenDNS или вставьте URL вручную."
                     }
                     _uiState.value = _uiState.value.copy(
                         isTunnelStarting = false,
