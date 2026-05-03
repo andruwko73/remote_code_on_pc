@@ -3460,7 +3460,12 @@ export class RemoteServer {
                 <button class="sidebar-action" type="button" data-action="openSettings">${icon.settings}<span>Настройки</span></button>
             </div>
         </aside>`;
-        const rows = messages.filter(message => !this.isActionResultMessage(message)).map(message => {
+        const visibleMessages = messages.filter(message => !this.isActionResultMessage(message));
+        const actionTimelineRows = this.renderActionTimeline(actions);
+        const timelineInsertIndex = actionTimelineRows
+            ? Math.max(visibleMessages.map(message => message.role).lastIndexOf('assistant'), 0)
+            : -1;
+        const rows = visibleMessages.map((message, index) => {
             const role = message.role === 'system' ? 'Система' : '';
             const cls = message.role === 'user' ? 'user' : message.role === 'assistant' ? 'assistant' : 'system';
             const meta = [message.model, message.reasoningEffort ? this.reasoningEffortLabel(message.reasoningEffort) : '']
@@ -3468,7 +3473,7 @@ export class RemoteServer {
                 .join(' - ');
             const content = this.renderMessageContent(message.content);
             const attachments = this.renderMessageAttachments(message.attachments);
-            return `<section class="msg ${cls} ${message.isStreaming ? 'streaming' : ''}" data-message-id="${this.escapeHtml(message.id)}">
+            const row = `<section class="msg ${cls} ${message.isStreaming ? 'streaming' : ''}" data-message-id="${this.escapeHtml(message.id)}">
                 ${role ? `<div class="role">${this.escapeHtml(role)}</div>` : ''}
                 <div class="message-text">${content}</div>
                 ${attachments}
@@ -3479,8 +3484,8 @@ export class RemoteServer {
                     <button type="button" class="hover-btn message-tool" data-message-action="down" title="&#1055;&#1083;&#1086;&#1093;&#1086;&#1081; &#1086;&#1090;&#1074;&#1077;&#1090;">${icon.down}</button>
                 </div>
             </section>`;
+            return index === timelineInsertIndex ? `${actionTimelineRows}${row}` : row;
         }).join('');
-        const actionTimelineRows = this.renderActionTimeline(actions);
         const actionRows = actions.filter(event => event.actionable && event.status === 'pending').map(event => {
             const resolved = !event.actionable && event.status !== 'running' && event.status !== 'pending';
             const body = this.escapeHtml(event.detail || event.diff || '');
@@ -3605,13 +3610,26 @@ svg{width:15px;height:15px;display:block;fill:none;stroke:currentColor;stroke-wi
 .assistant .role{color:var(--codex-text)}.system .role{color:#e8b66b}
 .msg.streaming .meta-bottom::before{content:'Думаю';display:inline-flex;margin-right:8px;color:var(--codex-muted)}
 .msg.streaming .meta-bottom::after{content:'';display:inline-block;width:6px;height:6px;margin-left:6px;border-radius:999px;background:var(--codex-muted);vertical-align:middle;animation:pulse 1.1s ease-in-out infinite}
-.message-text{margin:0;white-space:pre-wrap;word-wrap:break-word;font:inherit;color:var(--codex-text)}
+.message-text{margin:0;white-space:normal;word-wrap:break-word;font:inherit;color:var(--codex-text)}
+.message-text p{margin:0 0 10px}
+.message-text p:last-child,.message-text ul:last-child,.message-text ol:last-child{margin-bottom:0}
+.message-text ul,.message-text ol{margin:0 0 10px 1.25em;padding:0}
+.message-text li{margin:3px 0;padding-left:2px}
+.message-text .plain-line{white-space:pre-wrap}
+.msg.user .message-text{white-space:pre-wrap}
 .message-text code,.message-text .inline-chip{font-family:var(--vscode-editor-font-family, monospace);font-size:.92em;background:var(--codex-chip);color:#e4e4e4;border-radius:6px;padding:1px 6px;white-space:break-spaces}
 .msg.user .message-text code,.msg.user .message-text .inline-chip{background:#303030}
-.attachments-list{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0 0}
-.attachment-chip{border:1px solid var(--codex-strong-border);background:var(--codex-surface);color:#dcdcdc;border-radius:999px;padding:4px 8px;display:inline-flex;align-items:center;gap:6px;font-size:12px;max-width:100%}
-.attachment-chip span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.attachment-chip small{color:#8f8f8f}
+.attachments-list,.message-file-cards{display:flex;flex-direction:column;gap:7px;margin:9px 0 0}
+.attachment-card{border:1px solid var(--codex-strong-border);background:var(--codex-surface);color:#dcdcdc;border-radius:10px;padding:9px 10px;display:grid;grid-template-columns:34px minmax(0,1fr) auto;align-items:center;gap:10px;max-width:100%;text-align:left;font:inherit}
+.attachment-card.clickable{cursor:pointer}
+.attachment-card.clickable:hover{background:var(--codex-surface-2)}
+.attachment-card-icon{width:34px;height:34px;border-radius:9px;background:#171717;display:flex;align-items:center;justify-content:center;color:#bfc1c5}
+.attachment-card-icon svg{width:19px;height:19px}
+.attachment-card-title{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#e7e7e7;font-weight:600;font-size:14px}
+.attachment-card-subtitle{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#909399;font-size:12px;margin-top:2px}
+.attachment-card-action{border:1px solid var(--codex-strong-border);background:transparent;color:#dcdcdc;border-radius:9px;padding:5px 9px;font-size:12.5px}
+.inline-file-link{border:0;background:var(--codex-chip);color:#e4e4e4;border-radius:6px;padding:1px 6px;font:inherit;font-family:var(--vscode-editor-font-family, monospace);cursor:pointer}
+.inline-file-link:hover{background:var(--codex-selected);color:#fff}
 .change-card{margin:10px 0 12px;background:var(--codex-surface);border:1px solid var(--codex-border);border-radius:9px;overflow:hidden;color:var(--codex-text);white-space:normal;box-shadow:0 10px 24px rgba(0,0,0,.12)}
 .change-head{display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:42px;padding:0 12px;background:var(--codex-surface-2);border-bottom:1px solid var(--codex-border);font-weight:600;line-height:1.2;white-space:normal}
 .change-summary{display:flex;align-items:center;gap:7px;min-width:0;color:var(--codex-text);font-size:14.5px;white-space:normal}
@@ -3630,7 +3648,7 @@ svg{width:15px;height:15px;display:block;fill:none;stroke:currentColor;stroke-wi
 .row-chev{width:26px;height:26px;border-radius:6px;display:inline-flex;align-items:center;justify-content:center;color:#a2a4a8;flex:0 0 auto}
 .row-chev svg{width:15px;height:15px;stroke-width:1.65}
 .change-row:hover .row-chev{color:#d1d1d1;background:var(--codex-selected)}
-.change-card.collapsed .change-row:nth-of-type(n+4){display:none}
+.change-card.collapsed .change-row:nth-of-type(n+6){display:none}
 pre{margin:0;white-space:pre-wrap;word-wrap:break-word;font:inherit}
 .msg-tools{position:absolute;right:2px;bottom:0;display:flex;gap:4px;opacity:0;transform:translateY(2px);transition:opacity .12s ease, transform .12s ease}
 .msg:hover .msg-tools{opacity:1;transform:translateY(0)}
@@ -3768,8 +3786,7 @@ button.send.stop:hover{background:#fff}
 <div class="content-shell">
   ${sidebarHtml}
   <main class="messages" id="messages">
-${rows || (actionTimelineRows || actionRows ? '' : '<div class="msg system"><div class="role">Система</div><pre>Жду сообщение с телефона или из VS Code.</pre></div>')}
-${actionTimelineRows}
+${rows || (actionTimelineRows || actionRows ? actionTimelineRows : '<div class="msg system"><div class="role">Система</div><pre>Жду сообщение с телефона или из VS Code.</pre></div>')}
 ${actionRows}
   </main>
   ${progressPanel}
@@ -4416,11 +4433,13 @@ prompt.addEventListener('keydown', event => {
     private renderMessageAttachments(attachments?: LocalAttachment[]): string {
         const files = this.normalizeLocalAttachments(attachments || []);
         if (files.length === 0) return '';
-        const chips = files.map(file => {
-            const label = `${file.name}${file.size ? ` · ${this.formatBytes(file.size)}` : ''}`;
-            return `<div class="attachment-chip" title="${this.escapeHtml(file.path)}"><span>${this.escapeHtml(label)}</span><small>${this.escapeHtml(file.mimeType)}</small></div>`;
-        }).join('');
-        return `<div class="attachments-list">${chips}</div>`;
+        const cards = files.map(file => this.renderAttachmentCard({
+            name: file.name,
+            path: file.path,
+            mimeType: file.mimeType,
+            size: file.size
+        })).join('');
+        return `<div class="attachments-list">${cards}</div>`;
     }
 
     private renderMessageContent(content: string): string {
@@ -4435,7 +4454,7 @@ prompt.addEventListener('keydown', event => {
         let renderedExplicitChanges = false;
         const flush = () => {
             if (buffer.length === 0) return;
-            chunks.push(buffer.map(line => this.renderInlineContent(line)).join('\n'));
+            chunks.push(this.renderMarkdownBlock(buffer));
             buffer = [];
         };
 
@@ -4468,7 +4487,100 @@ prompt.addEventListener('keydown', event => {
         if (gitSummary && !renderedExplicitChanges) {
             chunks.push(this.renderGitChangeCard(gitSummary));
         }
-        return chunks.join('\n');
+        const linkedCards = this.renderLinkedFileCards(cleanedContent);
+        return [chunks.join('\n'), linkedCards].filter(Boolean).join('\n');
+    }
+
+    private renderMarkdownBlock(lines: string[]): string {
+        const parts: string[] = [];
+        let paragraph: string[] = [];
+        const flushParagraph = () => {
+            const clean = paragraph.filter(line => line.trim().length > 0);
+            if (clean.length > 0) {
+                parts.push(`<p>${clean.map(line => `<span class="plain-line">${this.renderInlineContent(line.trim())}</span>`).join('<br>')}</p>`);
+            }
+            paragraph = [];
+        };
+
+        for (let i = 0; i < lines.length; i++) {
+            const line = lines[i];
+            if (!line.trim()) {
+                flushParagraph();
+                continue;
+            }
+            const bulletMatch = line.match(/^\s*[-*•]\s+(.+)$/);
+            const orderedMatch = line.match(/^\s*\d+[.)]\s+(.+)$/);
+            if (bulletMatch || orderedMatch) {
+                flushParagraph();
+                const ordered = Boolean(orderedMatch);
+                const items: string[] = [];
+                while (i < lines.length) {
+                    const current = lines[i];
+                    const currentMatch = ordered
+                        ? current.match(/^\s*\d+[.)]\s+(.+)$/)
+                        : current.match(/^\s*[-*•]\s+(.+)$/);
+                    if (!currentMatch) {
+                        i--;
+                        break;
+                    }
+                    items.push(`<li>${this.renderInlineContent(currentMatch[1].trim())}</li>`);
+                    i++;
+                }
+                parts.push(`<${ordered ? 'ol' : 'ul'}>${items.join('')}</${ordered ? 'ol' : 'ul'}>`);
+                continue;
+            }
+            paragraph.push(line);
+        }
+        flushParagraph();
+        return parts.join('');
+    }
+
+    private renderLinkedFileCards(content: string): string {
+        const cards: string[] = [];
+        const seen = new Set<string>();
+        const linkRegex = /\[([^\]]+\.[A-Za-z0-9]{1,8})\]\(([^)]+)\)/g;
+        let match: RegExpExecArray | null;
+        while ((match = linkRegex.exec(content)) !== null && cards.length < 4) {
+            const name = match[1].trim();
+            const rawTarget = match[2].trim().replace(/^<|>$/g, '');
+            const target = rawTarget.replace(/:\d+$/, '');
+            if (!target || seen.has(target)) continue;
+            if (!path.isAbsolute(target) && !/^[a-z]+:\/\//i.test(target)) continue;
+            seen.add(target);
+            cards.push(this.renderAttachmentCard({
+                name,
+                path: target,
+                mimeType: this.fileKindLabel(name),
+                size: 0
+            }));
+        }
+        return cards.length ? `<div class="message-file-cards">${cards.join('')}</div>` : '';
+    }
+
+    private renderAttachmentCard(file: { name: string; path?: string; mimeType?: string; size?: number }): string {
+        const subtitle = [
+            this.fileKindLabel(file.name, file.mimeType),
+            file.size ? this.formatBytes(file.size) : ''
+        ].filter(Boolean).join(' · ');
+        const openAttrs = file.path
+            ? `data-action="openProgressFile" data-path="${this.escapeHtml(file.path)}"`
+            : '';
+        return `<button type="button" class="attachment-card ${file.path ? 'clickable' : ''}" ${openAttrs} title="${this.escapeHtml(file.path || file.name)}">
+            <span class="attachment-card-icon">${this.webIcon('file')}</span>
+            <span>
+                <span class="attachment-card-title">${this.escapeHtml(file.name || 'attachment')}</span>
+                <span class="attachment-card-subtitle">${this.escapeHtml(subtitle || 'Файл')}</span>
+            </span>
+            <span class="attachment-card-action">Открыть</span>
+        </button>`;
+    }
+
+    private fileKindLabel(name: string, mimeType?: string): string {
+        const ext = path.extname(name || '').replace('.', '').toUpperCase();
+        if (ext === 'MD') return 'Документ · MD';
+        if (ext) return `Файл · ${ext}`;
+        if (mimeType?.startsWith('image/')) return 'Изображение';
+        return mimeType || 'Файл';
     }
 
     private parseChangedFileLine(line: string): { path: string; plus?: string; minus?: string } | undefined {
@@ -4656,6 +4768,26 @@ prompt.addEventListener('keydown', event => {
     }
 
     private renderInlinePlain(value: string): string {
+        const linkRegex = /\[([^\]]+)\]\(([^)]+)\)/g;
+        let html = '';
+        let lastIndex = 0;
+        let linkMatch: RegExpExecArray | null;
+        while ((linkMatch = linkRegex.exec(value)) !== null) {
+            html += this.renderInlinePlainTokens(value.slice(lastIndex, linkMatch.index));
+            const label = linkMatch[1].trim();
+            const rawTarget = linkMatch[2].trim().replace(/^<|>$/g, '').replace(/:\d+$/, '');
+            if (rawTarget && (path.isAbsolute(rawTarget) || /^[a-z]+:\/\//i.test(rawTarget))) {
+                html += `<button type="button" class="inline-file-link" data-action="openProgressFile" data-path="${this.escapeHtml(rawTarget)}">${this.escapeHtml(label)}</button>`;
+            } else {
+                html += this.escapeHtml(label);
+            }
+            lastIndex = linkMatch.index + linkMatch[0].length;
+        }
+        html += this.renderInlinePlainTokens(value.slice(lastIndex));
+        return html;
+    }
+
+    private renderInlinePlainTokens(value: string): string {
         const tokenRegex = /(C:\\[^\s`]+|(?:[\w.-]+[\\/])+[\w.@%+\-()]+|\b\d+\.\d+\.\d+\b|\b[0-9a-f]{7,40}\b|\b(?:npm run compile|vsce package|assembleDebug|lintDebug|Developer: Reload Window|200 OK)\b)/gi;
         let html = '';
         let lastIndex = 0;

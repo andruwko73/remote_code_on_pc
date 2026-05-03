@@ -27,6 +27,7 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
+import androidx.compose.material.icons.automirrored.outlined.InsertDriveFile
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
@@ -976,13 +977,21 @@ private fun CodexMessageBubble(
                     border = BorderStroke(1.dp, Color(0xFF2F2F2F)),
                     modifier = Modifier.widthIn(max = 520.dp)
                 ) {
-                    Text(
-                        highlightedText(cleanedContent.ifBlank { "..." }),
-                        color = TextBright,
-                        fontSize = 14.sp,
-                        lineHeight = 20.sp,
-                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
-                    )
+                    Column {
+                        Text(
+                            highlightedText(cleanedContent.ifBlank { "..." }),
+                            color = TextBright,
+                            fontSize = 14.sp,
+                            lineHeight = 20.sp,
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
+                        )
+                        if (message.attachments.isNotEmpty()) {
+                            MobileMessageAttachments(
+                                attachments = message.attachments,
+                                modifier = Modifier.padding(start = 10.dp, end = 10.dp, bottom = 8.dp)
+                            )
+                        }
+                    }
                 }
             }
         } else {
@@ -998,6 +1007,10 @@ private fun CodexMessageBubble(
                 }
             }
             HighlightedMessageText(cleanedContent.ifBlank { "..." })
+            if (message.attachments.isNotEmpty()) {
+                Spacer(modifier = Modifier.height(8.dp))
+                MobileMessageAttachments(message.attachments)
+            }
             message.model?.takeIf { it.isNotBlank() }?.let {
                 Spacer(modifier = Modifier.height(7.dp))
                 Text(it, color = TextSecondary, fontSize = 11.sp)
@@ -1007,6 +1020,61 @@ private fun CodexMessageBubble(
                 MobileChangeCard(changeSummary, onOpenFile)
             }
         }
+    }
+}
+
+@Composable
+private fun MobileMessageAttachments(
+    attachments: List<MessageAttachment>,
+    modifier: Modifier = Modifier
+) {
+    Column(
+        modifier = modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(6.dp)
+    ) {
+        attachments.forEach { attachment ->
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(Color(0xFF242424), RoundedCornerShape(10.dp))
+                    .padding(horizontal = 9.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(32.dp)
+                        .background(Color(0xFF171717), RoundedCornerShape(9.dp)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(Icons.AutoMirrored.Outlined.InsertDriveFile, contentDescription = null, tint = TextSecondary, modifier = Modifier.size(18.dp))
+                }
+                Spacer(modifier = Modifier.width(9.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(attachment.name, color = TextPrimary, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(fileSubtitle(attachment), color = TextSecondary, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
+            }
+        }
+    }
+}
+
+private fun fileSubtitle(attachment: MessageAttachment): String {
+    val ext = attachment.name.substringAfterLast('.', "").uppercase(Locale.getDefault()).takeIf { it.isNotBlank() }
+    val type = when {
+        ext == "MD" -> "Документ · MD"
+        ext != null -> "Файл · $ext"
+        attachment.mimeType.startsWith("image/") -> "Изображение"
+        else -> attachment.mimeType
+    }
+    val size = if (attachment.size > 0) formatAttachmentSize(attachment.size) else ""
+    return listOf(type, size).filter { it.isNotBlank() }.joinToString(" · ")
+}
+
+private fun formatAttachmentSize(size: Long): String {
+    return when {
+        size < 1024 -> "$size B"
+        size < 1024 * 1024 -> "${size / 1024} KB"
+        else -> String.format(Locale.getDefault(), "%.1f MB", size / 1024.0 / 1024.0)
     }
 }
 
@@ -1140,7 +1208,10 @@ private fun cleanMobileMessageContent(content: String): String {
         cleaned += lines[index]
         index++
     }
-    return cleaned.joinToString("\n").replace(Regex("\n{3,}"), "\n\n").trimEnd()
+    return cleaned.joinToString("\n")
+        .replace(Regex("(?m)^\\s*[-*]\\s+"), "• ")
+        .replace(Regex("\n{3,}"), "\n\n")
+        .trimEnd()
 }
 
 private fun parseMobileChangeSummary(content: String): CodexChangeSummary? {

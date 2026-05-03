@@ -214,7 +214,8 @@ data class CodexChatMessage(
     val reasoningEffort: String? = null,
     val includeContext: Boolean? = null,
     val isStreaming: Boolean = false,
-    val changeSummary: CodexChangeSummary? = null
+    val changeSummary: CodexChangeSummary? = null,
+    val attachments: List<MessageAttachment> = emptyList()
 )
 
 data class CodexChangeFile(

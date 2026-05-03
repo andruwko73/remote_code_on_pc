@@ -786,7 +786,26 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             model = this["model"] as? String,
             reasoningEffort = this["reasoningEffort"] as? String,
             isStreaming = this["isStreaming"] as? Boolean ?: false,
-            changeSummary = (this["changeSummary"] as? Map<*, *>)?.toCodexChangeSummary()
+            changeSummary = (this["changeSummary"] as? Map<*, *>)?.toCodexChangeSummary(),
+            attachments = (this["attachments"] as? List<*>)?.mapNotNull { (it as? Map<*, *>)?.toMessageAttachment() } ?: emptyList()
+        )
+    }
+
+    private fun Map<*, *>.toMessageAttachment(): MessageAttachment {
+        val rawPath = this["path"] as? String
+        val fallbackName = rawPath
+            ?.replace("\\", "/")
+            ?.substringAfterLast("/")
+            ?.takeIf { it.isNotBlank() }
+            ?: "attachment"
+        return MessageAttachment(
+            name = this["name"] as? String ?: fallbackName,
+            mimeType = this["mimeType"] as? String ?: "application/octet-stream",
+            size = (this["size"] as? Double)?.toLong()
+                ?: (this["size"] as? Long)
+                ?: (this["size"] as? Int)?.toLong()
+                ?: 0L,
+            base64 = this["base64"] as? String ?: ""
         )
     }
 
@@ -1009,7 +1028,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             timestamp = sentAt,
             model = _uiState.value.codexSelectedModel.takeIf { it.isNotBlank() },
             reasoningEffort = _uiState.value.codexReasoningEffort,
-            includeContext = _uiState.value.codexIncludeContext
+            includeContext = _uiState.value.codexIncludeContext,
+            attachments = attachments
         )
         _uiState.value = _uiState.value.copy(
             isCodexLoading = true,
