@@ -89,7 +89,7 @@ fun TerminalScreen(
             modifier = Modifier
                 .weight(1f)
                 .fillMaxWidth()
-                .background(Color(0xFF1A1A1A))
+                .background(DarkBackground)
                 .padding(12.dp)
         ) {
             val displayText = if (output.isBlank()) "> Терминал готов. Введите команду ниже." else output

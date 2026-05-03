@@ -355,7 +355,7 @@ fun CodexChatTab(
                         else items(threads) { thread ->
                             val selected = thread.id == currentThreadId
                             Surface(
-                                color = if (selected) Color(0xFF283033) else Color.Transparent,
+                                color = if (selected) Color(0xFF323039) else Color.Transparent,
                                 shape = RoundedCornerShape(10.dp),
                                 border = BorderStroke(1.dp, if (selected) AccentBlue.copy(alpha = 0.28f) else Color.Transparent),
                                 modifier = Modifier.fillMaxWidth()
@@ -407,7 +407,7 @@ fun CodexChatTab(
                     }
                 },
                 confirmButton = { TextButton(onClick = { showThreads = false }) { Text("\u0417\u0430\u043A\u0440\u044B\u0442\u044C") } },
-                containerColor = Color(0xFF202123)
+                containerColor = Color(0xFF242424)
             )
         }
 
@@ -437,7 +437,7 @@ fun CodexChatTab(
                         Text("Отмена")
                     }
                 },
-                containerColor = Color(0xFF202123)
+                containerColor = Color(0xFF242424)
             )
         }
 
@@ -465,19 +465,19 @@ fun CodexChatTab(
                     },
                     modifier = Modifier.align(Alignment.BottomEnd).padding(end = 18.dp, bottom = 18.dp).size(38.dp),
                     shape = CircleShape,
-                    colors = IconButtonDefaults.filledIconButtonColors(containerColor = Color(0xD42B2C2E))
+                    colors = IconButtonDefaults.filledIconButtonColors(containerColor = Color(0xCC2D2D2D))
                 ) {
                     Icon(Icons.Default.KeyboardArrowDown, contentDescription = "К новым сообщениям", tint = TextPrimary, modifier = Modifier.size(22.dp))
                 }
             }
         }
 
-        Surface(modifier = Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 10.dp), color = Color(0xFF2B2C2E), shape = RoundedCornerShape(22.dp), border = BorderStroke(1.dp, Color(0xFF34363A))) {
+        Surface(modifier = Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 10.dp), color = Color(0xFF2D2D2D), shape = RoundedCornerShape(22.dp), border = BorderStroke(1.dp, Color(0xFF363636))) {
             Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp)) {
                 if (attachments.isNotEmpty()) {
                     LazyColumn(modifier = Modifier.heightIn(max = 90.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                         items(attachments) { attachment ->
-                            Row(modifier = Modifier.fillMaxWidth().background(Color(0xFF242528), RoundedCornerShape(9.dp)).padding(horizontal = 8.dp, vertical = 5.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Row(modifier = Modifier.fillMaxWidth().background(Color(0xFF242424), RoundedCornerShape(9.dp)).padding(horizontal = 8.dp, vertical = 5.dp), verticalAlignment = Alignment.CenterVertically) {
                                 Icon(Icons.Default.AttachFile, contentDescription = null, tint = TextSecondary, modifier = Modifier.size(16.dp))
                                 Spacer(modifier = Modifier.width(6.dp))
                                 Text(attachment.name, color = TextPrimary, fontSize = 12.sp, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -519,7 +519,7 @@ fun CodexChatTab(
                             Icon(Icons.Outlined.Settings, contentDescription = profileLabel, tint = TextSecondary, modifier = Modifier.size(18.dp))
                             Icon(Icons.Default.ArrowDropDown, contentDescription = null, tint = TextSecondary, modifier = Modifier.size(14.dp))
                         }
-                        DropdownMenu(expanded = showProfileSelector, onDismissRequest = { showProfileSelector = false }, modifier = Modifier.background(Color(0xFF202123))) {
+                        DropdownMenu(expanded = showProfileSelector, onDismissRequest = { showProfileSelector = false }, modifier = Modifier.background(Color(0xFF242424))) {
                             profileOptions.forEach { option ->
                                 DropdownMenuItem(
                                     text = { Text(option.second, color = if (option.first == selectedProfile) AccentBlue else TextPrimary) },
@@ -547,7 +547,7 @@ fun CodexChatTab(
                             )
                             Icon(Icons.Default.ArrowDropDown, contentDescription = null, tint = TextSecondary, modifier = Modifier.size(16.dp))
                         }
-                        DropdownMenu(expanded = showModelEffortSelector, onDismissRequest = { showModelEffortSelector = false }, modifier = Modifier.background(Color(0xFF202123))) {
+                        DropdownMenu(expanded = showModelEffortSelector, onDismissRequest = { showModelEffortSelector = false }, modifier = Modifier.background(Color(0xFF242424))) {
                             Text("\u041C\u043E\u0434\u0435\u043B\u044C", color = TextSecondary, fontSize = 12.sp, modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp))
                             displayModels.forEach { model ->
                                 DropdownMenuItem(
@@ -592,7 +592,7 @@ fun CodexChatTab(
                         onClick = { if (isLoading) onStopGeneration() else submitMessage() },
                         enabled = isLoading || messageText.isNotBlank() || attachments.isNotEmpty(),
                         shape = CircleShape,
-                        colors = IconButtonDefaults.filledIconButtonColors(containerColor = Color(0xFFD9D9D9), disabledContainerColor = Color(0xFF4A4B4D)),
+                        colors = IconButtonDefaults.filledIconButtonColors(containerColor = Color(0xFFD9D9D9), disabledContainerColor = Color(0xFF414141)),
                         modifier = Modifier.size(42.dp)
                     ) {
                         if (isLoading) {
@@ -652,9 +652,9 @@ private fun DesktopToolBlock(
     val isDone = event.status == "completed"
     val isRunning = event.status == "running" || event.status == "pending"
     Surface(
-        color = Color(0xFF212224),
+        color = Color(0xFF242424),
         shape = RoundedCornerShape(11.dp),
-        border = BorderStroke(1.dp, Color(0xFF303236)),
+        border = BorderStroke(1.dp, Color(0xFF303030)),
         modifier = Modifier.fillMaxWidth()
     ) {
         Column(modifier = Modifier.padding(12.dp)) {
@@ -721,7 +721,7 @@ private fun DesktopToolBlock(
                     }
                     Button(
                         onClick = { onRespondToAction(event.id, true) },
-                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF3A3D42))
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF323039))
                     ) {
                         Text("\u0420\u0430\u0437\u0440\u0435\u0448\u0438\u0442\u044C")
                     }
@@ -789,7 +789,7 @@ private fun CodexActionStrip(
                         }
                         Button(
                             onClick = { onRespondToAction(event.id, true) },
-                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF3A3D42)),
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF323039)),
                             contentPadding = PaddingValues(horizontal = 10.dp, vertical = 2.dp)
                         ) {
                             Text("\u0414\u0430", color = TextBright, fontSize = 11.sp)
@@ -819,9 +819,9 @@ private fun CodexMessageBubble(
         if (isUser) {
             Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.CenterEnd) {
                 Surface(
-                    color = Color(0xFF2B2C2E),
+                    color = Color(0xFF242424),
                     shape = RoundedCornerShape(18.dp),
-                    border = BorderStroke(1.dp, Color(0xFF34363A)),
+                    border = BorderStroke(1.dp, Color(0xFF2F2F2F)),
                     modifier = Modifier.widthIn(max = 520.dp)
                 ) {
                     Text(
@@ -876,16 +876,16 @@ private fun MobileChangeCard(
     var expanded by remember(summary.files) { mutableStateOf(false) }
     val visibleFiles = if (expanded) summary.files else summary.files.take(3)
     Surface(
-        color = Color(0xFF242526),
+        color = Color(0xFF242424),
         shape = RoundedCornerShape(9.dp),
-        border = BorderStroke(1.dp, Color(0xFF333538)),
+        border = BorderStroke(1.dp, Color(0xFF303030)),
         modifier = Modifier.fillMaxWidth()
     ) {
         Column {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .background(Color(0xFF2B2C2E))
+                    .background(Color(0xFF2D2D2D))
                     .padding(horizontal = 12.dp, vertical = 9.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
@@ -957,7 +957,7 @@ private fun highlightedText(text: String): AnnotatedString {
             addStyle(
                 SpanStyle(
                     color = TextPrimary,
-                    background = Color(0xFF2B2C2E),
+                    background = Color(0xFF232323),
                     fontFamily = FontFamily.Monospace,
                     fontSize = 13.sp
                 ),
