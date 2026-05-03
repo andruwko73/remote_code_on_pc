@@ -2293,7 +2293,7 @@ export class RemoteServer {
                 { label: 'Изменить публичный Keenetic URL', description: providerLabel, action: 'setPublic' },
                 { label: 'Очистить публичный Keenetic URL', description: publicUrl, action: 'clearPublic' }
             ] : []),
-            { label: 'Задать имя KeenDNS', description: keeneticHost || 'name или name.keenetic.link', detail: 'По имени расширение само сформирует публичный URL с портом сервера.', action: 'setKeeneticHost' },
+            { label: 'Сменить роутер / KeenDNS', description: keeneticHost || 'name или name.keenetic.link', detail: 'По имени расширение само сформирует публичный URL с портом сервера.', action: 'setKeeneticHost' },
             { label: this._authToken ? 'Скопировать токен доступа' : 'Создать токен доступа', description: tokenState, action: this._authToken ? 'copyToken' : 'createToken' },
             { label: 'Как подключиться извне', description: 'Keenetic/KeenDNS + токен', detail: 'Настройте KeenDNS/проброс порта 8799 на ПК, затем вставьте публичный URL в APK.', action: 'showHelp' },
             { label: 'Открыть настройки расширения', description: 'порт, host, token, public URL', action: 'openSettings' }
@@ -2347,15 +2347,23 @@ export class RemoteServer {
                 if (value === undefined) return;
                 const nextUrl = await this.setConfiguredPublicUrl(value);
                 if (nextUrl) {
+                    try {
+                        const parsed = new URL(nextUrl);
+                        await this.setConfiguredKeeneticHost(this.looksLikeKeeneticHost(parsed.hostname) ? parsed.host : '');
+                    } catch {
+                        await this.setConfiguredKeeneticHost('');
+                    }
                     await vscode.env.clipboard.writeText(nextUrl);
                     await vscode.window.showInformationMessage(`Remote Code: Keenetic URL сохранен и скопирован: ${nextUrl}`);
                 } else {
+                    await this.setConfiguredKeeneticHost('');
                     await vscode.window.showInformationMessage('Remote Code: публичный URL очищен.');
                 }
                 return;
             }
             case 'clearPublic':
                 await this.setConfiguredPublicUrl('');
+                await this.setConfiguredKeeneticHost('');
                 await vscode.window.setStatusBarMessage('Remote Code: публичный Keenetic URL очищен', 1800);
                 return;
             case 'setKeeneticHost': {
@@ -3517,7 +3525,7 @@ svg{width:15px;height:15px;display:block;fill:none;stroke:currentColor;stroke-wi
 .thread-row:hover .thread-delete{opacity:1}
 .thread-delete:hover{background:#463033;color:#f2b0b0}
 .content-shell{flex:1;min-height:0;display:flex;overflow:hidden}
-.wide-sidebar{width:286px;flex:0 0 286px;background:var(--codex-sidebar);border-right:1px solid var(--codex-border);display:flex;flex-direction:column;min-height:0;color:#cfcfcf;padding:12px 10px 10px;box-sizing:border-box}
+.wide-sidebar{width:246px;flex:0 0 246px;background:var(--codex-sidebar);border-right:1px solid var(--codex-border);display:flex;flex-direction:column;min-height:0;color:#cfcfcf;padding:12px 9px 10px;box-sizing:border-box}
 .sidebar-actions{display:flex;flex-direction:column;gap:3px;margin-bottom:22px}
 .sidebar-action{width:100%;height:31px;border:0;background:transparent;color:#cfd0d2;border-radius:8px;display:flex;align-items:center;gap:10px;padding:0 10px;cursor:pointer;text-align:left;font:inherit;font-size:13.5px}
 .sidebar-action:hover{background:rgba(255,255,255,.055);color:#fff}
@@ -3549,7 +3557,7 @@ svg{width:15px;height:15px;display:block;fill:none;stroke:currentColor;stroke-wi
 .sidebar-empty{font-size:12.5px;color:#777;padding:7px 10px}
 .sidebar-bottom{margin-top:auto;padding-top:10px;border-top:1px solid rgba(255,255,255,.06)}
 .messages{flex:1;min-width:0;overflow:auto;padding:18px min(3.3vw,38px) 12px}
-.progress-panel{width:268px;max-width:22vw;align-self:flex-start;margin:14px min(1.6vw,22px) 14px 0;background:rgba(36,36,36,.96);border:1px solid var(--codex-border);border-radius:18px;padding:14px;box-shadow:0 16px 42px rgba(0,0,0,.32);max-height:calc(100% - 28px);overflow:auto;color:#cfcfcf}
+.progress-panel{width:236px;max-width:20vw;align-self:flex-start;margin:14px min(1.1vw,16px) 14px 0;background:rgba(36,36,36,.96);border:1px solid var(--codex-border);border-radius:18px;padding:14px;box-shadow:0 16px 42px rgba(0,0,0,.32);max-height:calc(100% - 28px);overflow:auto;color:#cfcfcf}
 .progress-title{font-size:13.5px;font-weight:650;color:#9e9e9e;margin-bottom:9px}
 .progress-list,.progress-section{display:flex;flex-direction:column;gap:8px}
 .progress-item{display:grid;grid-template-columns:20px 1fr;gap:8px;align-items:start;color:#b9b9b9;font-size:12.5px;line-height:1.4}
@@ -3675,8 +3683,8 @@ button.send.stop:hover{background:#fff}
 .scroll-bottom.hidden{opacity:0;pointer-events:none;transform:translateY(8px)}
 @keyframes pulse{0%,100%{opacity:.35;transform:scale(.82)}50%{opacity:1;transform:scale(1)}}
 @keyframes spin{to{transform:rotate(360deg)}}
-@media (min-width: 1500px){:root{--progress-offset:282px}.composer-wrap{margin-left:286px;margin-right:292px}.messages{padding-left:min(3vw,46px);padding-right:min(3vw,46px)}}
-@media (max-width: 1499px){.wide-sidebar{display:none}.content-shell{display:flex;overflow:hidden}.messages{height:auto;overflow:auto}.progress-panel{display:none}.scroll-bottom{display:none}}
+@media (min-width: 1120px){:root{--progress-offset:250px}.composer-wrap{margin-left:246px;margin-right:252px}.messages{padding-left:min(2.6vw,38px);padding-right:min(2.6vw,38px)}}
+@media (max-width: 1119px){.wide-sidebar{display:none}.content-shell{display:flex;overflow:hidden}.messages{height:auto;overflow:auto}.progress-panel{display:none}.scroll-bottom{display:none}}
 @media (max-width: 680px){.top{padding:0 10px}.messages{padding-left:14px;padding-right:14px}.composer-wrap{padding-left:8px;padding-right:8px}.controls{flex-wrap:wrap}button.send{margin-left:auto}.subcontrols{gap:8px;flex-wrap:wrap}.dropdown.profile{flex-basis:132px}}
 </style>
 </head>
