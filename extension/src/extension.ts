@@ -81,26 +81,8 @@ export function activate(context: vscode.ExtensionContext) {
             vscode.window.showErrorMessage('Сначала запустите сервер');
             return;
         }
-        if (server.tunnelUrl) {
-            const action = await vscode.window.showInformationMessage(
-                `🌐 Туннель активен: ${server.tunnelUrl}`,
-                'Остановить туннель'
-            );
-            if (action === 'Остановить туннель') {
-                server.stopTunnelPublic();
-                updateStatusBar();
-                vscode.window.showInformationMessage('⏹ Туннель остановлен');
-            }
-            return;
-        }
-        vscode.window.showInformationMessage('🌐 Запуск туннеля ngrok...');
-        try {
-            const url = await server.startTunnelPublic();
-            vscode.window.showInformationMessage(`🌐 Интернет-доступ: ${url}`);
-            updateStatusBar();
-        } catch (err: any) {
-            vscode.window.showErrorMessage(`❌ Ошибка туннеля: ${err.message}`);
-        }
+        await server.showConnectionSettings();
+        updateStatusBar();
     });
 
     const statusCmd = vscode.commands.registerCommand('remoteCodeOnPC.status', async () => {
@@ -110,7 +92,7 @@ export function activate(context: vscode.ExtensionContext) {
         }
         const addr = `http://${server.host}:${server.port}`;
         let msg = `✅ Сервер: ${addr}`;
-        if (server.tunnelUrl) msg += `\n🌐 Интернет (${server.tunnelProvider === 'cloudflared' ? 'Cloudflare' : server.tunnelProvider || 'туннель'}): ${server.tunnelUrl}`;
+        if (server.tunnelUrl) msg += `\n🌐 Интернет (${server.tunnelProvider === 'keenetic' ? 'Keenetic' : server.tunnelProvider === 'cloudflared' ? 'Cloudflare' : server.tunnelProvider || 'публичный URL'}): ${server.tunnelUrl}`;
         if (server.localIp) msg += `\n📡 Локальный IP: ${server.localIp}`;
         msg += `\n🔐 Токен: ${server.authToken ? 'включен' : 'не задан'}`;
         vscode.window.showInformationMessage(msg);
@@ -141,10 +123,10 @@ function updateStatusBar() {
     if (!statusBarItem || !server) return;
     const parts = ['🖥️ Remote'];
     if (server.isRunning) parts.push(`:${server.port}`);
-    if (server.tunnelUrl) parts.push(server.tunnelProvider === 'cloudflared' ? '☁' : '🌐');
+    if (server.tunnelUrl) parts.push(server.tunnelProvider === 'keenetic' ? '🔗' : server.tunnelProvider === 'cloudflared' ? '☁' : '🌐');
     statusBarItem.text = parts.join(' ');
-    const provider = server.tunnelProvider === 'cloudflared' ? 'Cloudflare' : server.tunnelProvider || 'туннель';
-    statusBarItem.tooltip = `Remote Code on PC\nЛокально: http://${server.localIp}:${server.port}\n${server.tunnelUrl ? `Интернет (${provider}): ${server.tunnelUrl}` : 'Туннель неактивен'}\nТокен: ${server.authToken ? 'включен' : 'не задан'}`;
+    const provider = server.tunnelProvider === 'keenetic' ? 'Keenetic' : server.tunnelProvider === 'cloudflared' ? 'Cloudflare' : server.tunnelProvider || 'публичный URL';
+    statusBarItem.tooltip = `Remote Code on PC\nЛокально: http://${server.localIp}:${server.port}\n${server.tunnelUrl ? `Интернет (${provider}): ${server.tunnelUrl}` : 'Публичный URL не задан'}\nТокен: ${server.authToken ? 'включен' : 'не задан'}`;
     statusBarItem.show();
 }
 

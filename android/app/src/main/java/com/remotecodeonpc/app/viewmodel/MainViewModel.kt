@@ -290,11 +290,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val lower = raw.lowercase()
         return when {
             code == 530 || "http 530" in lower || "status code 530" in lower || "ошибка 530" in lower || "error 530" in lower ->
-                "Cloudflare вернул 530: публичный URL потерял связь с ПК или устарел. Остановите и снова запустите туннель, дождитесь нового trycloudflare URL и подключитесь к нему."
+                "Публичный Keenetic URL доступен, но не доходит до ПК. Проверьте KeenDNS, проброс TCP-порта 8799 на IP ПК и что расширение запущено."
             code == 503 || code == 502 || "503" in lower || "bad gateway" in lower ->
-                "Туннель найден, но Cloudflare/ngrok пока не достучался до ПК. Перезапустите туннель в расширении и подождите 10-20 секунд."
+                "Публичный адрес отвечает, но сервер Remote Code недоступен. Проверьте проброс порта 8799 на роутере Keenetic и включенное расширение VS Code."
             "unable to resolve host" in lower || "no address associated" in lower || "failed to resolve" in lower ->
-                "Публичный URL не резолвится DNS. Обычно это старый/ещё не готовый trycloudflare URL. Запустите новый туннель в VS Code и вставьте новый адрес."
+                "Публичный URL не резолвится DNS. Проверьте KeenDNS/Keenetic адрес или вставьте полный URL вида https://name.keenetic.link:8799."
             else -> "Ошибка внешнего подключения: $raw"
         }
     }
@@ -1246,10 +1246,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             try {
                 val api = ApiClient.getApi(_uiState.value.serverConfig.copy(useTunnel = false, tunnelUrl = ""))
-                val response = api.startTunnel()
+                val response = api.getTunnelStatus()
                 val body = response.body()
-                val url = body?.url
-                if (response.isSuccessful && body?.success == true && !url.isNullOrBlank()) {
+                val url = body?.publicUrl ?: body?.tunnelUrl
+                if (response.isSuccessful && !url.isNullOrBlank()) {
                     val updatedConfig = _uiState.value.serverConfig.copy(
                         useTunnel = true,
                         tunnelUrl = url
@@ -1270,7 +1270,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                             isTunnelStarting = false,
                             tunnelActive = false,
                             tunnelUrl = url,
-                            tunnelProvider = body.provider,
+                            tunnelProvider = body?.tunnelProvider,
                             isConnected = false,
                             isWebSocketConnected = false,
                             tunnelError = errorText,
@@ -1283,7 +1283,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     _uiState.value = _uiState.value.copy(
                         tunnelActive = true,
                         tunnelUrl = url,
-                        tunnelProvider = body.provider,
+                        tunnelProvider = body?.tunnelProvider ?: "keenetic",
                         isTunnelStarting = false,
                         tunnelError = null
                     )
@@ -1293,12 +1293,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     connectWebSocket()
                 } else {
                     val errorText = if (response.code() == 401) {
-                        "Требуется токен доступа для запуска туннеля."
+                        "Требуется токен доступа для получения публичного URL."
                     } else {
-                        body?.error
-                            ?: response.errorBody()?.string()?.let { parseServerError(it) }
-                            ?: body?.message
-                            ?: "Ошибка ${response.code()}"
+                        response.errorBody()?.string()?.let { parseServerError(it) }
+                            ?: "Keenetic URL не задан в расширении. В VS Code откройте Remote Code: Подключение -> Задать публичный Keenetic URL или вставьте URL вручную в приложении."
                     }
                     _uiState.value = _uiState.value.copy(
                         isTunnelStarting = false,
@@ -1329,11 +1327,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun stopTunnel() {
         viewModelScope.launch {
             try {
-                val api = ApiClient.getApi(_uiState.value.serverConfig)
-                api.stopTunnel()
                 _uiState.value = _uiState.value.copy(
                     tunnelActive = false,
-                    tunnelUrl = null,
+                    tunnelUrl = _uiState.value.tunnelUrl,
                     tunnelProvider = null,
                     isTunnelStarting = false,
                     tunnelError = null,

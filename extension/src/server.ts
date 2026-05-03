@@ -110,6 +110,8 @@ interface TunnelLauncher {
     provider: 'ngrok' | 'cloudflared';
 }
 
+type PublicAccessProvider = 'keenetic' | 'ngrok' | 'cloudflared';
+
 export class RemoteServer {
     private httpServer?: http.Server;
     private wss?: WebSocketServer;
@@ -145,7 +147,7 @@ export class RemoteServer {
 
     // Internet tunnel
     private _tunnelUrl: string | null = null;
-    private _tunnelProvider: 'ngrok' | 'cloudflared' | null = null;
+    private _tunnelProvider: PublicAccessProvider | null = null;
     private _tunnelProcess: any = null;
     private tunnelStartPromise: Promise<string> | null = null;
     private _localIp: string = '';
@@ -165,19 +167,57 @@ export class RemoteServer {
     get port() { return this._port; }
     get host() { return this._host; }
     get isRunning() { return this._isRunning; }
-    get tunnelUrl() { return this._tunnelUrl; }
-    get tunnelProvider() { return this._tunnelProvider; }
+    get tunnelUrl() { return this.getPublicUrl(); }
+    get tunnelProvider() { return this.getPublicProvider(); }
     get localIp() { return this._localIp; }
     get authToken() { return this._authToken; }
 
-    /** Публичный запуск туннеля */
+    /** Публичный адрес для подключения из внешней сети. */
     async startTunnelPublic(): Promise<string> {
-        return this.startTunnel();
+        const publicUrl = this.getPublicUrl();
+        if (!publicUrl) {
+            throw new Error('Keenetic URL не задан. Откройте Remote Code: Подключение и укажите публичный KeenDNS/Keenetic адрес.');
+        }
+        return publicUrl;
     }
 
     /** Публичная остановка туннеля */
     stopTunnelPublic(): void {
         this.stopTunnel();
+    }
+
+    private normalizePublicUrl(raw: string | undefined | null): string {
+        const trimmed = (raw || '').trim().replace(/\/+$/, '');
+        if (!trimmed) return '';
+        if (/^https?:\/\//i.test(trimmed)) return trimmed;
+        return `https://${trimmed}`;
+    }
+
+    private getConfiguredPublicUrl(): string {
+        const config = vscode.workspace.getConfiguration('remoteCodeOnPC');
+        return this.normalizePublicUrl(config.get<string>('publicUrl', ''));
+    }
+
+    private async setConfiguredPublicUrl(raw: string): Promise<string> {
+        const publicUrl = this.normalizePublicUrl(raw);
+        await vscode.workspace.getConfiguration('remoteCodeOnPC').update('publicUrl', publicUrl, vscode.ConfigurationTarget.Global);
+        return publicUrl;
+    }
+
+    private getPublicUrl(): string | null {
+        return this._tunnelUrl || this.getConfiguredPublicUrl() || null;
+    }
+
+    private getPublicProvider(): PublicAccessProvider | null {
+        if (this._tunnelUrl) return this._tunnelProvider || 'cloudflared';
+        return this.getConfiguredPublicUrl() ? 'keenetic' : null;
+    }
+
+    private getProviderLabel(provider: PublicAccessProvider | null | undefined): string {
+        if (provider === 'cloudflared') return 'Cloudflare';
+        if (provider === 'ngrok') return 'ngrok';
+        if (provider === 'keenetic') return 'Keenetic';
+        return 'не задан';
     }
 
     async start(): Promise<void> {
@@ -408,7 +448,8 @@ export class RemoteServer {
         const workspaceFolders = vscode.workspace.workspaceFolders || [];
         const activeEditor = vscode.window.activeTextEditor;
         const authOk = this.checkAuth(req);
-        const publicUrl = this._tunnelUrl || null;
+        const publicUrl = this.getPublicUrl();
+        const publicProvider = this.getPublicProvider();
 
         this.jsonResponse(res, 200, {
             version: vscode.version,
@@ -425,7 +466,7 @@ export class RemoteServer {
                 tunnelUrl: publicUrl,
                 activeUrl: publicUrl || `http://${this._localIp}:${this._port}`,
                 tunnelActive: !!publicUrl,
-                tunnelProvider: this._tunnelProvider,
+                tunnelProvider: publicProvider,
                 authRequired: !!this._authToken,
                 authOk,
                 tokenConfigured: !!this._authToken
@@ -2058,16 +2099,19 @@ export class RemoteServer {
 
     public async showConnectionSettings(): Promise<void> {
         const localUrl = `http://${this._localIp || '127.0.0.1'}:${this._port}`;
-        const publicUrl = this._tunnelUrl || '';
+        const publicUrl = this.getPublicUrl() || '';
         const tokenState = this._authToken ? 'токен включен' : 'токен не задан';
-        const providerLabel = this._tunnelProvider === 'cloudflared' ? 'Cloudflare' : this._tunnelProvider === 'ngrok' ? 'ngrok' : 'не запущен';
+        const providerLabel = this.getProviderLabel(this.getPublicProvider());
         const items: Array<vscode.QuickPickItem & { action: string }> = [
             { label: 'Скопировать локальный URL', description: localUrl, action: 'copyLocal' },
-            { label: publicUrl ? 'Скопировать публичный URL' : 'Запустить внешний туннель', description: publicUrl || 'Cloudflare/ngrok', detail: publicUrl ? `Провайдер: ${providerLabel}` : 'Запускает установленный cloudflared (Cloudflare) или ngrok; Cloudflare выбирается первым', action: publicUrl ? 'copyPublic' : 'startTunnel' },
-            ...(publicUrl ? [{ label: 'Остановить внешний туннель', description: providerLabel, action: 'stopTunnel' }] : []),
+            { label: publicUrl ? 'Скопировать публичный Keenetic URL' : 'Задать публичный Keenetic URL', description: publicUrl || 'https://name.keenetic.link:8799', detail: publicUrl ? `Провайдер: ${providerLabel}` : 'Укажите KeenDNS/Keenetic адрес роутера с пробросом порта на этот ПК', action: publicUrl ? 'copyPublic' : 'setPublic' },
+            ...(publicUrl ? [
+                { label: 'Изменить публичный Keenetic URL', description: providerLabel, action: 'setPublic' },
+                { label: 'Очистить публичный Keenetic URL', description: publicUrl, action: 'clearPublic' }
+            ] : []),
             { label: this._authToken ? 'Скопировать токен доступа' : 'Создать токен доступа', description: tokenState, action: this._authToken ? 'copyToken' : 'createToken' },
-            { label: 'Как подключиться извне', description: 'Cloudflare/ngrok + токен', detail: 'Запустите внешний туннель, скопируйте публичный URL и вставьте его в APK в режиме "Внешняя сеть".', action: 'showHelp' },
-            { label: 'Открыть настройки расширения', description: 'порт, host, token, file watchers', action: 'openSettings' }
+            { label: 'Как подключиться извне', description: 'Keenetic/KeenDNS + токен', detail: 'Настройте KeenDNS/проброс порта 8799 на ПК, затем вставьте публичный URL в APK.', action: 'showHelp' },
+            { label: 'Открыть настройки расширения', description: 'порт, host, token, public URL', action: 'openSettings' }
         ];
         const picked = await vscode.window.showQuickPick(items, {
             title: 'Remote Code: подключение',
@@ -2083,6 +2127,27 @@ export class RemoteServer {
                 await vscode.env.clipboard.writeText(publicUrl);
                 await vscode.window.setStatusBarMessage('Remote Code: публичный URL скопирован', 1800);
                 return;
+            case 'setPublic': {
+                const value = await vscode.window.showInputBox({
+                    title: 'Remote Code: публичный Keenetic URL',
+                    prompt: 'Введите KeenDNS/Keenetic адрес, который ведет на порт 8799 этого ПК',
+                    placeHolder: 'https://name.keenetic.link:8799',
+                    value: publicUrl
+                });
+                if (value === undefined) return;
+                const nextUrl = await this.setConfiguredPublicUrl(value);
+                if (nextUrl) {
+                    await vscode.env.clipboard.writeText(nextUrl);
+                    await vscode.window.showInformationMessage(`Remote Code: Keenetic URL сохранен и скопирован: ${nextUrl}`);
+                } else {
+                    await vscode.window.showInformationMessage('Remote Code: публичный URL очищен.');
+                }
+                return;
+            }
+            case 'clearPublic':
+                await this.setConfiguredPublicUrl('');
+                await vscode.window.setStatusBarMessage('Remote Code: публичный Keenetic URL очищен', 1800);
+                return;
             case 'copyToken':
                 await vscode.env.clipboard.writeText(this._authToken);
                 await vscode.window.showInformationMessage('Remote Code: токен скопирован. Вставьте его в настройках APK.');
@@ -2095,23 +2160,13 @@ export class RemoteServer {
                 await vscode.window.showInformationMessage('Remote Code: токен создан и скопирован. Вставьте его в приложении на телефоне.');
                 return;
             }
-            case 'startTunnel':
-                try {
-                    const url = await this.startTunnel();
-                    await vscode.env.clipboard.writeText(url);
-                    const provider = this._tunnelProvider === 'cloudflared' ? 'Cloudflare' : this._tunnelProvider || 'туннель';
-                    await vscode.window.showInformationMessage(`Remote Code: ${provider} URL скопирован: ${url}`);
-                } catch (err: any) {
-                    await vscode.window.showErrorMessage(`Remote Code: не удалось запустить туннель: ${err?.message || err}`);
-                }
-                return;
             case 'stopTunnel':
                 this.stopTunnel();
                 await vscode.window.setStatusBarMessage('Remote Code: внешний туннель остановлен', 1800);
                 return;
             case 'showHelp':
                 await vscode.window.showInformationMessage(
-                    'Remote Code: локально используйте IP ПК и порт 8799. Для внешней сети запустите туннель здесь, вставьте публичный URL в APK и используйте тот же токен доступа. Адрес *.trycloudflare.com означает Cloudflare-туннель.'
+                    'Remote Code: локально используйте IP ПК и порт 8799. Для внешней сети настройте KeenDNS/переадресацию TCP-порта 8799 на IP этого ПК, сохраните Keenetic URL здесь и вставьте его в APK. Для внешнего доступа лучше включить токен.'
                 );
                 return;
             case 'openSettings':
@@ -3818,11 +3873,12 @@ prompt.addEventListener('keydown', event => {
             if (artifacts.length >= 4) break;
         }
         const localBase = `http://127.0.0.1:${this._port}`;
+        const publicUrl = this.getPublicUrl();
         const urls = [
             `${localBase}/api/status`,
             `${localBase}/api/codex/send`,
             `${localBase}/api/tunnel/status`,
-            ...(this._tunnelUrl ? [this._tunnelUrl] : [])
+            ...(publicUrl ? [publicUrl] : [])
         ];
         for (const value of urls) {
             artifacts.push({ kind: 'url', label: value.replace(/^https?:\/\//, ''), value });
@@ -4299,45 +4355,48 @@ prompt.addEventListener('keydown', event => {
     // GET /api/tunnel/status
     private async handleTunnelStatus(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
         const authOk = this.checkAuth(req);
+        const publicUrl = this.getPublicUrl();
+        const publicProvider = this.getPublicProvider();
         this.jsonResponse(res, 200, {
-            tunnelActive: !!this._tunnelUrl,
-            tunnelUrl: this._tunnelUrl,
+            tunnelActive: !!publicUrl,
+            tunnelUrl: publicUrl,
             localIp: this._localIp,
             port: this._port,
             localUrl: `http://${this._localIp}:${this._port}`,
-            publicUrl: this._tunnelUrl,
-            tunnelProvider: this._tunnelProvider,
+            publicUrl,
+            tunnelProvider: publicProvider,
             authRequired: !!this._authToken,
             authOk,
             tokenConfigured: !!this._authToken,
-            manualUrlSupported: true
+            manualUrlSupported: true,
+            externalMode: publicProvider === 'keenetic' ? 'keenetic' : publicProvider
         });
     }
 
     // POST /api/tunnel/start
     private async handleTunnelStart(_req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
-        if (this._tunnelUrl) {
-            const currentUrl = this._tunnelUrl;
-            const currentProvider = this._tunnelProvider || 'ngrok';
-            if (this._tunnelProcess && await this.isTunnelHealthy(currentUrl)) {
-                this.jsonResponse(res, 200, { success: true, url: currentUrl, provider: currentProvider, message: 'Туннель уже активен' });
-                return;
-            }
-            console.warn(`[RemoteCodeOnPC] stale tunnel detected, restarting: ${currentUrl}`);
-            this.stopTunnel();
+        const publicUrl = this.getPublicUrl();
+        if (publicUrl) {
+            this.jsonResponse(res, 200, {
+                success: true,
+                url: publicUrl,
+                provider: this.getPublicProvider(),
+                message: 'Используется сохраненный Keenetic URL. Запуск внешнего туннельного процесса не требуется.'
+            });
+            return;
         }
-        try {
-            const url = await this.startTunnel();
-            this.jsonResponse(res, 200, { success: true, url, provider: this._tunnelProvider, message: 'Туннель запущен' });
-        } catch (err: any) {
-            this.jsonResponse(res, 500, { success: false, error: err.message });
-        }
+        this.jsonResponse(res, 409, {
+            success: false,
+            provider: 'keenetic',
+            error: 'Keenetic URL не задан. В VS Code откройте Remote Code: Подключение -> Задать публичный Keenetic URL или вставьте URL вручную в APK.',
+            manualUrlSupported: true
+        });
     }
 
     // POST /api/tunnel/stop
     private async handleTunnelStop(_req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
         this.stopTunnel();
-        this.jsonResponse(res, 200, { success: true, provider: null, message: 'Туннель остановлен' });
+        this.jsonResponse(res, 200, { success: true, provider: null, message: 'Временный туннель остановлен. Сохраненный Keenetic URL не изменен.' });
     }
 
     // ========== CODEX (OpenAI) HANDLERS ==========
@@ -4969,15 +5028,9 @@ prompt.addEventListener('keydown', event => {
     }
 
     private async startTunnel(): Promise<string> {
-        if (this.tunnelStartPromise) return this.tunnelStartPromise;
-        const launcher = this.findTunnelLauncher();
-        if (!launcher) {
-            throw new Error('Не найден рабочий ngrok или cloudflared. Установите один из них либо вставьте готовый публичный URL вручную в настройках приложения.');
-        }
-        this.tunnelStartPromise = this.startTunnelWithLauncher(launcher).finally(() => {
-            this.tunnelStartPromise = null;
-        });
-        return this.tunnelStartPromise;
+        const configuredUrl = this.getConfiguredPublicUrl();
+        if (configuredUrl) return configuredUrl;
+        throw new Error('Keenetic URL не задан. Укажите публичный KeenDNS/Keenetic адрес в Remote Code: Подключение.');
     }
 
     private stopTunnel(): void {

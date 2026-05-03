@@ -2,7 +2,7 @@
   "name": "remote-code-on-pc",
   "displayName": "Remote Code on PC",
   "description": "HTTP/WebSocket сервер для удаленного управления VS Code с Android-приложения",
-  "version": "1.1.51",
+  "version": "1.1.52",
   "publisher": "remote-code-on-pc",
   "license": "MIT",
   "engines": {
@@ -34,7 +34,7 @@
       },
       {
         "command": "remoteCodeOnPC.tunnel",
-        "title": "Remote Code on PC: Запустить/остановить интернет-туннель (ngrok)"
+        "title": "Remote Code on PC: Публичный Keenetic URL"
       },
       {
         "command": "remoteCodeOnPC.status",
@@ -62,6 +62,11 @@
           "type": "string",
           "default": "",
           "description": "Токен авторизации (пусто — без пароля)"
+        },
+        "remoteCodeOnPC.publicUrl": {
+          "type": "string",
+          "default": "",
+          "description": "Публичный KeenDNS/Keenetic URL для внешнего подключения, например https://name.keenetic.link:8799"
         },
         "remoteCodeOnPC.enableFileWatchers": {
           "type": "boolean",
