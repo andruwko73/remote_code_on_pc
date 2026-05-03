@@ -142,6 +142,8 @@ export class RemoteServer {
     private activeChatCancellation?: vscode.CancellationTokenSource;
     private activeChatThreadId?: string;
     private hiddenCodexThreadIds: Set<string> = new Set();
+    private pinnedThreadIds: Set<string> = new Set();
+    private archivedThreadIds: Set<string> = new Set();
     private workspaceStorageCache?: { timestamp: number; dirs: string[] };
     private workspaceFileHintsCache?: { timestamp: number; limit: number; hints: string };
 
@@ -1633,6 +1635,8 @@ export class RemoteServer {
             const savedWorkMode = this._context.globalState.get<string>('remote_code_work_mode', this.selectedWorkMode);
             const savedProfile = this._context.globalState.get<string>('remote_code_profile', this.selectedProfile);
             const savedHiddenCodexThreads = this._context.globalState.get<string[]>('remote_code_hidden_codex_threads', []);
+            const savedPinnedThreads = this._context.globalState.get<string[]>('remote_code_pinned_threads', []);
+            const savedArchivedThreads = this._context.globalState.get<string[]>('remote_code_archived_threads', []);
             const allowedModelIds = new Set(this.getDefaultCodexModels().map(model => model.id));
             this.codexHistory = Array.isArray(savedHistory) ? savedHistory.slice(-200) : [];
             this.codexActionEvents = Array.isArray(savedActions) ? savedActions.slice(-250) : [];
@@ -1653,6 +1657,8 @@ export class RemoteServer {
             this.selectedWorkMode = savedWorkMode === 'workspace' ? 'workspace' : 'local';
             this.selectedProfile = ['user', 'review', 'fast'].includes(savedProfile || '') ? savedProfile : 'user';
             this.hiddenCodexThreadIds = new Set(Array.isArray(savedHiddenCodexThreads) ? savedHiddenCodexThreads.filter(Boolean) : []);
+            this.pinnedThreadIds = new Set(Array.isArray(savedPinnedThreads) ? savedPinnedThreads.filter(Boolean) : []);
+            this.archivedThreadIds = new Set(Array.isArray(savedArchivedThreads) ? savedArchivedThreads.filter(Boolean) : []);
             if (this.codexHistory.length === 0) {
                 this.codexHistory.push({
                     id: `remote_system_${Date.now()}`,
@@ -1696,11 +1702,14 @@ export class RemoteServer {
         void this._context.globalState.update('remote_code_work_mode', this.selectedWorkMode);
         void this._context.globalState.update('remote_code_profile', this.selectedProfile);
         void this._context.globalState.update('remote_code_hidden_codex_threads', Array.from(this.hiddenCodexThreadIds).slice(-250));
+        void this._context.globalState.update('remote_code_pinned_threads', Array.from(this.pinnedThreadIds).slice(-250));
+        void this._context.globalState.update('remote_code_archived_threads', Array.from(this.archivedThreadIds).slice(-250));
     }
 
     private upsertRemoteCodeThread(threadId: string, title?: string, timestamp?: number): void {
         const id = threadId.trim();
         if (!id) return;
+        this.archivedThreadIds.delete(id);
         const existing = this.remoteCodeThreads.find(thread => thread.id === id);
         const cleanTitle = title?.replace(/\s+/g, ' ').trim().slice(0, 80);
         const next: RemoteCodeThreadSummary = {
@@ -1768,7 +1777,12 @@ export class RemoteServer {
                 source: this.currentRemoteThreadId.startsWith('codex-file:') ? 'codex' : 'remote'
             });
         }
-        const threads = Array.from(byThread.values()).sort((a, b) => b.timestamp - a.timestamp);
+        const threads = Array.from(byThread.values())
+            .filter(thread => !this.archivedThreadIds.has(thread.id))
+            .sort((a, b) => {
+                const pinnedDelta = Number(this.pinnedThreadIds.has(b.id)) - Number(this.pinnedThreadIds.has(a.id));
+                return pinnedDelta || b.timestamp - a.timestamp;
+            });
         this.remoteCodeThreadsCache = { timestamp: Date.now(), threads };
         return threads;
     }
@@ -2516,6 +2530,39 @@ export class RemoteServer {
             case 'renameThread':
                 await this.renameCurrentThread();
                 return;
+            case 'pinCurrentThread':
+                await this.toggleCurrentThreadPinned();
+                return;
+            case 'archiveCurrentThread':
+                await this.archiveCurrentThread();
+                return;
+            case 'copyWorkspaceDirectory':
+                await this.copyWorkspaceDirectory();
+                return;
+            case 'copySessionId':
+                await vscode.env.clipboard.writeText(this.currentRemoteThreadId);
+                await vscode.window.setStatusBarMessage('Remote Code: идентификатор сеанса скопирован', 1600);
+                return;
+            case 'copyDeeplink': {
+                const link = `http://127.0.0.1:${this._port}/codex?threadId=${encodeURIComponent(this.currentRemoteThreadId)}`;
+                await vscode.env.clipboard.writeText(link);
+                await vscode.window.setStatusBarMessage('Remote Code: диплинк скопирован', 1600);
+                return;
+            }
+            case 'copyCurrentThreadMarkdown':
+                await this.copyCurrentThreadMarkdown();
+                return;
+            case 'openSideChat':
+                this.openPcChatPanel();
+                await vscode.window.setStatusBarMessage('Remote Code: чат открыт', 1200);
+                return;
+            case 'openMiniWindow':
+                try {
+                    await vscode.commands.executeCommand('workbench.action.moveEditorToNewWindow');
+                } catch {
+                    await vscode.window.showInformationMessage('Remote Code: мини-окно недоступно в этой версии VS Code.');
+                }
+                return;
             case 'switchThread':
                 if (typeof msg.threadId === 'string' && msg.threadId.trim()) {
                     this.currentRemoteThreadId = msg.threadId.trim();
@@ -2537,6 +2584,20 @@ export class RemoteServer {
                 return;
             case 'openTerminal':
                 (vscode.window.activeTerminal || vscode.window.createTerminal('Remote Code')).show();
+                return;
+            case 'openSearch':
+                await vscode.commands.executeCommand('workbench.action.findInFiles');
+                return;
+            case 'openExtensions':
+                await vscode.commands.executeCommand('workbench.view.extensions');
+                return;
+            case 'openCommandPalette':
+                await vscode.commands.executeCommand('workbench.action.showCommands');
+                return;
+            case 'openWorkspace':
+                if (typeof msg.path === 'string' && msg.path.trim()) {
+                    await vscode.commands.executeCommand('vscode.openFolder', vscode.Uri.file(msg.path.trim()), false);
+                }
                 return;
             case 'showProblems':
                 await vscode.commands.executeCommand('workbench.actions.view.problems');
@@ -2645,6 +2706,57 @@ export class RemoteServer {
         this.broadcast({ type: 'codex:threads-update', threads: this.getRemoteCodeThreads(), currentThreadId: this.currentRemoteThreadId, timestamp: Date.now() });
     }
 
+    private async toggleCurrentThreadPinned(): Promise<void> {
+        if (this.pinnedThreadIds.has(this.currentRemoteThreadId)) {
+            this.pinnedThreadIds.delete(this.currentRemoteThreadId);
+            await vscode.window.setStatusBarMessage('Remote Code: чат откреплен', 1400);
+        } else {
+            this.pinnedThreadIds.add(this.currentRemoteThreadId);
+            await vscode.window.setStatusBarMessage('Remote Code: чат закреплен', 1400);
+        }
+        this.remoteCodeThreadsCache = undefined;
+        this.saveRemoteCodeState(true);
+        this.refreshPcChatPanel(true);
+        this.broadcast({ type: 'codex:threads-update', threads: this.getRemoteCodeThreads(), currentThreadId: this.currentRemoteThreadId, timestamp: Date.now() });
+    }
+
+    private async archiveCurrentThread(): Promise<void> {
+        const threadId = this.currentRemoteThreadId;
+        if (!threadId) return;
+        this.stopActiveGeneration(false);
+        this.archivedThreadIds.add(threadId);
+        this.pinnedThreadIds.delete(threadId);
+        this.remoteCodeThreadsCache = undefined;
+        const next = this.getRemoteCodeThreads().find(thread => thread.id !== threadId);
+        this.currentRemoteThreadId = next?.id || this.createRemoteCodeThread();
+        this.saveRemoteCodeState(true);
+        this.refreshPcChatPanel(true);
+        this.broadcast({ type: 'codex:threads-update', threads: this.getRemoteCodeThreads(), currentThreadId: this.currentRemoteThreadId, timestamp: Date.now() });
+        await vscode.window.setStatusBarMessage('Remote Code: чат архивирован', 1600);
+    }
+
+    private async copyWorkspaceDirectory(): Promise<void> {
+        const workspace = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath || '';
+        if (!workspace) {
+            await vscode.window.showWarningMessage('Remote Code: рабочая директория не открыта.');
+            return;
+        }
+        await vscode.env.clipboard.writeText(workspace);
+        await vscode.window.setStatusBarMessage('Remote Code: рабочая директория скопирована', 1600);
+    }
+
+    private async copyCurrentThreadMarkdown(): Promise<void> {
+        const current = this.getRemoteCodeThreads().find(thread => thread.id === this.currentRemoteThreadId);
+        const messages = this.getMessagesForRemoteThread(this.currentRemoteThreadId, 120)
+            .filter(message => message.role !== 'system');
+        const body = messages.map(message => {
+            const name = message.role === 'user' ? 'Вы' : message.role === 'assistant' ? 'Remote Code' : 'Система';
+            return `## ${name}\n\n${message.content.trim()}`;
+        }).join('\n\n');
+        await vscode.env.clipboard.writeText(`# ${current?.title || this.getCurrentThreadTitle()}\n\n${body}`.trim());
+        await vscode.window.setStatusBarMessage('Remote Code: чат скопирован как Markdown', 1600);
+    }
+
     private async confirmAndDeleteCurrentThread(): Promise<void> {
         await this.confirmAndDeleteThread(this.currentRemoteThreadId);
     }
@@ -2691,6 +2803,8 @@ export class RemoteServer {
         if (threadId.startsWith('codex-file:')) {
             this.hiddenCodexThreadIds.add(threadId);
         }
+        this.pinnedThreadIds.delete(threadId);
+        this.archivedThreadIds.delete(threadId);
         this.remoteCodeThreads = this.remoteCodeThreads.filter(thread => thread.id !== threadId);
         this.codexHistory = this.codexHistory.filter(message => (message.threadId || this.currentRemoteThreadId) !== threadId);
         this.codexActionEvents = this.codexActionEvents.filter(event => event.threadId !== threadId);
@@ -3221,6 +3335,18 @@ export class RemoteServer {
         }
     }
 
+    private formatThreadAge(timestamp: number): string {
+        const value = Number.isFinite(timestamp) ? timestamp : Date.now();
+        const diffMs = Math.max(0, Date.now() - value);
+        const minute = 60_000;
+        const hour = 60 * minute;
+        const day = 24 * hour;
+        if (diffMs < minute) return 'сейчас';
+        if (diffMs < hour) return `${Math.max(1, Math.round(diffMs / minute))}м`;
+        if (diffMs < day) return `${Math.max(1, Math.round(diffMs / hour))}ч`;
+        return `${Math.max(1, Math.round(diffMs / day))}д`;
+    }
+
     private renderPcChatHtml(messages: CodexChatMessage[], actions: RemoteCodeActionEvent[] = []): string {
         const modelOptions = this.getDefaultCodexModels();
         const selectedModel = modelOptions.some(model => model.id === this.selectedAgent) ? this.selectedAgent : 'gpt-5.5';
@@ -3228,6 +3354,7 @@ export class RemoteServer {
         const title = this.getCurrentThreadTitle();
         const threadOptions = this.getRemoteCodeThreads();
         const isBusy = !!this.activeChatCancellation && !this.activeChatCancellation.token.isCancellationRequested;
+        const isPinned = this.pinnedThreadIds.has(this.currentRemoteThreadId);
         const effortOptions = [
             { id: 'low', name: 'Низкий' },
             { id: 'medium', name: 'Средний' },
@@ -3245,6 +3372,11 @@ export class RemoteServer {
         const icon = {
             edit: this.webIcon('edit'),
             more: this.webIcon('more'),
+            search: this.webIcon('search'),
+            extensions: this.webIcon('extensions'),
+            command: this.webIcon('command'),
+            pin: this.webIcon('pin'),
+            archive: this.webIcon('archive'),
             play: this.webIcon('play'),
             terminal: this.webIcon('terminal'),
             trash: this.webIcon('trash'),
@@ -3264,6 +3396,43 @@ export class RemoteServer {
             panel: this.webIcon('panel'),
             vscode: '<svg class="vscode-icon" viewBox="0 0 24 24"><path d="M17.8 3 8.4 12l9.4 9 2.2-.9V3.9Z"/><path d="m8.4 12-4 3.2L2.5 14 6.4 12 2.5 10 4.4 8.8Z"/></svg>'
         };
+        const workspaceFolders = vscode.workspace.workspaceFolders || [];
+        const recentProjects = this.getRecentProjects()
+            .filter(project => !workspaceFolders.some(folder => path.resolve(folder.uri.fsPath).toLowerCase() === path.resolve(project.path).toLowerCase()))
+            .slice(0, 4);
+        const sidebarProjectRows = [
+            ...workspaceFolders.map(folder => ({ name: folder.name, path: folder.uri.fsPath, active: true })),
+            ...recentProjects.map(project => ({ name: project.name, path: project.path, active: false }))
+        ].map(project => `<div class="sidebar-project ${project.active ? 'active' : ''}">
+            <button class="sidebar-project-btn" type="button" data-action="openWorkspace" data-path="${this.escapeHtml(project.path)}" title="${this.escapeHtml(project.path)}">${icon.laptop}<span>${this.escapeHtml(project.name)}</span></button>
+        </div>`).join('');
+        const sidebarThreadRows = threadOptions.map(thread => {
+            const selected = thread.id === this.currentRemoteThreadId;
+            const pinned = this.pinnedThreadIds.has(thread.id);
+            const age = this.formatThreadAge(thread.timestamp);
+            return `<div class="sidebar-thread ${selected ? 'selected' : ''}">
+                <button class="sidebar-thread-btn" type="button" data-thread-id="${this.escapeHtml(thread.id)}" title="${this.escapeHtml(thread.title)}">
+                    <span class="sidebar-thread-title">${pinned ? '• ' : ''}${this.escapeHtml(thread.title)}</span>
+                    <span class="sidebar-thread-age">${this.escapeHtml(age)}</span>
+                </button>
+                <button class="sidebar-thread-delete" type="button" data-delete-thread-id="${this.escapeHtml(thread.id)}" title="Удалить чат">${icon.trash}</button>
+            </div>`;
+        }).join('');
+        const sidebarHtml = `<aside class="wide-sidebar" aria-label="Навигация Remote Code">
+            <div class="sidebar-actions">
+                <button class="sidebar-action" type="button" data-action="newChat">${icon.edit}<span>Новый чат</span></button>
+                <button class="sidebar-action" type="button" data-action="openSearch">${icon.search}<span>Поиск</span></button>
+                <button class="sidebar-action" type="button" data-action="openExtensions">${icon.extensions}<span>Плагины</span></button>
+                <button class="sidebar-action" type="button" data-action="openCommandPalette">${icon.command}<span>Команды</span></button>
+            </div>
+            <div class="sidebar-section-title">Проекты</div>
+            <div class="sidebar-projects">${sidebarProjectRows || '<div class="sidebar-empty">Нет открытых проектов</div>'}</div>
+            <div class="sidebar-section-title chat-title-row"><span>Чаты</span><button class="sidebar-mini-btn" type="button" data-action="newChat" title="Новый чат">${icon.plus}</button></div>
+            <div class="sidebar-threads">${sidebarThreadRows || '<div class="sidebar-empty">Нет чатов</div>'}</div>
+            <div class="sidebar-bottom">
+                <button class="sidebar-action" type="button" data-action="openSettings">${icon.settings}<span>Настройки</span></button>
+            </div>
+        </aside>`;
         const rows = messages.map(message => {
             const role = message.role === 'system' ? 'Система' : '';
             const cls = message.role === 'user' ? 'user' : message.role === 'assistant' ? 'assistant' : 'system';
@@ -3324,7 +3493,7 @@ svg{width:15px;height:15px;display:block;fill:none;stroke:currentColor;stroke-wi
 .thread-menu{display:none;position:absolute;left:0;top:36px;width:min(430px,74vw);max-height:360px;overflow:auto;background:var(--codex-surface);border:1px solid var(--codex-border);border-radius:10px;padding:6px;z-index:10;box-shadow:0 18px 44px rgba(0,0,0,.46)}
 .thread-menu-wrap.open .thread-menu{display:block}
 .top-menu-wrap{position:relative;display:inline-flex}
-.top-menu,.toolbar-menu{display:none;position:absolute;right:0;top:34px;width:224px;background:var(--codex-surface);border:1px solid var(--codex-border);border-radius:10px;padding:6px;z-index:12;box-shadow:0 18px 44px rgba(0,0,0,.46)}
+.top-menu,.toolbar-menu{display:none;position:absolute;right:0;top:34px;width:320px;background:var(--codex-surface);border:1px solid var(--codex-border);border-radius:10px;padding:6px;z-index:12;box-shadow:0 18px 44px rgba(0,0,0,.46)}
 .top-menu-wrap.open .top-menu{display:block}
 .connector-menu-wrap{position:relative;display:inline-flex}
 .connector-menu-wrap.open .toolbar-menu{display:block}
@@ -3334,6 +3503,9 @@ svg{width:15px;height:15px;display:block;fill:none;stroke:currentColor;stroke-wi
 .connector-btn span{white-space:nowrap}
 .vscode-icon path{fill:#7eb6ff;stroke:none}
 .top-menu .item{font-size:13px}
+.icon-item{display:flex;align-items:center;gap:9px}
+.icon-item svg{width:15px;height:15px;flex:0 0 auto}
+.menu-separator{height:1px;background:var(--codex-border);margin:6px 4px}
 .thread-row{display:flex;align-items:stretch;gap:4px;border-radius:8px;position:relative}
 .thread-row:hover{background:#2a292e}
 .thread-row.selected{background:var(--codex-selected);color:var(--codex-bright)}
@@ -3345,6 +3517,37 @@ svg{width:15px;height:15px;display:block;fill:none;stroke:currentColor;stroke-wi
 .thread-row:hover .thread-delete{opacity:1}
 .thread-delete:hover{background:#463033;color:#f2b0b0}
 .content-shell{flex:1;min-height:0;display:flex;overflow:hidden}
+.wide-sidebar{width:286px;flex:0 0 286px;background:var(--codex-sidebar);border-right:1px solid var(--codex-border);display:flex;flex-direction:column;min-height:0;color:#cfcfcf;padding:12px 10px 10px;box-sizing:border-box}
+.sidebar-actions{display:flex;flex-direction:column;gap:3px;margin-bottom:22px}
+.sidebar-action{width:100%;height:31px;border:0;background:transparent;color:#cfd0d2;border-radius:8px;display:flex;align-items:center;gap:10px;padding:0 10px;cursor:pointer;text-align:left;font:inherit;font-size:13.5px}
+.sidebar-action:hover{background:rgba(255,255,255,.055);color:#fff}
+.sidebar-action svg{width:15px;height:15px;flex:0 0 auto;color:#aeb0b4}
+.sidebar-section-title{font-size:12.5px;color:#858585;margin:10px 8px 7px;display:flex;align-items:center;justify-content:space-between}
+.chat-title-row{margin-top:18px}
+.sidebar-projects,.sidebar-threads{display:flex;flex-direction:column;gap:2px;min-height:0}
+.sidebar-threads{overflow:auto;padding-right:2px}
+.sidebar-project{display:flex;align-items:center;border-radius:8px}
+.sidebar-project.active{background:rgba(68,79,77,.22)}
+.sidebar-project-btn{width:100%;height:32px;border:0;background:transparent;color:#c9c9ca;border-radius:8px;display:flex;align-items:center;gap:9px;padding:0 8px;cursor:pointer;text-align:left;font:inherit;font-size:13.5px;min-width:0}
+.sidebar-project-btn:hover{background:rgba(255,255,255,.055);color:#fff}
+.sidebar-project-btn svg{width:15px;height:15px;color:#9fa1a5;flex:0 0 auto}
+.sidebar-project-btn span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.sidebar-thread{height:34px;display:flex;align-items:center;gap:2px;border-radius:9px;position:relative}
+.sidebar-thread.selected{background:#34323a}
+.sidebar-thread.selected::before{content:'';position:absolute;left:0;top:8px;bottom:8px;width:2px;border-radius:999px;background:var(--codex-blue)}
+.sidebar-thread-btn{flex:1;min-width:0;height:34px;border:0;background:transparent;color:#d8d8d8;border-radius:9px;display:flex;align-items:center;gap:8px;padding:0 8px 0 12px;cursor:pointer;text-align:left;font:inherit;font-size:13.5px}
+.sidebar-thread:not(.selected) .sidebar-thread-btn:hover{background:rgba(255,255,255,.05)}
+.sidebar-thread-title{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.sidebar-thread-age{color:#8b8d91;font-size:12px;flex:0 0 auto}
+.sidebar-thread-delete{width:26px;height:26px;border:0;background:transparent;color:#7f8287;border-radius:7px;display:flex;align-items:center;justify-content:center;cursor:pointer;opacity:.35;padding:0;margin-right:3px}
+.sidebar-thread-delete svg{width:13px;height:13px}
+.sidebar-thread:hover .sidebar-thread-delete{opacity:.9}
+.sidebar-thread-delete:hover{background:#473036;color:#f3b4b4}
+.sidebar-mini-btn{width:24px;height:24px;border:0;background:transparent;color:#9fa1a5;border-radius:7px;display:inline-flex;align-items:center;justify-content:center;padding:0;cursor:pointer}
+.sidebar-mini-btn:hover{background:rgba(255,255,255,.06);color:#fff}
+.sidebar-mini-btn svg{width:14px;height:14px}
+.sidebar-empty{font-size:12.5px;color:#777;padding:7px 10px}
+.sidebar-bottom{margin-top:auto;padding-top:10px;border-top:1px solid rgba(255,255,255,.06)}
 .messages{flex:1;min-width:0;overflow:auto;padding:18px min(3.3vw,38px) 12px}
 .progress-panel{width:268px;max-width:22vw;align-self:flex-start;margin:14px min(1.6vw,22px) 14px 0;background:rgba(36,36,36,.96);border:1px solid var(--codex-border);border-radius:18px;padding:14px;box-shadow:0 16px 42px rgba(0,0,0,.32);max-height:calc(100% - 28px);overflow:auto;color:#cfcfcf}
 .progress-title{font-size:13.5px;font-weight:650;color:#9e9e9e;margin-bottom:9px}
@@ -3472,8 +3675,8 @@ button.send.stop:hover{background:#fff}
 .scroll-bottom.hidden{opacity:0;pointer-events:none;transform:translateY(8px)}
 @keyframes pulse{0%,100%{opacity:.35;transform:scale(.82)}50%{opacity:1;transform:scale(1)}}
 @keyframes spin{to{transform:rotate(360deg)}}
-@media (min-width: 1280px){:root{--progress-offset:282px}}
-@media (max-width: 1279px){.content-shell{display:flex;overflow:hidden}.messages{height:auto;overflow:auto}.progress-panel{display:none}.scroll-bottom{display:none}}
+@media (min-width: 1500px){:root{--progress-offset:282px}.composer-wrap{margin-left:286px;margin-right:292px}.messages{padding-left:min(3vw,46px);padding-right:min(3vw,46px)}}
+@media (max-width: 1499px){.wide-sidebar{display:none}.content-shell{display:flex;overflow:hidden}.messages{height:auto;overflow:auto}.progress-panel{display:none}.scroll-bottom{display:none}}
 @media (max-width: 680px){.top{padding:0 10px}.messages{padding-left:14px;padding-right:14px}.composer-wrap{padding-left:8px;padding-right:8px}.controls{flex-wrap:wrap}button.send{margin-left:auto}.subcontrols{gap:8px;flex-wrap:wrap}.dropdown.profile{flex-basis:132px}}
 </style>
 </head>
@@ -3495,7 +3698,18 @@ button.send.stop:hover{background:#fff}
   <div class="top-menu-wrap" id="topMoreDrop">
     <button class="icon-btn" type="button" id="topMoreBtn" title="&#1052;&#1077;&#1085;&#1102;">${icon.more}</button>
     <div class="top-menu">
+      <button class="item icon-item" type="button" data-action="pinCurrentThread">${icon.pin}<span>${isPinned ? 'Открепить чат' : 'Закрепить чат'}</span></button>
       <button class="item" type="button" data-action="renameThread">&#1055;&#1077;&#1088;&#1077;&#1080;&#1084;&#1077;&#1085;&#1086;&#1074;&#1072;&#1090;&#1100; &#1095;&#1072;&#1090;</button>
+      <button class="item icon-item" type="button" data-action="archiveCurrentThread">${icon.archive}<span>Архивировать чат</span></button>
+      <div class="menu-separator"></div>
+      <button class="item" type="button" data-action="copyWorkspaceDirectory">Скопировать рабочую директорию</button>
+      <button class="item" type="button" data-action="copySessionId">Скопировать ID сеанса</button>
+      <button class="item" type="button" data-action="copyDeeplink">Скопировать диплинк</button>
+      <button class="item" type="button" data-action="copyCurrentThreadMarkdown">Скопировать как Markdown</button>
+      <div class="menu-separator"></div>
+      <button class="item" type="button" data-action="openSideChat">Открыть боковой чат</button>
+      <button class="item" type="button" data-action="openMiniWindow">Открыть в мини-окне</button>
+      <div class="menu-separator"></div>
       <button class="item" type="button" data-action="clearChat">&#1054;&#1095;&#1080;&#1089;&#1090;&#1080;&#1090;&#1100; &#1095;&#1072;&#1090;</button>
       <button class="item" type="button" data-action="deleteCurrentThread">&#1059;&#1076;&#1072;&#1083;&#1080;&#1090;&#1100; &#1095;&#1072;&#1090;</button>
       <button class="item" type="button" data-action="showConnectionSettings">&#1055;&#1086;&#1076;&#1082;&#1083;&#1102;&#1095;&#1077;&#1085;&#1080;&#1077;</button>
@@ -3516,6 +3730,7 @@ button.send.stop:hover{background:#fff}
   <button class="icon-btn" type="button" data-action="toggleLayout" title="&#1055;&#1072;&#1085;&#1077;&#1083;&#1100;">${icon.panel}</button>
 </div>
 <div class="content-shell">
+  ${sidebarHtml}
   <main class="messages" id="messages">
 ${rows || '<div class="msg system"><div class="role">Система</div><pre>Жду сообщение с телефона или из VS Code.</pre></div>'}
 ${actionRows}
@@ -4189,18 +4404,24 @@ prompt.addEventListener('keydown', event => {
         return `<button type="button" class="change-row" data-path="${this.escapeHtml(change.path)}"><span class="change-path">${this.escapeHtml(change.path)}</span>${additions}${deletions}<span class="row-chev">${this.webIcon('chevronDown')}</span></button>`;
     }
 
-    private webIcon(name: 'branch' | 'chevronDown' | 'copy' | 'edit' | 'expand' | 'external' | 'file' | 'globe' | 'laptop' | 'more' | 'panel' | 'play' | 'plus' | 'scrollDown' | 'send' | 'settings' | 'sparkle' | 'stop' | 'terminal' | 'thumbDown' | 'thumbUp' | 'trash' | 'x'): string {
+    private webIcon(name: 'archive' | 'branch' | 'chevronDown' | 'command' | 'copy' | 'edit' | 'expand' | 'extensions' | 'external' | 'file' | 'globe' | 'laptop' | 'more' | 'panel' | 'pin' | 'play' | 'plus' | 'scrollDown' | 'search' | 'send' | 'settings' | 'sparkle' | 'stop' | 'terminal' | 'thumbDown' | 'thumbUp' | 'trash' | 'x'): string {
         switch (name) {
+            case 'archive':
+                return '<svg viewBox="0 0 16 16" aria-hidden="true"><rect x="2.5" y="3" width="11" height="3" rx="1"/><path d="M4 6v7h8V6"/><path d="M6.25 9h3.5"/></svg>';
             case 'branch':
                 return '<svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="4" cy="4" r="1.9"/><circle cx="12" cy="12" r="1.9"/><path d="M4 6v1.4A4.6 4.6 0 0 0 8.6 12H10"/></svg>';
             case 'chevronDown':
                 return '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4.25 6.25 8 10l3.75-3.75"/></svg>';
+            case 'command':
+                return '<svg viewBox="0 0 16 16" aria-hidden="true"><rect x="2.75" y="2.75" width="4" height="4" rx="1.1"/><rect x="9.25" y="2.75" width="4" height="4" rx="1.1"/><rect x="2.75" y="9.25" width="4" height="4" rx="1.1"/><rect x="9.25" y="9.25" width="4" height="4" rx="1.1"/></svg>';
             case 'copy':
                 return '<svg viewBox="0 0 16 16" aria-hidden="true"><rect x="6" y="5" width="7" height="8" rx="1.2"/><path d="M4 10.5H3.2A1.2 1.2 0 0 1 2 9.3V3.2A1.2 1.2 0 0 1 3.2 2h6.1A1.2 1.2 0 0 1 10.5 3.2V4"/></svg>';
             case 'edit':
                 return '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M10.8 2.7a1.35 1.35 0 0 1 1.9 1.9L5.5 11.8 3 12.5l.7-2.5Z"/><path d="M9.8 3.7l2 2"/></svg>';
             case 'expand':
                 return '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M6.25 2.75H3.5v2.75"/><path d="M3.5 2.75 7 6.25"/><path d="M9.75 13.25h2.75V10.5"/><path d="M12.5 13.25 9 9.75"/></svg>';
+            case 'extensions':
+                return '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 3.2h3.8V7H3z"/><path d="M9.2 3.2H13V7H9.2z"/><path d="M3 9h3.8v3.8H3z"/><path d="M9.2 9H13v3.8H9.2z"/></svg>';
             case 'external':
                 return '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M5 11 11 5"/><path d="M6.25 5H11v4.75"/></svg>';
             case 'file':
@@ -4213,12 +4434,16 @@ prompt.addEventListener('keydown', event => {
                 return '<svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="3.5" cy="8" r=".9"/><circle cx="8" cy="8" r=".9"/><circle cx="12.5" cy="8" r=".9"/></svg>';
             case 'panel':
                 return '<svg viewBox="0 0 16 16" aria-hidden="true"><rect x="2.25" y="2.25" width="11.5" height="11.5" rx="1.6"/><path d="M8 2.25v11.5"/></svg>';
+            case 'pin':
+                return '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="m6.2 2.4 7.4 7.4"/><path d="M9.4 3.1 6.1 6.4 3.4 6.2 2.6 7l6.4 6.4.8-.8-.2-2.7 3.3-3.3"/></svg>';
             case 'play':
                 return '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M5.5 3.75 12 8l-6.5 4.25Z"/></svg>';
             case 'plus':
                 return '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 3.25v9.5"/><path d="M3.25 8h9.5"/></svg>';
             case 'scrollDown':
                 return '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 3v9"/><path d="m4.5 8.5 3.5 3.5 3.5-3.5"/></svg>';
+            case 'search':
+                return '<svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="7" cy="7" r="4.2"/><path d="m10.2 10.2 3.1 3.1"/></svg>';
             case 'send':
                 return '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 12.5v-9"/><path d="M4.5 7 8 3.5 11.5 7"/></svg>';
             case 'settings':
