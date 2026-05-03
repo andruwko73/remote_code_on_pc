@@ -324,19 +324,19 @@ fun CodexChatTab(
         if (targetIndex >= 0) listState.animateScrollToItem(targetIndex)
     }
 
-    Column(modifier = Modifier.fillMaxSize().imePadding().background(Color(0xFF151617))) {
+    Column(modifier = Modifier.fillMaxSize().imePadding().background(DarkBackground)) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(42.dp)
-                .padding(horizontal = 12.dp),
+                .height(46.dp)
+                .padding(horizontal = 14.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Text(currentThread?.let { threadDisplayTitle(it) } ?: "\u0414\u043E\u0440\u0430\u0431\u043E\u0442\u0430\u0442\u044C \u0443\u0434\u0430\u043B\u0451\u043D\u043D\u044B\u0439 \u0434\u043E\u0441\u0442\u0443\u043F", color = TextBright, fontSize = 16.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
-            IconButton(onClick = { onLoadThreads(); showThreads = true }, modifier = Modifier.size(36.dp)) {
-                Icon(Icons.Default.MoreHoriz, contentDescription = "\u0418\u0441\u0442\u043E\u0440\u0438\u044F", tint = TextSecondary, modifier = Modifier.size(22.dp))
+            Text(currentThread?.let { threadDisplayTitle(it) } ?: "\u0414\u043E\u0440\u0430\u0431\u043E\u0442\u0430\u0442\u044C \u0443\u0434\u0430\u043B\u0451\u043D\u043D\u044B\u0439 \u0434\u043E\u0441\u0442\u0443\u043F", color = TextBright, fontSize = 15.sp, lineHeight = 18.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+            IconButton(onClick = { onLoadThreads(); showThreads = true }, modifier = Modifier.size(34.dp)) {
+                Icon(Icons.Default.MoreHoriz, contentDescription = "\u0418\u0441\u0442\u043E\u0440\u0438\u044F", tint = TextSecondary, modifier = Modifier.size(21.dp))
             }
-            IconButton(onClick = onNewThread, modifier = Modifier.size(36.dp)) {
+            IconButton(onClick = onNewThread, modifier = Modifier.size(34.dp)) {
                 Icon(Icons.Outlined.Edit, contentDescription = "\u041D\u043E\u0432\u044B\u0439 \u0447\u0430\u0442", tint = TextSecondary, modifier = Modifier.size(20.dp))
             }
         }
@@ -353,7 +353,13 @@ fun CodexChatTab(
                     ) {
                         if (threads.isEmpty()) item { Text("\u041D\u0435\u0442 \u0430\u043A\u0442\u0438\u0432\u043D\u044B\u0445 \u0447\u0430\u0442\u043E\u0432", color = TextSecondary) }
                         else items(threads) { thread ->
-                            Surface(color = if (thread.id == currentThreadId) Color(0xFF2A2D2E) else Color.Transparent, shape = RoundedCornerShape(6.dp), modifier = Modifier.fillMaxWidth()) {
+                            val selected = thread.id == currentThreadId
+                            Surface(
+                                color = if (selected) Color(0xFF283033) else Color.Transparent,
+                                shape = RoundedCornerShape(10.dp),
+                                border = BorderStroke(1.dp, if (selected) AccentBlue.copy(alpha = 0.28f) else Color.Transparent),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
                                 Row(
                                     verticalAlignment = Alignment.CenterVertically,
                                     modifier = Modifier
@@ -362,12 +368,18 @@ fun CodexChatTab(
                                             onSwitchThread(thread.id)
                                             showThreads = false
                                         }
-                                        .padding(start = 16.dp, end = 4.dp, top = 10.dp, bottom = 10.dp)
+                                        .padding(start = 12.dp, end = 4.dp, top = 9.dp, bottom = 9.dp)
                                 ) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(width = 3.dp, height = 34.dp)
+                                            .background(if (selected) AccentBlue else Color.Transparent, RoundedCornerShape(999.dp))
+                                    )
+                                    Spacer(modifier = Modifier.width(9.dp))
                                     Column(modifier = Modifier.weight(1f).padding(end = 10.dp)) {
                                         Text(
                                             threadDisplayTitle(thread),
-                                            color = TextPrimary,
+                                            color = if (selected) TextBright else TextPrimary,
                                             fontSize = 14.sp,
                                             lineHeight = 18.sp,
                                             fontWeight = FontWeight.SemiBold,
@@ -432,7 +444,7 @@ fun CodexChatTab(
         if (error != null) Text(error, color = ErrorRed, fontSize = 13.sp, modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp))
 
         Box(modifier = Modifier.fillMaxWidth().weight(1f)) {
-            LazyColumn(state = listState, modifier = Modifier.fillMaxSize().padding(horizontal = 12.dp), verticalArrangement = Arrangement.spacedBy(12.dp), contentPadding = PaddingValues(top = 16.dp, bottom = 12.dp)) {
+            LazyColumn(state = listState, modifier = Modifier.fillMaxSize().padding(horizontal = 14.dp), verticalArrangement = Arrangement.spacedBy(10.dp), contentPadding = PaddingValues(top = 18.dp, bottom = 12.dp)) {
                 if (sendResult?.success == true) item { DesktopStatusLine("\u041E\u0442\u043F\u0440\u0430\u0432\u043B\u0435\u043D\u043E", AccentGreen) }
                 items(chatHistory) { msg -> CodexMessageBubble(msg, onOpenFile) }
                 items(activeActionEvents) { event -> DesktopToolBlock(event, onRespondToAction) }
@@ -453,19 +465,19 @@ fun CodexChatTab(
                     },
                     modifier = Modifier.align(Alignment.BottomEnd).padding(end = 18.dp, bottom = 18.dp).size(38.dp),
                     shape = CircleShape,
-                    colors = IconButtonDefaults.filledIconButtonColors(containerColor = Color(0xCC2B2C2E))
+                    colors = IconButtonDefaults.filledIconButtonColors(containerColor = Color(0xD42B2C2E))
                 ) {
                     Icon(Icons.Default.KeyboardArrowDown, contentDescription = "К новым сообщениям", tint = TextPrimary, modifier = Modifier.size(22.dp))
                 }
             }
         }
 
-        Surface(modifier = Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 10.dp), color = Color(0xFF18191A), shape = RoundedCornerShape(20.dp), border = BorderStroke(1.dp, Color(0xFF26282A))) {
+        Surface(modifier = Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 10.dp), color = Color(0xFF2B2C2E), shape = RoundedCornerShape(22.dp), border = BorderStroke(1.dp, Color(0xFF34363A))) {
             Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp)) {
                 if (attachments.isNotEmpty()) {
                     LazyColumn(modifier = Modifier.heightIn(max = 90.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                         items(attachments) { attachment ->
-                            Row(modifier = Modifier.fillMaxWidth().background(Color(0xFF25272A), RoundedCornerShape(8.dp)).padding(horizontal = 8.dp, vertical = 5.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Row(modifier = Modifier.fillMaxWidth().background(Color(0xFF242528), RoundedCornerShape(9.dp)).padding(horizontal = 8.dp, vertical = 5.dp), verticalAlignment = Alignment.CenterVertically) {
                                 Icon(Icons.Default.AttachFile, contentDescription = null, tint = TextSecondary, modifier = Modifier.size(16.dp))
                                 Spacer(modifier = Modifier.width(6.dp))
                                 Text(attachment.name, color = TextPrimary, fontSize = 12.sp, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -478,7 +490,7 @@ fun CodexChatTab(
                 OutlinedTextField(
                     value = messageText,
                     onValueChange = { messageText = it },
-                    placeholder = { Text("\u0417\u0430\u043F\u0440\u043E\u0441\u0438\u0442\u0435 \u0432\u043D\u0435\u0441\u0435\u043D\u0438\u0435 \u0434\u043E\u043F\u043E\u043B\u043D\u0438\u0442\u0435\u043B\u044C\u043D\u044B\u0445 \u0438\u0437\u043C\u0435\u043D\u0435\u043D\u0438\u0439", color = TextSecondary.copy(alpha = 0.55f)) },
+                    placeholder = { Text("\u0417\u0430\u043F\u0440\u043E\u0441\u0438\u0442\u0435 \u0432\u043D\u0435\u0441\u0435\u043D\u0438\u0435 \u0434\u043E\u043F\u043E\u043B\u043D\u0438\u0442\u0435\u043B\u044C\u043D\u044B\u0445 \u0438\u0437\u043C\u0435\u043D\u0435\u043D\u0438\u0439", color = TextSecondary.copy(alpha = 0.62f)) },
                     modifier = Modifier.fillMaxWidth(),
                     minLines = 2,
                     maxLines = 5,
@@ -580,7 +592,7 @@ fun CodexChatTab(
                         onClick = { if (isLoading) onStopGeneration() else submitMessage() },
                         enabled = isLoading || messageText.isNotBlank() || attachments.isNotEmpty(),
                         shape = CircleShape,
-                        colors = IconButtonDefaults.filledIconButtonColors(containerColor = Color(0xFF8E8E8E), disabledContainerColor = Color(0xFF3A3A3A)),
+                        colors = IconButtonDefaults.filledIconButtonColors(containerColor = Color(0xFFD9D9D9), disabledContainerColor = Color(0xFF4A4B4D)),
                         modifier = Modifier.size(42.dp)
                     ) {
                         if (isLoading) {
@@ -638,29 +650,38 @@ private fun DesktopToolBlock(
 ) {
     val isFailed = event.status == "failed"
     val isDone = event.status == "completed"
+    val isRunning = event.status == "running" || event.status == "pending"
     Surface(
-        color = Color(0xFF1D1F20),
-        shape = RoundedCornerShape(10.dp),
-        border = BorderStroke(1.dp, Color(0xFF25282B)),
+        color = Color(0xFF212224),
+        shape = RoundedCornerShape(11.dp),
+        border = BorderStroke(1.dp, Color(0xFF303236)),
         modifier = Modifier.fillMaxWidth()
     ) {
         Column(modifier = Modifier.padding(12.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(
-                    imageVector = when {
-                        event.type.contains("patch") -> Icons.Default.Build
-                        event.type.contains("command") -> Icons.Default.Terminal
-                        event.type.contains("error") -> Icons.Default.Error
-                        else -> Icons.Default.Build
-                    },
-                    contentDescription = null,
-                    tint = when {
-                        isFailed -> ErrorRed
-                        isDone -> AccentGreen
-                        else -> TextSecondary
-                    },
-                    modifier = Modifier.size(18.dp)
-                )
+                if (isRunning) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(16.dp),
+                        strokeWidth = 2.dp,
+                        color = TextSecondary
+                    )
+                } else {
+                    Icon(
+                        imageVector = when {
+                            event.type.contains("patch") -> Icons.Default.Build
+                            event.type.contains("command") -> Icons.Default.Terminal
+                            event.type.contains("error") -> Icons.Default.Error
+                            else -> Icons.Default.Build
+                        },
+                        contentDescription = null,
+                        tint = when {
+                            isFailed -> ErrorRed
+                            isDone -> AccentGreen
+                            else -> TextSecondary
+                        },
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
                 Spacer(modifier = Modifier.width(8.dp))
                 Text(
                     event.title.ifBlank { event.type },
@@ -672,7 +693,15 @@ private fun DesktopToolBlock(
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
-                Text(event.status, color = TextSecondary, fontSize = 12.sp)
+                Text(
+                    event.status,
+                    color = when {
+                        isFailed -> ErrorRed
+                        isDone -> AccentGreen
+                        else -> TextSecondary
+                    },
+                    fontSize = 12.sp
+                )
             }
             if (event.detail.isNotBlank()) {
                 Spacer(modifier = Modifier.height(8.dp))
@@ -690,7 +719,10 @@ private fun DesktopToolBlock(
                     OutlinedButton(onClick = { onRespondToAction(event.id, false) }) {
                         Text("\u041E\u0442\u043A\u043B\u043E\u043D\u0438\u0442\u044C")
                     }
-                    Button(onClick = { onRespondToAction(event.id, true) }) {
+                    Button(
+                        onClick = { onRespondToAction(event.id, true) },
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF3A3D42))
+                    ) {
                         Text("\u0420\u0430\u0437\u0440\u0435\u0448\u0438\u0442\u044C")
                     }
                 }
@@ -718,7 +750,7 @@ private fun CodexActionStrip(
                 color = when {
                     isFailed -> ErrorRed.copy(alpha = 0.14f)
                     isDone -> AccentGreen.copy(alpha = 0.10f)
-                    else -> AccentBlue.copy(alpha = 0.10f)
+                    else -> TextSecondary.copy(alpha = 0.10f)
                 },
                 shape = RoundedCornerShape(8.dp),
                 modifier = Modifier.fillMaxWidth()
@@ -738,7 +770,7 @@ private fun CodexActionStrip(
                         tint = when {
                             isFailed -> ErrorRed
                             isDone -> AccentGreen
-                            else -> AccentBlue
+                            else -> TextSecondary
                         },
                         modifier = Modifier.size(16.dp)
                     )
@@ -753,14 +785,14 @@ private fun CodexActionStrip(
                     if (event.actionable) {
                         Spacer(modifier = Modifier.width(8.dp))
                         TextButton(onClick = { onRespondToAction(event.id, false) }) {
-                            Text("Deny", color = ErrorRed, fontSize = 11.sp)
+                            Text("\u041E\u0442\u043A\u043B.", color = ErrorRed, fontSize = 11.sp)
                         }
                         Button(
                             onClick = { onRespondToAction(event.id, true) },
-                            colors = ButtonDefaults.buttonColors(containerColor = AccentGreen),
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF3A3D42)),
                             contentPadding = PaddingValues(horizontal = 10.dp, vertical = 2.dp)
                         ) {
-                            Text("Allow", color = TextBright, fontSize = 11.sp)
+                            Text("\u0414\u0430", color = TextBright, fontSize = 11.sp)
                         }
                     }
                 }
@@ -782,29 +814,46 @@ private fun CodexMessageBubble(
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(vertical = 2.dp)
+            .padding(vertical = 1.dp)
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(
-                if (isUser) "\u0412\u044B" else "Codex",
-                color = if (isUser) TextSecondary else TextPrimary,
-                fontSize = 12.sp,
-                fontWeight = FontWeight.SemiBold
-            )
-            if (!isUser && message.isStreaming) {
-                Spacer(modifier = Modifier.width(8.dp))
-                Text("\u043F\u0438\u0448\u0435\u0442...", color = TextSecondary, fontSize = 11.sp)
+        if (isUser) {
+            Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.CenterEnd) {
+                Surface(
+                    color = Color(0xFF2B2C2E),
+                    shape = RoundedCornerShape(18.dp),
+                    border = BorderStroke(1.dp, Color(0xFF34363A)),
+                    modifier = Modifier.widthIn(max = 520.dp)
+                ) {
+                    Text(
+                        highlightedText(cleanedContent.ifBlank { "..." }),
+                        color = TextBright,
+                        fontSize = 15.sp,
+                        lineHeight = 22.sp,
+                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp)
+                    )
+                }
             }
+        } else {
+            if (message.isStreaming) {
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(bottom = 8.dp)) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(13.dp),
+                        strokeWidth = 2.dp,
+                        color = TextSecondary
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("\u0414\u0443\u043C\u0430\u044E", color = TextSecondary, fontSize = 12.sp)
+                }
+            }
+            HighlightedMessageText(cleanedContent.ifBlank { "..." })
             message.model?.takeIf { it.isNotBlank() }?.let {
-                Spacer(modifier = Modifier.width(8.dp))
-                Text(it, color = TextSecondary, fontSize = 10.sp)
+                Spacer(modifier = Modifier.height(7.dp))
+                Text(it, color = TextSecondary, fontSize = 11.sp)
             }
-        }
-        Spacer(modifier = Modifier.height(4.dp))
-        HighlightedMessageText(cleanedContent.ifBlank { "..." })
-        if (changeSummary != null) {
-            Spacer(modifier = Modifier.height(10.dp))
-            MobileChangeCard(changeSummary, onOpenFile)
+            if (changeSummary != null) {
+                Spacer(modifier = Modifier.height(10.dp))
+                MobileChangeCard(changeSummary, onOpenFile)
+            }
         }
     }
 }
@@ -828,8 +877,8 @@ private fun MobileChangeCard(
     val visibleFiles = if (expanded) summary.files else summary.files.take(3)
     Surface(
         color = Color(0xFF242526),
-        shape = RoundedCornerShape(8.dp),
-        border = BorderStroke(1.dp, Color(0xFF323437)),
+        shape = RoundedCornerShape(9.dp),
+        border = BorderStroke(1.dp, Color(0xFF333538)),
         modifier = Modifier.fillMaxWidth()
     ) {
         Column {
@@ -837,11 +886,11 @@ private fun MobileChangeCard(
                 modifier = Modifier
                     .fillMaxWidth()
                     .background(Color(0xFF2B2C2E))
-                    .padding(horizontal = 10.dp, vertical = 9.dp),
+                    .padding(horizontal = 12.dp, vertical = 9.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    "Изменено ${summary.files.size} ${pluralRu(summary.files.size, "файл", "файла", "файлов")} +${summary.additions} -${summary.deletions}",
+                    changeHeaderText(summary),
                     color = TextPrimary,
                     fontSize = 14.sp,
                     fontWeight = FontWeight.SemiBold,
@@ -855,6 +904,19 @@ private fun MobileChangeCard(
                 ChangeFileRow(file, onOpenFile)
             }
         }
+    }
+}
+
+private fun changeHeaderText(summary: CodexChangeSummary): AnnotatedString {
+    return buildAnnotatedString {
+        append("Изменено ${summary.files.size} ${pluralRu(summary.files.size, "файл", "файла", "файлов")} ")
+        val plusStart = length
+        append("+${summary.additions}")
+        addStyle(SpanStyle(color = AccentGreen), plusStart, length)
+        append(" ")
+        val minusStart = length
+        append("-${summary.deletions}")
+        addStyle(SpanStyle(color = ErrorRed), minusStart, length)
     }
 }
 
