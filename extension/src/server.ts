@@ -1659,6 +1659,9 @@ export class RemoteServer {
             this.hiddenCodexThreadIds = new Set(Array.isArray(savedHiddenCodexThreads) ? savedHiddenCodexThreads.filter(Boolean) : []);
             this.pinnedThreadIds = new Set(Array.isArray(savedPinnedThreads) ? savedPinnedThreads.filter(Boolean) : []);
             this.archivedThreadIds = new Set(Array.isArray(savedArchivedThreads) ? savedArchivedThreads.filter(Boolean) : []);
+            if (this.isHiddenThread(this.currentRemoteThreadId)) {
+                this.currentRemoteThreadId = this.remoteCodeThreads.find(thread => thread.id && !this.isHiddenThread(thread.id))?.id || 'remote-code-default';
+            }
             if (this.codexHistory.length === 0) {
                 this.codexHistory.push({
                     id: `remote_system_${Date.now()}`,
@@ -1669,7 +1672,9 @@ export class RemoteServer {
                 });
                 this.saveRemoteCodeState();
             }
-            this.upsertRemoteCodeThread(this.currentRemoteThreadId, this.getCurrentThreadTitle(), Date.now());
+            if (!this.currentRemoteThreadId.startsWith('codex-file:')) {
+                this.upsertRemoteCodeThread(this.currentRemoteThreadId, this.getCurrentThreadTitle(), Date.now());
+            }
         } catch (err) {
             console.warn('[RemoteCodeOnPC] Failed to restore Remote Code state:', err);
         }
@@ -1734,6 +1739,11 @@ export class RemoteServer {
         return threadId.startsWith('codex-file:') ? threadId.slice('codex-file:'.length) : undefined;
     }
 
+    private isHiddenThread(threadId: string): boolean {
+        return this.archivedThreadIds.has(threadId) ||
+            (threadId.startsWith('codex-file:') && this.hiddenCodexThreadIds.has(threadId));
+    }
+
     private getRemoteCodeThreads(): RemoteCodeThreadSummary[] {
         if (this.remoteCodeThreadsCache && Date.now() - this.remoteCodeThreadsCache.timestamp < 5000) {
             return this.remoteCodeThreadsCache.threads;
@@ -1741,6 +1751,7 @@ export class RemoteServer {
         const byThread = new Map<string, RemoteCodeThreadSummary>();
         for (const thread of this.remoteCodeThreads) {
             if (!thread?.id) continue;
+            if (this.isHiddenThread(thread.id)) continue;
             byThread.set(thread.id, {
                 id: thread.id,
                 title: thread.title || 'Новый чат',
@@ -1750,7 +1761,7 @@ export class RemoteServer {
         }
         for (const thread of this.getCodexThreadSummariesFast()) {
             const id = this.toCodexThreadId(thread.id);
-            if (this.hiddenCodexThreadIds.has(id)) continue;
+            if (this.isHiddenThread(id)) continue;
             const existing = byThread.get(id);
             byThread.set(id, {
                 id,
@@ -1761,6 +1772,7 @@ export class RemoteServer {
         }
         for (const message of this.codexHistory.filter(item => item.role !== 'system')) {
             const id = message.threadId || this.currentRemoteThreadId || 'remote-code-default';
+            if (this.isHiddenThread(id)) continue;
             const existing = byThread.get(id);
             const titleSource = message.role === 'user' && message.content.trim()
                 ? message.content
@@ -1769,7 +1781,7 @@ export class RemoteServer {
             const timestamp = Math.max(existing?.timestamp || 0, Math.round(message.timestamp || 0));
             byThread.set(id, { id, title, timestamp, source: existing?.source || (id.startsWith('codex-file:') ? 'codex' : 'remote') });
         }
-        if (!byThread.has(this.currentRemoteThreadId)) {
+        if (!this.isHiddenThread(this.currentRemoteThreadId) && !byThread.has(this.currentRemoteThreadId)) {
             byThread.set(this.currentRemoteThreadId, {
                 id: this.currentRemoteThreadId,
                 title: 'Новый чат',
@@ -1778,7 +1790,7 @@ export class RemoteServer {
             });
         }
         const threads = Array.from(byThread.values())
-            .filter(thread => !this.archivedThreadIds.has(thread.id))
+            .filter(thread => !this.isHiddenThread(thread.id))
             .sort((a, b) => {
                 const pinnedDelta = Number(this.pinnedThreadIds.has(b.id)) - Number(this.pinnedThreadIds.has(a.id));
                 return pinnedDelta || b.timestamp - a.timestamp;
@@ -2819,7 +2831,14 @@ export class RemoteServer {
         this.remoteCodeThreadsCache = undefined;
         if (this.currentRemoteThreadId === threadId) {
             const next = this.getRemoteCodeThreads().find(thread => thread.id !== threadId);
-            this.currentRemoteThreadId = next?.id || this.createRemoteCodeThread();
+            if (next?.id) {
+                this.currentRemoteThreadId = next.id;
+            } else {
+                const newThreadId = `remote-code-${Date.now()}`;
+                this.currentRemoteThreadId = newThreadId;
+                this.upsertRemoteCodeThread(newThreadId, 'Новый чат', Date.now());
+            }
+            this.remoteCodeThreadsCache = undefined;
         }
         this.saveRemoteCodeState(true);
         this.refreshPcChatPanel(true);
@@ -5648,7 +5667,8 @@ prompt.addEventListener('keydown', event => {
             });
         }
 
-        const threads = Array.from(byId.values());
+        const threads = Array.from(byId.values())
+            .filter(thread => !this.hiddenCodexThreadIds.has(this.toCodexThreadId(thread.id)));
         threads.sort((a, b) => b.timestamp - a.timestamp);
         return threads.slice(0, 80);
     }
