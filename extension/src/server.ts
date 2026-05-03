@@ -2323,6 +2323,17 @@ export class RemoteServer {
             case 'showBranch':
                 await vscode.window.showInformationMessage(`Ветка Remote Code: ${this.getGitBranchLabel()}`);
                 return;
+            case 'openProgressFile':
+                if (typeof msg.path === 'string' && msg.path.trim()) {
+                    await this.openChangeFile(msg.path);
+                }
+                return;
+            case 'copyProgressUrl':
+                if (typeof msg.url === 'string' && msg.url.trim()) {
+                    await vscode.env.clipboard.writeText(msg.url.trim());
+                    await vscode.window.setStatusBarMessage('Remote Code: ссылка скопирована', 1600);
+                }
+                return;
             case 'openChangeFile':
                 if (typeof msg.path === 'string' && msg.path.trim()) {
                     await this.openChangeFile(msg.path);
@@ -3018,6 +3029,7 @@ export class RemoteServer {
             </div>` : ''}
         </section>`;
         }).join('');
+        const progressPanel = this.renderProgressPanel(messages, actions, isBusy, branchLabel);
         return `<!doctype html>
 <html>
 <head>
@@ -3061,7 +3073,25 @@ svg{width:15px;height:15px;display:block;fill:none;stroke:currentColor;stroke-wi
 .thread-delete svg{width:13px;height:13px}
 .thread-row:hover .thread-delete{opacity:1}
 .thread-delete:hover{background:#463033;color:#f2b0b0}
-.messages{flex:1;overflow:auto;padding:18px min(3.3vw,38px) 12px}
+.content-shell{flex:1;min-height:0;display:flex;overflow:hidden}
+.messages{flex:1;min-width:0;overflow:auto;padding:18px min(3.3vw,38px) 12px}
+.progress-panel{width:320px;max-width:33vw;align-self:flex-start;margin:16px min(2vw,28px) 16px 0;background:rgba(36,36,36,.96);border:1px solid var(--codex-border);border-radius:22px;padding:18px;box-shadow:0 18px 48px rgba(0,0,0,.34);max-height:calc(100% - 32px);overflow:auto;color:#cfcfcf}
+.progress-title{font-size:15px;font-weight:650;color:#9e9e9e;margin-bottom:10px}
+.progress-list,.progress-section{display:flex;flex-direction:column;gap:10px}
+.progress-item{display:grid;grid-template-columns:22px 1fr;gap:9px;align-items:start;color:#b9b9b9;font-size:14px;line-height:1.42}
+.progress-dot{width:15px;height:15px;border:1.8px solid #8f9094;border-radius:999px;margin-top:3px;display:inline-flex;align-items:center;justify-content:center;color:#cacaca}
+.progress-item.done .progress-dot::after{content:'✓';font-size:11px;line-height:1}
+.progress-item.done .progress-dot{border-color:#a6a7aa}
+.progress-item.running .progress-dot{border-color:#a6a7aa;border-left-color:transparent;animation:spin .9s linear infinite}
+.progress-item.pending{color:#aaa}
+.progress-divider{height:1px;background:var(--codex-border);margin:14px 0}
+.progress-subtitle{font-size:13px;color:#8f8f8f;font-weight:650;margin:0 0 10px}
+.progress-button,.progress-artifact{border:0;background:transparent;color:#f0f0f0;width:100%;display:flex;align-items:center;gap:10px;text-align:left;padding:4px 2px;border-radius:8px;cursor:pointer;font:inherit;font-size:14px;line-height:1.25}
+.progress-button:hover,.progress-artifact:hover{background:var(--codex-selected)}
+.progress-button svg,.progress-artifact svg{width:15px;height:15px;flex:0 0 auto}
+.progress-muted{color:#9a9a9a}
+.progress-artifact span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.progress-empty{font-size:13px;color:#888}
 .msg{position:relative;padding:1px 0 18px;margin:0 auto;background:transparent;border:0;max-width:960px}
 .msg.user{max-width:640px;margin-left:auto;margin-right:min(2vw,20px);color:var(--codex-bright)}
 .msg.user .role,.msg.user .meta{display:none}
@@ -3165,12 +3195,15 @@ button.send.stop{background:#f0f0f0;color:#111}
 button.send.stop:hover{background:#fff}
 .link-btn{border:0;background:transparent;color:#8e8e8e;cursor:pointer;padding:3px 0;display:inline-flex;align-items:center;gap:5px}
 .link-btn:hover{color:#d0d0d0}
-.scroll-bottom{position:fixed;right:min(4vw,42px);bottom:calc(var(--composer-height, 132px) + 12px);z-index:4;width:34px;height:34px;border:1px solid var(--codex-strong-border);border-radius:999px;background:rgba(45,45,45,.78);color:#e2e2e2;display:inline-flex;align-items:center;justify-content:center;padding:0;cursor:pointer;box-shadow:0 10px 26px rgba(0,0,0,.32);backdrop-filter:blur(5px);opacity:1;transform:translateY(0);transition:opacity .15s ease,transform .15s ease,background .15s ease}
+.scroll-bottom{position:fixed;right:calc(min(4vw,42px) + var(--progress-offset,0px));bottom:calc(var(--composer-height, 132px) + 12px);z-index:4;width:34px;height:34px;border:1px solid var(--codex-strong-border);border-radius:999px;background:rgba(45,45,45,.78);color:#e2e2e2;display:inline-flex;align-items:center;justify-content:center;padding:0;cursor:pointer;box-shadow:0 10px 26px rgba(0,0,0,.32);backdrop-filter:blur(5px);opacity:1;transform:translateY(0);transition:opacity .15s ease,transform .15s ease,background .15s ease}
 .scroll-bottom svg{width:17px;height:17px}
 .scroll-bottom:hover{background:rgba(57,58,61,.95);color:#fff}
 .scroll-bottom.hidden{opacity:0;pointer-events:none;transform:translateY(8px)}
 @keyframes pulse{0%,100%{opacity:.35;transform:scale(.82)}50%{opacity:1;transform:scale(1)}}
-@media (max-width: 680px){.top{padding:0 10px}.messages{padding-left:14px;padding-right:14px}.composer-wrap{padding-left:8px;padding-right:8px}.controls{flex-wrap:wrap}button.send{margin-left:auto}.subcontrols{gap:8px;flex-wrap:wrap}.dropdown.profile{flex-basis:132px}}
+@keyframes spin{to{transform:rotate(360deg)}}
+@media (min-width: 1050px){:root{--progress-offset:330px}}
+@media (max-width: 1049px){.content-shell{display:block;overflow:auto}.messages{height:auto;overflow:visible}.progress-panel{width:auto;max-width:960px;margin:0 min(3.3vw,38px) 12px}.scroll-bottom{display:none}}
+@media (max-width: 680px){.top{padding:0 10px}.messages{padding-left:14px;padding-right:14px}.composer-wrap{padding-left:8px;padding-right:8px}.controls{flex-wrap:wrap}button.send{margin-left:auto}.subcontrols{gap:8px;flex-wrap:wrap}.dropdown.profile{flex-basis:132px}.progress-panel{margin-left:14px;margin-right:14px}}
 </style>
 </head>
 <body>
@@ -3211,10 +3244,13 @@ button.send.stop:hover{background:#fff}
   <button class="icon-btn" type="button" data-action="openTerminal" title="&#1058;&#1077;&#1088;&#1084;&#1080;&#1085;&#1072;&#1083;">${icon.terminal}</button>
   <button class="icon-btn" type="button" data-action="toggleLayout" title="&#1055;&#1072;&#1085;&#1077;&#1083;&#1100;">${icon.panel}</button>
 </div>
-<main class="messages" id="messages">
+<div class="content-shell">
+  <main class="messages" id="messages">
 ${rows || '<div class="msg system"><div class="role">Система</div><pre>Жду сообщение с телефона или из VS Code.</pre></div>'}
 ${actionRows}
-</main>
+  </main>
+  ${progressPanel}
+</div>
 <button class="scroll-bottom hidden" id="scrollBottom" type="button" title="&#1050; &#1085;&#1086;&#1074;&#1099;&#1084; &#1089;&#1086;&#1086;&#1073;&#1097;&#1077;&#1085;&#1080;&#1103;&#1084;">${icon.scrollDown}</button>
 <div class="composer-wrap">
   <form class="composer" id="composer">
@@ -3424,7 +3460,10 @@ document.querySelectorAll('[data-action]').forEach(button => {
   button.addEventListener('click', () => {
     document.getElementById('topMoreDrop')?.classList.remove('open');
     document.getElementById('connectorDrop')?.classList.remove('open');
-    vscode.postMessage({ type: 'action', action: button.dataset.action });
+    const payload = { type: 'action', action: button.dataset.action };
+    if (button.dataset.path) payload.path = button.dataset.path;
+    if (button.dataset.url) payload.url = button.dataset.url;
+    vscode.postMessage(payload);
   });
 });
 document.querySelectorAll('[data-action-id]').forEach(button => {
@@ -3585,6 +3624,185 @@ prompt.addEventListener('keydown', event => {
 </html>`;
     }
 
+    private renderProgressPanel(
+        messages: CodexChatMessage[],
+        actions: RemoteCodeActionEvent[],
+        isBusy: boolean,
+        branchLabel: string
+    ): string {
+        const progressItems = this.getProgressItems(messages, actions, isBusy);
+        const gitInfo = this.getGitPanelStatus();
+        const artifacts = this.getProgressArtifacts(messages);
+        const progressHtml = progressItems.map(item => `
+            <div class="progress-item ${this.escapeHtml(item.status)}">
+                <span class="progress-dot"></span>
+                <span>${this.escapeHtml(item.label)}</span>
+            </div>
+        `).join('');
+        const artifactsHtml = artifacts.length > 0
+            ? artifacts.map(item => {
+                const actionAttr = item.kind === 'file'
+                    ? `data-action="openProgressFile" data-path="${this.escapeHtml(item.value)}"`
+                    : `data-action="copyProgressUrl" data-url="${this.escapeHtml(item.value)}"`;
+                const icon = item.kind === 'file' ? this.webIcon('file') : this.webIcon('globe');
+                return `<button class="progress-artifact" type="button" ${actionAttr} title="${this.escapeHtml(item.value)}">${icon}<span>${this.escapeHtml(item.label)}</span></button>`;
+            }).join('')
+            : '<div class="progress-empty">Артефактов пока нет</div>';
+        const gitStatusClass = gitInfo.changes === 0 ? 'done' : 'pending';
+        const gitHubClass = gitInfo.githubCli ? 'done' : 'pending';
+        const gitHubLabel = gitInfo.githubCli ? 'GitHub CLI доступен' : 'GitHub CLI недоступен';
+
+        return `<aside class="progress-panel" aria-label="Прогресс задачи">
+            <div class="progress-title">Прогресс</div>
+            <div class="progress-list">${progressHtml}</div>
+            <div class="progress-divider"></div>
+            <div class="progress-subtitle">Сведения о ветке</div>
+            <div class="progress-section">
+                <div class="progress-item ${gitStatusClass}">
+                    <span class="progress-dot"></span>
+                    <span>${this.escapeHtml(gitInfo.changes === 0 ? 'Нет изменений' : `Изменений: ${gitInfo.changes}`)}</span>
+                </div>
+                <button class="progress-button" type="button" data-action="openScm">${this.webIcon('branch')}<span>Действия Git</span></button>
+                <button class="progress-button" type="button" data-action="showBranch">${this.webIcon('branch')}<span>${this.escapeHtml(branchLabel)}</span></button>
+                <div class="progress-item ${gitHubClass}">
+                    <span class="progress-dot"></span>
+                    <span>${this.escapeHtml(gitHubLabel)}</span>
+                </div>
+            </div>
+            <div class="progress-divider"></div>
+            <div class="progress-subtitle">Артефакты</div>
+            <div class="progress-section">${artifactsHtml}</div>
+        </aside>`;
+    }
+
+    private getProgressItems(
+        messages: CodexChatMessage[],
+        actions: RemoteCodeActionEvent[],
+        isBusy: boolean
+    ): Array<{ label: string; status: 'pending' | 'running' | 'done' }> {
+        const latestUserIndex = (() => {
+            for (let i = messages.length - 1; i >= 0; i--) {
+                if (messages[i].role === 'user' && messages[i].content.trim()) return i;
+            }
+            return -1;
+        })();
+        const latestUser = latestUserIndex >= 0 ? messages[latestUserIndex] : undefined;
+        const hasAssistantAfter = latestUserIndex >= 0
+            ? messages.slice(latestUserIndex + 1).some(message => message.role === 'assistant' && message.content.trim())
+            : false;
+        const labels = this.extractProgressTaskLabels(latestUser?.content || '');
+        const items = labels.length > 0
+            ? labels.slice(0, 5).map((label, index) => ({
+                label,
+                status: (isBusy ? (index === 0 ? 'running' : 'pending') : (hasAssistantAfter ? 'done' : 'pending')) as 'pending' | 'running' | 'done'
+            }))
+            : [{
+                label: latestUser ? 'Обработать текущий запрос' : 'Ожидание запроса',
+                status: (isBusy ? 'running' : (hasAssistantAfter ? 'done' : 'pending')) as 'pending' | 'running' | 'done'
+            }];
+
+        const activeAction = actions.slice().reverse().find(action => action.status === 'pending' || action.status === 'running' || action.status === 'approved');
+        if (activeAction) {
+            items.push({
+                label: activeAction.status === 'pending'
+                    ? `Ожидает подтверждения: ${activeAction.title}`
+                    : `Выполняется действие: ${activeAction.title}`,
+                status: activeAction.status === 'pending' ? 'pending' : 'running'
+            });
+        } else {
+            const completedAction = actions.slice().reverse().find(action => action.status === 'completed' || action.status === 'denied' || action.status === 'failed');
+            if (completedAction) {
+                items.push({
+                    label: completedAction.status === 'completed'
+                        ? `Действие выполнено: ${completedAction.title}`
+                        : `Действие закрыто: ${completedAction.title}`,
+                    status: 'done'
+                });
+            }
+        }
+        return items.slice(0, 6);
+    }
+
+    private extractProgressTaskLabels(content: string): string[] {
+        const labels: string[] = [];
+        for (const rawLine of content.replace(/\r\n/g, '\n').split('\n')) {
+            const line = rawLine.trim();
+            const match = line.match(/^(?:\d+[\.)]|[-*•])\s+(.{3,})$/);
+            if (match?.[1]) {
+                labels.push(match[1].replace(/\s+/g, ' ').slice(0, 120));
+            }
+            if (labels.length >= 5) break;
+        }
+        if (labels.length === 0 && content.trim()) {
+            labels.push(content.trim().replace(/\s+/g, ' ').slice(0, 140));
+        }
+        return labels;
+    }
+
+    private getGitPanelStatus(): { changes: number; githubCli: boolean } {
+        const folder = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+        let changes = 0;
+        if (folder) {
+            try {
+                const output = execSync('git status --short', {
+                    cwd: folder,
+                    encoding: 'utf8',
+                    timeout: 1500,
+                    windowsHide: true
+                }).trim();
+                changes = output ? output.split(/\r?\n/).filter(Boolean).length : 0;
+            } catch {
+                changes = 0;
+            }
+        }
+        const githubCli = (() => {
+            try {
+                const check = spawnSync('gh', ['--version'], {
+                    encoding: 'utf8',
+                    timeout: 1000,
+                    windowsHide: true
+                });
+                return check.status === 0;
+            } catch {
+                return false;
+            }
+        })();
+        return { changes, githubCli };
+    }
+
+    private getProgressArtifacts(messages: CodexChatMessage[]): Array<{ kind: 'file' | 'url'; label: string; value: string }> {
+        const artifacts: Array<{ kind: 'file' | 'url'; label: string; value: string }> = [];
+        const seen = new Set<string>();
+        const workspace = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+        if (workspace) {
+            const readme = path.join(workspace, 'README.md');
+            if (fs.existsSync(readme)) {
+                artifacts.push({ kind: 'file', label: 'README.md', value: readme });
+                seen.add(readme);
+            }
+        }
+        for (const message of messages.slice().reverse()) {
+            for (const attachment of this.normalizeLocalAttachments(message.attachments || [])) {
+                if (seen.has(attachment.path)) continue;
+                artifacts.push({ kind: 'file', label: attachment.name, value: attachment.path });
+                seen.add(attachment.path);
+                if (artifacts.length >= 4) break;
+            }
+            if (artifacts.length >= 4) break;
+        }
+        const localBase = `http://127.0.0.1:${this._port}`;
+        const urls = [
+            `${localBase}/api/status`,
+            `${localBase}/api/codex/send`,
+            `${localBase}/api/tunnel/status`,
+            ...(this._tunnelUrl ? [this._tunnelUrl] : [])
+        ];
+        for (const value of urls) {
+            artifacts.push({ kind: 'url', label: value.replace(/^https?:\/\//, ''), value });
+        }
+        return artifacts.slice(0, 8);
+    }
+
     private renderMessageAttachments(attachments?: LocalAttachment[]): string {
         const files = this.normalizeLocalAttachments(attachments || []);
         if (files.length === 0) return '';
@@ -3673,7 +3891,7 @@ prompt.addEventListener('keydown', event => {
         return `<button type="button" class="change-row" data-path="${this.escapeHtml(change.path)}"><span class="change-path">${this.escapeHtml(change.path)}</span>${additions}${deletions}<span class="row-chev">${this.webIcon('chevronDown')}</span></button>`;
     }
 
-    private webIcon(name: 'branch' | 'chevronDown' | 'copy' | 'edit' | 'expand' | 'external' | 'laptop' | 'more' | 'panel' | 'play' | 'plus' | 'scrollDown' | 'send' | 'settings' | 'sparkle' | 'stop' | 'terminal' | 'thumbDown' | 'thumbUp' | 'trash' | 'x'): string {
+    private webIcon(name: 'branch' | 'chevronDown' | 'copy' | 'edit' | 'expand' | 'external' | 'file' | 'globe' | 'laptop' | 'more' | 'panel' | 'play' | 'plus' | 'scrollDown' | 'send' | 'settings' | 'sparkle' | 'stop' | 'terminal' | 'thumbDown' | 'thumbUp' | 'trash' | 'x'): string {
         switch (name) {
             case 'branch':
                 return '<svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="4" cy="4" r="1.9"/><circle cx="12" cy="12" r="1.9"/><path d="M4 6v1.4A4.6 4.6 0 0 0 8.6 12H10"/></svg>';
@@ -3687,6 +3905,10 @@ prompt.addEventListener('keydown', event => {
                 return '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M6.25 2.75H3.5v2.75"/><path d="M3.5 2.75 7 6.25"/><path d="M9.75 13.25h2.75V10.5"/><path d="M12.5 13.25 9 9.75"/></svg>';
             case 'external':
                 return '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M5 11 11 5"/><path d="M6.25 5H11v4.75"/></svg>';
+            case 'file':
+                return '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4 2.5h5l3 3v8H4z"/><path d="M9 2.5v3h3"/><path d="M6 9h4"/><path d="M6 11h3"/></svg>';
+            case 'globe':
+                return '<svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="5.75"/><path d="M2.5 8h11"/><path d="M8 2.25c1.55 1.6 2.25 3.5 2.25 5.75S9.55 12.15 8 13.75C6.45 12.15 5.75 10.25 5.75 8S6.45 3.85 8 2.25Z"/></svg>';
             case 'laptop':
                 return '<svg viewBox="0 0 16 16" aria-hidden="true"><rect x="3" y="3.5" width="10" height="7" rx="1.2"/><path d="M1.75 12.5h12.5"/></svg>';
             case 'more':
@@ -4570,7 +4792,7 @@ prompt.addEventListener('keydown', event => {
     private startTunnelWithLauncher(launcher: TunnelLauncher): Promise<string> {
         return new Promise((resolve, reject) => {
             const args = launcher.provider === 'cloudflared'
-                ? [...launcher.prefixArgs, 'tunnel', '--url', `http://localhost:${this._port}`, '--no-autoupdate']
+                ? [...launcher.prefixArgs, 'tunnel', '--url', `http://127.0.0.1:${this._port}`, '--no-autoupdate']
                 : [...launcher.prefixArgs, 'http', String(this._port), '--log=stdout'];
 
             const ngrokConfig = path.join(process.env.USERPROFILE || '', '.ngrok2', 'ngrok.yml');
@@ -4586,19 +4808,35 @@ prompt.addEventListener('keydown', event => {
 
             this._tunnelProcess = proc;
             let settled = false;
+            let readyCheckStarted = false;
 
             const acceptOutput = (data: Buffer) => {
                 const text = data.toString();
                 const urlMatch = launcher.provider === 'cloudflared'
                     ? text.match(/https?:\/\/[a-zA-Z0-9-]+\.trycloudflare\.com/)
                     : text.match(/https?:\/\/[a-zA-Z0-9_-]+\.ngrok[-a-zA-Z0-9]*\.(io|app)/);
-                if (urlMatch && !settled) {
-                    settled = true;
-                    this._tunnelUrl = urlMatch[0];
+                if (urlMatch && !settled && !readyCheckStarted) {
+                    readyCheckStarted = true;
+                    const publicUrl = urlMatch[0];
+                    this._tunnelUrl = publicUrl;
                     this._tunnelProvider = launcher.provider;
-                    console.log(`[RemoteCodeOnPC] ${launcher.provider} tunnel: ${this._tunnelUrl}`);
-                    vscode.window.showInformationMessage(`Интернет-доступ: ${this._tunnelUrl}`);
-                    resolve(this._tunnelUrl);
+                    console.log(`[RemoteCodeOnPC] ${launcher.provider} tunnel detected: ${publicUrl}`);
+                    this.waitForTunnelReady(publicUrl, launcher.provider)
+                        .then(() => {
+                            if (settled) return;
+                            settled = true;
+                            console.log(`[RemoteCodeOnPC] ${launcher.provider} tunnel ready: ${publicUrl}`);
+                            vscode.window.showInformationMessage(`Интернет-доступ готов: ${publicUrl}`);
+                            resolve(publicUrl);
+                        })
+                        .catch((err: Error) => {
+                            if (settled) return;
+                            settled = true;
+                            this._tunnelUrl = null;
+                            this._tunnelProvider = null;
+                            try { proc.kill(); } catch { /* ignore */ }
+                            reject(new Error(`${launcher.provider} URL найден, но /api/status не открылся: ${err.message}`));
+                        });
                 }
             };
 
@@ -4606,11 +4844,18 @@ prompt.addEventListener('keydown', event => {
             proc.stderr.on('data', acceptOutput);
 
             proc.on('close', (code: number) => {
-                if (!settled && !this._tunnelUrl) {
+                if (!settled) {
+                    settled = true;
                     this._tunnelProcess = null;
+                    this._tunnelUrl = null;
                     this._tunnelProvider = null;
                     const authHint = launcher.provider === 'ngrok' ? '/authtoken' : '';
                     reject(new Error(`${launcher.provider} не запустился (${launcher.label}, код ${code}). Проверьте установку${authHint} или укажите публичный URL вручную в настройках приложения.`));
+                } else if (this._tunnelProcess === proc) {
+                    this._tunnelProcess = null;
+                    this._tunnelUrl = null;
+                    this._tunnelProvider = null;
+                    console.log(`[RemoteCodeOnPC] ${launcher.provider} tunnel exited with code ${code}`);
                 }
             });
 
@@ -4623,14 +4868,53 @@ prompt.addEventListener('keydown', event => {
             });
 
             setTimeout(() => {
-                if (!settled && !this._tunnelUrl) {
+                if (!settled) {
+                    settled = true;
                     proc.kill();
                     this._tunnelProcess = null;
+                    this._tunnelUrl = null;
                     this._tunnelProvider = null;
-                    reject(new Error(`Таймаут запуска ${launcher.provider} (15 сек). Проверьте установку или вставьте публичный URL вручную.`));
+                    reject(new Error(`Таймаут запуска ${launcher.provider} (30 сек). Проверьте установку или вставьте публичный URL вручную.`));
                 }
-            }, 15000);
+            }, 30000);
         });
+    }
+
+    private async waitForTunnelReady(publicUrl: string, provider: 'ngrok' | 'cloudflared'): Promise<void> {
+        const attempts = provider === 'cloudflared' ? 12 : 8;
+        let lastError = 'not checked';
+        for (let attempt = 1; attempt <= attempts; attempt++) {
+            try {
+                const statusCode = await this.httpStatus(`${publicUrl.replace(/\/+$/, '')}/api/status`, 5000);
+                if (statusCode >= 200 && statusCode < 300) return;
+                lastError = `HTTP ${statusCode}`;
+            } catch (err: any) {
+                lastError = err?.message || String(err);
+            }
+            await this.sleep(attempt < 4 ? 1200 : 2200);
+        }
+        throw new Error(lastError);
+    }
+
+    private httpStatus(targetUrl: string, timeoutMs: number): Promise<number> {
+        return new Promise((resolve, reject) => {
+            const parsed = new URL(targetUrl);
+            const client = parsed.protocol === 'https:' ? https : http;
+            const req = client.request(parsed, { method: 'GET', timeout: timeoutMs }, res => {
+                const statusCode = res.statusCode || 0;
+                res.resume();
+                res.on('end', () => resolve(statusCode));
+            });
+            req.on('timeout', () => {
+                req.destroy(new Error('timeout'));
+            });
+            req.on('error', reject);
+            req.end();
+        });
+    }
+
+    private sleep(ms: number): Promise<void> {
+        return new Promise(resolve => setTimeout(resolve, ms));
     }
 
     private async startTunnel(): Promise<string> {

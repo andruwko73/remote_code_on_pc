@@ -194,9 +194,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             try {
                 CrashLogger.d("ViewModel", "Building API client...")
-                val api = ApiClient.getApi(config)
                 CrashLogger.d("ViewModel", "Calling getStatus()...")
-                val response = api.getStatus()
+                val response = getStatusWithRetries(config)
                 CrashLogger.d("ViewModel", "Status response: code=${response.code()}")
                 if (response.isSuccessful) {
                     val status = response.body()
@@ -218,7 +217,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         connectionError = if (response.code() == 401) {
                             "Требуется токен доступа. Скопируйте токен в VS Code: Remote Code on PC: Подключение."
                         } else {
-                            "Ошибка ${response.code()}: ${response.message()}"
+                            formatConnectionError(config, "Ошибка ${response.code()}: ${response.message()}", response.code())
                         }
                     )
                 }
@@ -241,10 +240,46 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     CrashLogger.e("ViewModel", "simple HTTP fallback failed", fallbackError)
                     _uiState.value = _uiState.value.copy(
                         isConnecting = false,
-                        connectionError = "Connection error: ${fallbackError.message ?: e.message}"
+                        connectionError = formatConnectionError(config, fallbackError.message ?: e.message ?: "connection failed")
                     )
                 }
             }
+        }
+    }
+
+    private suspend fun getStatusWithRetries(config: ServerConfig): retrofit2.Response<StatusResponse> {
+        val attempts = if (config.useTunnel) 6 else 1
+        var lastResponse: retrofit2.Response<StatusResponse>? = null
+        var lastError: Exception? = null
+        repeat(attempts) { index ->
+            try {
+                val api = ApiClient.getApi(config)
+                val response = api.getStatus()
+                if (!config.useTunnel || response.isSuccessful || (response.code() != 503 && response.code() != 502)) {
+                    return response
+                }
+                lastResponse = response
+            } catch (e: Exception) {
+                lastError = e
+            }
+            if (index < attempts - 1) {
+                delay(if (index < 2) 1200 else 2200)
+                ApiClient.reset()
+            }
+        }
+        lastResponse?.let { return it }
+        throw lastError ?: IllegalStateException("connection failed")
+    }
+
+    private fun formatConnectionError(config: ServerConfig, raw: String, code: Int? = null): String {
+        if (!config.useTunnel) return "Connection error: $raw"
+        val lower = raw.lowercase()
+        return when {
+            code == 503 || code == 502 || "503" in lower || "bad gateway" in lower ->
+                "Туннель найден, но Cloudflare/ngrok пока не достучался до ПК. Перезапустите туннель в расширении и подождите 10-20 секунд."
+            "unable to resolve host" in lower || "no address associated" in lower || "failed to resolve" in lower ->
+                "Публичный URL не резолвится DNS. Обычно это старый/ещё не готовый trycloudflare URL. Запустите новый туннель в VS Code и вставьте новый адрес."
+            else -> "Ошибка внешнего подключения: $raw"
         }
     }
 
