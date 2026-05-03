@@ -305,8 +305,12 @@ fun CodexChatTab(
     val reasoningLabel = reasoningOptions.firstOrNull { it.first == selectedReasoningEffort }?.second ?: "\u0421\u0440\u0435\u0434\u043D\u0438\u0439"
     val profileLabel = profileOptions.firstOrNull { it.first == selectedProfile }?.second ?: "\u041F\u043E\u043B\u044C\u0437."
     val currentThread = threads.find { it.id == currentThreadId }
-    val activeActionEvents = actionEvents
-        .filter { it.actionable || it.status == "pending" || it.status == "running" }
+    val visibleChatHistory = chatHistory.filterNot { isMobileActionResultMessage(it.content) }
+    val timelineActionEvents = actionEvents
+        .filterNot { it.actionable && it.status == "pending" }
+        .takeLast(10)
+    val approvalActionEvents = actionEvents
+        .filter { it.actionable && it.status == "pending" }
         .takeLast(8)
 
     fun submitMessage() {
@@ -317,13 +321,16 @@ fun CodexChatTab(
     }
 
     LaunchedEffect(
-        chatHistory.size,
-        chatHistory.lastOrNull()?.content,
-        activeActionEvents.size,
-        activeActionEvents.lastOrNull()?.status
+        visibleChatHistory.size,
+        visibleChatHistory.lastOrNull()?.content,
+        timelineActionEvents.size,
+        timelineActionEvents.lastOrNull()?.status,
+        approvalActionEvents.size,
+        approvalActionEvents.lastOrNull()?.status
     ) {
         val statusRows = if (sendResult?.success == true) 1 else 0
-        val targetIndex = statusRows + chatHistory.size + activeActionEvents.size - 1
+        val timelineRows = if (timelineActionEvents.isNotEmpty()) 1 else 0
+        val targetIndex = statusRows + visibleChatHistory.size + timelineRows + approvalActionEvents.size - 1
         if (targetIndex >= 0) listState.animateScrollToItem(targetIndex)
     }
 
@@ -447,10 +454,11 @@ fun CodexChatTab(
         if (error != null) Text(error, color = ErrorRed, fontSize = 13.sp, modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp))
 
         Box(modifier = Modifier.fillMaxWidth().weight(1f)) {
-            LazyColumn(state = listState, modifier = Modifier.fillMaxSize().padding(horizontal = 14.dp), verticalArrangement = Arrangement.spacedBy(10.dp), contentPadding = PaddingValues(top = 18.dp, bottom = 12.dp)) {
+            LazyColumn(state = listState, modifier = Modifier.fillMaxSize().padding(horizontal = 14.dp), verticalArrangement = Arrangement.spacedBy(7.dp), contentPadding = PaddingValues(top = 14.dp, bottom = 10.dp)) {
                 if (sendResult?.success == true) item { DesktopStatusLine("\u041E\u0442\u043F\u0440\u0430\u0432\u043B\u0435\u043D\u043E", AccentGreen) }
-                items(chatHistory) { msg -> CodexMessageBubble(msg, onOpenFile) }
-                items(activeActionEvents) { event -> DesktopToolBlock(event, onRespondToAction) }
+                items(visibleChatHistory) { msg -> CodexMessageBubble(msg, onOpenFile) }
+                if (timelineActionEvents.isNotEmpty()) item { MobileActionTimeline(timelineActionEvents) }
+                items(approvalActionEvents) { event -> DesktopToolBlock(event, onRespondToAction) }
                 if (chatHistory.isEmpty() && sendResult == null && actionEvents.isEmpty()) item {
                     Column(modifier = Modifier.padding(top = 32.dp)) {
                         Text("\u0417\u0430\u043F\u0440\u043E\u0441\u0438\u0442\u0435 \u0438\u0437\u043C\u0435\u043D\u0435\u043D\u0438\u044F, \u043F\u0440\u043E\u0432\u0435\u0440\u043A\u0443 \u0438\u043B\u0438 \u0440\u0430\u0431\u043E\u0442\u0443 \u0441 \u0444\u0430\u0439\u043B\u0430\u043C\u0438.", color = TextSecondary, fontSize = 15.sp)
@@ -632,6 +640,11 @@ private fun threadDisplaySubtitle(thread: CodexThread): String {
     return listOfNotNull(source, rolloutDate).joinToString(" · ")
 }
 
+private fun isMobileActionResultMessage(content: String): Boolean {
+    val text = content.trimStart()
+    return text.startsWith("Действие выполнено:") || text.startsWith("Действие завершилось ошибкой:")
+}
+
 @Composable
 private fun DesktopStatusLine(text: String, color: Color) {
     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -735,6 +748,142 @@ private fun DesktopToolBlock(
 }
 
 @Composable
+private fun MobileActionTimeline(events: List<CodexActionEvent>) {
+    val completedCommands = events.filter { it.status == "completed" && it.type.contains("command") }
+    val otherEvents = events
+        .filterNot { it.status == "completed" && it.type.contains("command") }
+        .takeLast(6)
+    var expanded by remember(completedCommands.map { it.id }) { mutableStateOf(false) }
+
+    Column(
+        modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
+        verticalArrangement = Arrangement.spacedBy(3.dp)
+    ) {
+        if (completedCommands.isNotEmpty()) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { expanded = !expanded }
+                    .padding(horizontal = 2.dp, vertical = 2.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(Icons.Default.Terminal, contentDescription = null, tint = TextSecondary, modifier = Modifier.size(15.dp))
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    "Выполнено ${completedCommands.size} ${pluralRu(completedCommands.size, "команда", "команды", "команд")}",
+                    color = TextSecondary,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Medium
+                )
+                Icon(
+                    if (expanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
+                    contentDescription = null,
+                    tint = TextSecondary,
+                    modifier = Modifier.size(17.dp)
+                )
+            }
+            AnimatedVisibility(visible = expanded) {
+                Column(
+                    modifier = Modifier.padding(start = 24.dp, end = 4.dp, bottom = 2.dp),
+                    verticalArrangement = Arrangement.spacedBy(3.dp)
+                ) {
+                    completedCommands.takeLast(5).forEach { event ->
+                        Text(
+                            compactActionText(event),
+                            color = TextSecondary,
+                            fontSize = 11.sp,
+                            lineHeight = 14.sp,
+                            fontFamily = FontFamily.Monospace,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                }
+            }
+        }
+        otherEvents.forEach { event ->
+            MobileActionLine(event)
+        }
+    }
+}
+
+@Composable
+private fun MobileActionLine(event: CodexActionEvent) {
+    val isRunning = event.status == "running" || event.status == "approved"
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 2.dp, vertical = 2.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        if (isRunning) {
+            CircularProgressIndicator(
+                modifier = Modifier.size(14.dp),
+                strokeWidth = 2.dp,
+                color = TextSecondary
+            )
+        } else {
+            Icon(
+                imageVector = when {
+                    event.status == "failed" -> Icons.Default.Error
+                    event.status == "denied" -> Icons.Default.Close
+                    event.type.contains("patch") -> Icons.Default.Build
+                    event.type.contains("command") -> Icons.Default.Terminal
+                    else -> Icons.Default.CheckCircle
+                },
+                contentDescription = null,
+                tint = when {
+                    event.status == "failed" -> ErrorRed
+                    event.status == "denied" -> TextSecondary
+                    event.status == "completed" -> AccentGreen.copy(alpha = 0.85f)
+                    else -> TextSecondary
+                },
+                modifier = Modifier.size(15.dp)
+            )
+        }
+        Spacer(modifier = Modifier.width(8.dp))
+        Text(
+            actionStatusText(event),
+            color = TextSecondary,
+            fontSize = 12.sp,
+            fontWeight = FontWeight.Medium,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
+        val detail = compactActionText(event)
+        if (detail.isNotBlank()) {
+            Spacer(modifier = Modifier.width(6.dp))
+            Text(
+                detail,
+                color = TextSecondary.copy(alpha = 0.72f),
+                fontSize = 12.sp,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f)
+            )
+        }
+    }
+}
+
+private fun actionStatusText(event: CodexActionEvent): String {
+    return when (event.status) {
+        "running", "approved" -> "Выполняется"
+        "pending" -> if (event.actionable) "Ожидает подтверждения" else "Ожидает"
+        "completed" -> "Выполнено"
+        "failed" -> "Ошибка"
+        "denied" -> "Отклонено"
+        else -> event.title.ifBlank { event.type }
+    }
+}
+
+private fun compactActionText(event: CodexActionEvent): String {
+    return (event.detail.ifBlank { event.title.ifBlank { event.type } })
+        .lineSequence()
+        .firstOrNull { it.isNotBlank() }
+        .orEmpty()
+        .replace(Regex("\\s+"), " ")
+        .take(120)
+}
+
+@Composable
 private fun CodexActionStrip(
     events: List<CodexActionEvent>,
     onRespondToAction: (String, Boolean) -> Unit
@@ -830,9 +979,9 @@ private fun CodexMessageBubble(
                     Text(
                         highlightedText(cleanedContent.ifBlank { "..." }),
                         color = TextBright,
-                        fontSize = 15.sp,
-                        lineHeight = 22.sp,
-                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp)
+                        fontSize = 14.sp,
+                        lineHeight = 20.sp,
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
                     )
                 }
             }
@@ -866,8 +1015,8 @@ private fun HighlightedMessageText(text: String) {
     Text(
         highlightedText(text),
         color = TextPrimary,
-        fontSize = 15.sp,
-        lineHeight = 22.sp
+        fontSize = 14.sp,
+        lineHeight = 20.sp
     )
 }
 

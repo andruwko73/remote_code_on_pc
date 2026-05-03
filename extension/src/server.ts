@@ -2953,7 +2953,9 @@ export class RemoteServer {
         this.saveRemoteCodeState();
         this.refreshPcChatPanel();
         this.broadcastActionUpdate(event);
-        this.appendActionResultMessage(event);
+        if (event.status === 'failed') {
+            this.appendActionResultMessage(event);
+        }
         return event;
     }
 
@@ -3449,8 +3451,6 @@ export class RemoteServer {
             <div class="sidebar-actions">
                 <button class="sidebar-action" type="button" data-action="newChat">${icon.edit}<span>Новый чат</span></button>
                 <button class="sidebar-action" type="button" data-action="openSearch">${icon.search}<span>Поиск</span></button>
-                <button class="sidebar-action" type="button" data-action="openExtensions">${icon.extensions}<span>Плагины</span></button>
-                <button class="sidebar-action" type="button" data-action="openCommandPalette">${icon.command}<span>Команды</span></button>
             </div>
             <div class="sidebar-section-title">Проекты</div>
             <div class="sidebar-projects">${sidebarProjectRows || '<div class="sidebar-empty">Нет открытых проектов</div>'}</div>
@@ -3460,7 +3460,7 @@ export class RemoteServer {
                 <button class="sidebar-action" type="button" data-action="openSettings">${icon.settings}<span>Настройки</span></button>
             </div>
         </aside>`;
-        const rows = messages.map(message => {
+        const rows = messages.filter(message => !this.isActionResultMessage(message)).map(message => {
             const role = message.role === 'system' ? 'Система' : '';
             const cls = message.role === 'user' ? 'user' : message.role === 'assistant' ? 'assistant' : 'system';
             const meta = [message.model, message.reasoningEffort ? this.reasoningEffortLabel(message.reasoningEffort) : '']
@@ -3480,7 +3480,8 @@ export class RemoteServer {
                 </div>
             </section>`;
         }).join('');
-        const actionRows = actions.map(event => {
+        const actionTimelineRows = this.renderActionTimeline(actions);
+        const actionRows = actions.filter(event => event.actionable && event.status === 'pending').map(event => {
             const resolved = !event.actionable && event.status !== 'running' && event.status !== 'pending';
             const body = this.escapeHtml(event.detail || event.diff || '');
             return `<section class="action ${this.escapeHtml(event.status)} ${resolved ? 'resolved collapsed' : ''}" data-action-event-id="${this.escapeHtml(event.id)}">
@@ -3504,7 +3505,7 @@ export class RemoteServer {
 <style>
 html,body{height:100%}
 :root{--codex-bg:#181818;--codex-sidebar:#211f25;--codex-surface:#242424;--codex-surface-2:#2d2d2d;--codex-selected:#323039;--codex-chip:#232323;--codex-border:#303030;--codex-strong-border:#363636;--codex-text:#d9d9d9;--codex-bright:#fdfdfd;--codex-muted:#979797;--codex-green:#53d18f;--codex-red:#f06f6f;--codex-blue:#2ea8ff}
-body{margin:0;background:var(--codex-bg);color:var(--codex-text);font:15px/1.58 var(--vscode-font-family);display:flex;flex-direction:column;letter-spacing:0}
+body{margin:0;background:var(--codex-bg);color:var(--codex-text);font:15px/1.5 var(--vscode-font-family);display:flex;flex-direction:column;letter-spacing:0}
 button{font:inherit}
 svg{width:15px;height:15px;display:block;fill:none;stroke:currentColor;stroke-width:1.75;stroke-linecap:round;stroke-linejoin:round;shape-rendering:geometricPrecision}
 .top{height:46px;border-bottom:1px solid var(--codex-border);background:var(--codex-bg);display:flex;align-items:center;gap:7px;padding:0 min(3vw,32px)}
@@ -3593,10 +3594,10 @@ svg{width:15px;height:15px;display:block;fill:none;stroke:currentColor;stroke-wi
 .progress-muted{color:#9a9a9a}
 .progress-artifact span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .progress-empty{font-size:12.5px;color:#888}
-.msg{position:relative;padding:1px 0 18px;margin:0 auto;background:transparent;border:0;max-width:960px}
+.msg{position:relative;padding:1px 0 13px;margin:0 auto;background:transparent;border:0;max-width:960px}
 .msg.user{max-width:640px;margin-left:auto;margin-right:min(2vw,20px);color:var(--codex-bright)}
 .msg.user .role,.msg.user .meta{display:none}
-.msg.user .message-text{background:var(--codex-surface);border:1px solid #2f2f2f;border-radius:17px;padding:10px 14px;color:var(--codex-bright)}
+.msg.user .message-text{background:var(--codex-surface);border:1px solid #2f2f2f;border-radius:17px;padding:9px 13px;color:var(--codex-bright)}
 .msg.system .message-text{color:#aeb0b3}
 .role{font-weight:600;color:var(--codex-text);margin-bottom:4px}
 .meta{font-size:12px;color:#8e8e8e;margin:-1px 0 5px}
@@ -3636,6 +3637,20 @@ pre{margin:0;white-space:pre-wrap;word-wrap:break-word;font:inherit}
 .hover-btn{width:23px;height:23px;border:0;border-radius:6px;background:var(--codex-bg);color:#909399;display:inline-flex;align-items:center;justify-content:center;padding:0;cursor:pointer}
 .hover-btn svg{width:14px;height:14px}
 .hover-btn:hover{background:var(--codex-surface);color:#e6e6e6}
+.action-timeline{max-width:960px;margin:0 auto 14px;color:#8f9094;font-size:13px;line-height:1.4}
+.action-line,.action-log-summary{display:flex;align-items:center;gap:8px;min-height:26px;color:#8f9094}
+.action-line strong,.action-log-summary strong{color:#aeb0b3;font-weight:500}
+.action-line svg,.action-log-summary svg{width:14px;height:14px;color:#8f9094;flex:0 0 auto}
+.action-line.running svg{animation:spin .9s linear infinite}
+.action-line.pending strong{color:#d2d2d2}
+.action-line.failed strong{color:var(--codex-red)}
+.action-line.denied strong{color:#c7a0a0}
+.action-log{margin:2px 0 4px}
+.action-log summary{list-style:none;cursor:pointer}
+.action-log summary::-webkit-details-marker{display:none}
+.action-log-body{margin:3px 0 2px 22px;border-left:1px solid var(--codex-border);padding-left:10px}
+.action-log-entry{padding:4px 0;color:#aeb0b3}
+.action-log-entry pre{margin:4px 0 0;max-height:130px;overflow:auto;color:#9fa1a5;font:12px/1.45 var(--vscode-editor-font-family, monospace)}
 .action{max-width:960px;margin:0 auto 13px;padding:10px 12px;background:var(--codex-surface);border:1px solid var(--codex-border);border-radius:9px;color:var(--codex-text)}
 .action.resolved{padding:8px 10px}
 .action-head{display:flex;align-items:center;gap:10px;color:var(--codex-text);margin-bottom:8px}
@@ -3730,12 +3745,7 @@ button.send.stop:hover{background:#fff}
       <button class="item icon-item" type="button" data-action="archiveCurrentThread">${icon.archive}<span>Архивировать чат</span></button>
       <div class="menu-separator"></div>
       <button class="item" type="button" data-action="copyWorkspaceDirectory">Скопировать рабочую директорию</button>
-      <button class="item" type="button" data-action="copySessionId">Скопировать ID сеанса</button>
-      <button class="item" type="button" data-action="copyDeeplink">Скопировать диплинк</button>
       <button class="item" type="button" data-action="copyCurrentThreadMarkdown">Скопировать как Markdown</button>
-      <div class="menu-separator"></div>
-      <button class="item" type="button" data-action="openSideChat">Открыть боковой чат</button>
-      <button class="item" type="button" data-action="openMiniWindow">Открыть в мини-окне</button>
       <div class="menu-separator"></div>
       <button class="item" type="button" data-action="clearChat">&#1054;&#1095;&#1080;&#1089;&#1090;&#1080;&#1090;&#1100; &#1095;&#1072;&#1090;</button>
       <button class="item" type="button" data-action="deleteCurrentThread">&#1059;&#1076;&#1072;&#1083;&#1080;&#1090;&#1100; &#1095;&#1072;&#1090;</button>
@@ -3754,12 +3764,12 @@ button.send.stop:hover{background:#fff}
     </div>
   </div>
   <button class="icon-btn" type="button" data-action="openTerminal" title="&#1058;&#1077;&#1088;&#1084;&#1080;&#1085;&#1072;&#1083;">${icon.terminal}</button>
-  <button class="icon-btn" type="button" data-action="toggleLayout" title="&#1055;&#1072;&#1085;&#1077;&#1083;&#1100;">${icon.panel}</button>
 </div>
 <div class="content-shell">
   ${sidebarHtml}
   <main class="messages" id="messages">
-${rows || '<div class="msg system"><div class="role">Система</div><pre>Жду сообщение с телефона или из VS Code.</pre></div>'}
+${rows || (actionTimelineRows || actionRows ? '' : '<div class="msg system"><div class="role">Система</div><pre>Жду сообщение с телефона или из VS Code.</pre></div>')}
+${actionTimelineRows}
 ${actionRows}
   </main>
   ${progressPanel}
@@ -4201,6 +4211,66 @@ prompt.addEventListener('keydown', event => {
             <div class="progress-subtitle">Артефакты</div>
             <div class="progress-section">${artifactsHtml}</div>
         </aside>`;
+    }
+
+    private isActionResultMessage(message: CodexChatMessage): boolean {
+        const content = (message.content || '').trimStart();
+        return content.startsWith('Действие выполнено:') || content.startsWith('Действие завершилось ошибкой:');
+    }
+
+    private renderActionTimeline(actions: RemoteCodeActionEvent[]): string {
+        const recent = actions.slice(-18);
+        if (recent.length === 0) return '';
+        const completedCommands = recent.filter(event => event.type === 'command_approval' && event.status === 'completed');
+        const visibleEvents = recent
+            .filter(event => !(event.type === 'command_approval' && event.status === 'completed'))
+            .slice(-8);
+        const parts: string[] = [];
+        if (completedCommands.length > 0) {
+            const word = this.pluralRu(completedCommands.length, 'команда', 'команды', 'команд');
+            const entries = completedCommands.slice(-6).map(event => {
+                const command = this.compactActionDetail(event);
+                const detail = (event.stdout || event.stderr || '').trim();
+                return `<div class="action-log-entry"><strong>${this.escapeHtml(command)}</strong>${detail ? `<pre>${this.escapeHtml(detail).slice(0, 1800)}</pre>` : ''}</div>`;
+            }).join('');
+            parts.push(`<details class="action-log">
+                <summary class="action-log-summary">${this.webIcon('terminal')}<strong>Выполнено ${completedCommands.length} ${word}</strong></summary>
+                <div class="action-log-body">${entries}</div>
+            </details>`);
+        }
+        for (const event of visibleEvents) {
+            const label = this.actionTimelineLabel(event);
+            const detail = this.compactActionDetail(event);
+            parts.push(`<div class="action-line ${this.escapeHtml(event.status)}">${this.webIcon(this.actionTimelineIcon(event))}<strong>${this.escapeHtml(label)}</strong>${detail ? `<span>${this.escapeHtml(detail)}</span>` : ''}</div>`);
+        }
+        return parts.length ? `<div class="action-timeline">${parts.join('')}</div>` : '';
+    }
+
+    private actionTimelineLabel(event: RemoteCodeActionEvent): string {
+        switch (event.status) {
+            case 'running': return 'Выполняется';
+            case 'pending': return event.actionable ? 'Ожидает подтверждения' : 'Ожидает';
+            case 'approved': return 'Разрешено';
+            case 'completed': return 'Выполнено';
+            case 'failed': return 'Ошибка';
+            case 'denied': return 'Отклонено';
+            default: return event.title || event.type;
+        }
+    }
+
+    private actionTimelineIcon(event: RemoteCodeActionEvent): 'terminal' | 'file' | 'x' | 'play' {
+        if (event.status === 'failed' || event.status === 'denied') return 'x';
+        if (event.type.includes('patch')) return 'file';
+        if (event.type.includes('command')) return 'terminal';
+        return 'play';
+    }
+
+    private compactActionDetail(event: RemoteCodeActionEvent): string {
+        const source = event.command || event.filePath || event.detail || event.title || event.type;
+        return source
+            .replace(/\s+/g, ' ')
+            .trim()
+            .slice(0, 140);
     }
 
     private getProgressItems(
