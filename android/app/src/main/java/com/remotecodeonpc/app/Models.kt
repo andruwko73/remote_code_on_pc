@@ -31,6 +31,7 @@ data class RemoteCodeStatus(
     val tunnelUrl: String? = null,
     val activeUrl: String? = null,
     val tunnelActive: Boolean = false,
+    val tunnelProvider: String? = null,
     val authRequired: Boolean = false,
     val authOk: Boolean = true,
     val tokenConfigured: Boolean = false
@@ -293,6 +294,7 @@ data class TunnelStatusResponse(
     val port: Int = 8799,
     val localUrl: String = "",
     val publicUrl: String? = null,
+    val tunnelProvider: String? = null,
     val authRequired: Boolean = false,
     val authOk: Boolean = true,
     val tokenConfigured: Boolean = false,
@@ -302,6 +304,7 @@ data class TunnelStatusResponse(
 data class TunnelActionResponse(
     val success: Boolean = false,
     val url: String? = null,
+    val provider: String? = null,
     val message: String = "",
     val error: String? = null
 )

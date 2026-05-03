@@ -110,8 +110,9 @@ export function activate(context: vscode.ExtensionContext) {
         }
         const addr = `http://${server.host}:${server.port}`;
         let msg = `✅ Сервер: ${addr}`;
-        if (server.tunnelUrl) msg += `\n🌐 Интернет: ${server.tunnelUrl}`;
+        if (server.tunnelUrl) msg += `\n🌐 Интернет (${server.tunnelProvider === 'cloudflared' ? 'Cloudflare' : server.tunnelProvider || 'туннель'}): ${server.tunnelUrl}`;
         if (server.localIp) msg += `\n📡 Локальный IP: ${server.localIp}`;
+        msg += `\n🔐 Токен: ${server.authToken ? 'включен' : 'не задан'}`;
         vscode.window.showInformationMessage(msg);
     });
 
@@ -130,6 +131,7 @@ export function activate(context: vscode.ExtensionContext) {
             }
         }
         await server.showConnectionSettings();
+        updateStatusBar();
     });
 
     context.subscriptions.push(startCmd, stopCmd, tunnelCmd, statusCmd, openChatCmd, connectionCmd);
@@ -139,9 +141,10 @@ function updateStatusBar() {
     if (!statusBarItem || !server) return;
     const parts = ['🖥️ Remote'];
     if (server.isRunning) parts.push(`:${server.port}`);
-    if (server.tunnelUrl) parts.push('🌐');
+    if (server.tunnelUrl) parts.push(server.tunnelProvider === 'cloudflared' ? '☁' : '🌐');
     statusBarItem.text = parts.join(' ');
-    statusBarItem.tooltip = `Remote Code on PC\nЛокально: http://${server.localIp}:${server.port}\n${server.tunnelUrl ? 'Интернет: ' + server.tunnelUrl : 'Туннель неактивен'}`;
+    const provider = server.tunnelProvider === 'cloudflared' ? 'Cloudflare' : server.tunnelProvider || 'туннель';
+    statusBarItem.tooltip = `Remote Code on PC\nЛокально: http://${server.localIp}:${server.port}\n${server.tunnelUrl ? `Интернет (${provider}): ${server.tunnelUrl}` : 'Туннель неактивен'}\nТокен: ${server.authToken ? 'включен' : 'не задан'}`;
     statusBarItem.show();
 }
 

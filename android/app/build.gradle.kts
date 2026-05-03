@@ -11,8 +11,8 @@ android {
         applicationId = "com.remotecodeonpc.app"
         minSdk = 26
         targetSdk = 34
-        versionCode = 49
-        versionName = "1.0.48"
+        versionCode = 50
+        versionName = "1.0.49"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {

@@ -145,6 +145,7 @@ export class RemoteServer {
 
     // Internet tunnel
     private _tunnelUrl: string | null = null;
+    private _tunnelProvider: 'ngrok' | 'cloudflared' | null = null;
     private _tunnelProcess: any = null;
     private _localIp: string = '';
 
@@ -164,6 +165,7 @@ export class RemoteServer {
     get host() { return this._host; }
     get isRunning() { return this._isRunning; }
     get tunnelUrl() { return this._tunnelUrl; }
+    get tunnelProvider() { return this._tunnelProvider; }
     get localIp() { return this._localIp; }
     get authToken() { return this._authToken; }
 
@@ -422,6 +424,7 @@ export class RemoteServer {
                 tunnelUrl: publicUrl,
                 activeUrl: publicUrl || `http://${this._localIp}:${this._port}`,
                 tunnelActive: !!publicUrl,
+                tunnelProvider: this._tunnelProvider,
                 authRequired: !!this._authToken,
                 authOk,
                 tokenConfigured: !!this._authToken
@@ -2056,15 +2059,18 @@ export class RemoteServer {
         const localUrl = `http://${this._localIp || '127.0.0.1'}:${this._port}`;
         const publicUrl = this._tunnelUrl || '';
         const tokenState = this._authToken ? 'токен включен' : 'токен не задан';
+        const providerLabel = this._tunnelProvider === 'cloudflared' ? 'Cloudflare' : this._tunnelProvider === 'ngrok' ? 'ngrok' : 'не запущен';
         const items: Array<vscode.QuickPickItem & { action: string }> = [
             { label: 'Скопировать локальный URL', description: localUrl, action: 'copyLocal' },
-            { label: publicUrl ? 'Скопировать публичный URL' : 'Запустить внешний туннель', description: publicUrl || 'ngrok/cloudflared', action: publicUrl ? 'copyPublic' : 'startTunnel' },
+            { label: publicUrl ? 'Скопировать публичный URL' : 'Запустить внешний туннель', description: publicUrl || 'Cloudflare/ngrok', detail: publicUrl ? `Провайдер: ${providerLabel}` : 'Запускает установленный cloudflared (Cloudflare) или ngrok; Cloudflare выбирается первым', action: publicUrl ? 'copyPublic' : 'startTunnel' },
+            ...(publicUrl ? [{ label: 'Остановить внешний туннель', description: providerLabel, action: 'stopTunnel' }] : []),
             { label: this._authToken ? 'Скопировать токен доступа' : 'Создать токен доступа', description: tokenState, action: this._authToken ? 'copyToken' : 'createToken' },
+            { label: 'Как подключиться извне', description: 'Cloudflare/ngrok + токен', detail: 'Запустите внешний туннель, скопируйте публичный URL и вставьте его в APK в режиме "Внешняя сеть".', action: 'showHelp' },
             { label: 'Открыть настройки расширения', description: 'порт, host, token, file watchers', action: 'openSettings' }
         ];
         const picked = await vscode.window.showQuickPick(items, {
             title: 'Remote Code: подключение',
-            placeHolder: `${localUrl}${publicUrl ? ` / ${publicUrl}` : ''} · ${tokenState}`
+            placeHolder: `${localUrl}${publicUrl ? ` / ${publicUrl}` : ''} · ${providerLabel} · ${tokenState}`
         });
         if (!picked) return;
         switch (picked.action) {
@@ -2092,10 +2098,20 @@ export class RemoteServer {
                 try {
                     const url = await this.startTunnel();
                     await vscode.env.clipboard.writeText(url);
-                    await vscode.window.showInformationMessage(`Remote Code: туннель запущен и URL скопирован: ${url}`);
+                    const provider = this._tunnelProvider === 'cloudflared' ? 'Cloudflare' : this._tunnelProvider || 'туннель';
+                    await vscode.window.showInformationMessage(`Remote Code: ${provider} URL скопирован: ${url}`);
                 } catch (err: any) {
                     await vscode.window.showErrorMessage(`Remote Code: не удалось запустить туннель: ${err?.message || err}`);
                 }
+                return;
+            case 'stopTunnel':
+                this.stopTunnel();
+                await vscode.window.setStatusBarMessage('Remote Code: внешний туннель остановлен', 1800);
+                return;
+            case 'showHelp':
+                await vscode.window.showInformationMessage(
+                    'Remote Code: локально используйте IP ПК и порт 8799. Для внешней сети запустите туннель здесь, вставьте публичный URL в APK и используйте тот же токен доступа. Адрес *.trycloudflare.com означает Cloudflare-туннель.'
+                );
                 return;
             case 'openSettings':
                 await vscode.commands.executeCommand('workbench.action.openSettings', 'remoteCodeOnPC');
@@ -4041,6 +4057,7 @@ prompt.addEventListener('keydown', event => {
             port: this._port,
             localUrl: `http://${this._localIp}:${this._port}`,
             publicUrl: this._tunnelUrl,
+            tunnelProvider: this._tunnelProvider,
             authRequired: !!this._authToken,
             authOk,
             tokenConfigured: !!this._authToken,
@@ -4051,12 +4068,12 @@ prompt.addEventListener('keydown', event => {
     // POST /api/tunnel/start
     private async handleTunnelStart(_req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
         if (this._tunnelUrl) {
-            this.jsonResponse(res, 200, { success: true, url: this._tunnelUrl, message: 'Туннель уже активен' });
+            this.jsonResponse(res, 200, { success: true, url: this._tunnelUrl, provider: this._tunnelProvider, message: 'Туннель уже активен' });
             return;
         }
         try {
             const url = await this.startTunnel();
-            this.jsonResponse(res, 200, { success: true, url, message: 'Туннель запущен' });
+            this.jsonResponse(res, 200, { success: true, url, provider: this._tunnelProvider, message: 'Туннель запущен' });
         } catch (err: any) {
             this.jsonResponse(res, 500, { success: false, error: err.message });
         }
@@ -4065,7 +4082,7 @@ prompt.addEventListener('keydown', event => {
     // POST /api/tunnel/stop
     private async handleTunnelStop(_req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
         this.stopTunnel();
-        this.jsonResponse(res, 200, { success: true, message: 'Туннель остановлен' });
+        this.jsonResponse(res, 200, { success: true, provider: null, message: 'Туннель остановлен' });
     }
 
     // ========== CODEX (OpenAI) HANDLERS ==========
@@ -4513,17 +4530,16 @@ prompt.addEventListener('keydown', event => {
 
     private findTunnelLauncher(): TunnelLauncher | undefined {
         const candidates: TunnelLauncher[] = [
+            { command: path.join(process.env['ProgramFiles(x86)'] || '', 'cloudflared', 'cloudflared.exe'), prefixArgs: [], shell: false, label: 'Program Files (x86) cloudflared.exe', provider: 'cloudflared' },
+            { command: path.join(process.env.PROGRAMFILES || '', 'cloudflared', 'cloudflared.exe'), prefixArgs: [], shell: false, label: 'Program Files cloudflared.exe', provider: 'cloudflared' },
+            { command: 'cloudflared.exe', prefixArgs: [], shell: true, label: 'cloudflared from PATH', provider: 'cloudflared' },
+            { command: 'cloudflared', prefixArgs: [], shell: true, label: 'cloudflared from PATH', provider: 'cloudflared' },
             { command: path.join(process.env.LOCALAPPDATA || '', 'ngrok', 'ngrok.exe'), prefixArgs: [], shell: false, label: 'LOCALAPPDATA ngrok.exe', provider: 'ngrok' },
             { command: path.join(process.env.PROGRAMFILES || '', 'ngrok', 'ngrok.exe'), prefixArgs: [], shell: false, label: 'Program Files ngrok.exe', provider: 'ngrok' },
             { command: 'C:\\tools\\ngrok.exe', prefixArgs: [], shell: false, label: 'C:\\tools\\ngrok.exe', provider: 'ngrok' },
             { command: path.join(process.env.USERPROFILE || '', 'ngrok.exe'), prefixArgs: [], shell: false, label: 'USERPROFILE ngrok.exe', provider: 'ngrok' },
             { command: 'ngrok.cmd', prefixArgs: [], shell: true, label: 'ngrok from PATH', provider: 'ngrok' },
             { command: 'ngrok', prefixArgs: [], shell: true, label: 'ngrok from PATH', provider: 'ngrok' },
-            { command: 'npx.cmd', prefixArgs: ['--yes', 'ngrok@latest'], shell: true, label: 'npx ngrok@latest', provider: 'ngrok' },
-            { command: path.join(process.env['ProgramFiles(x86)'] || '', 'cloudflared', 'cloudflared.exe'), prefixArgs: [], shell: false, label: 'Program Files (x86) cloudflared.exe', provider: 'cloudflared' },
-            { command: path.join(process.env.PROGRAMFILES || '', 'cloudflared', 'cloudflared.exe'), prefixArgs: [], shell: false, label: 'Program Files cloudflared.exe', provider: 'cloudflared' },
-            { command: 'cloudflared.exe', prefixArgs: [], shell: true, label: 'cloudflared from PATH', provider: 'cloudflared' },
-            { command: 'cloudflared', prefixArgs: [], shell: true, label: 'cloudflared from PATH', provider: 'cloudflared' },
         ];
 
         for (const candidate of candidates) {
@@ -4579,6 +4595,7 @@ prompt.addEventListener('keydown', event => {
                 if (urlMatch && !settled) {
                     settled = true;
                     this._tunnelUrl = urlMatch[0];
+                    this._tunnelProvider = launcher.provider;
                     console.log(`[RemoteCodeOnPC] ${launcher.provider} tunnel: ${this._tunnelUrl}`);
                     vscode.window.showInformationMessage(`Интернет-доступ: ${this._tunnelUrl}`);
                     resolve(this._tunnelUrl);
@@ -4591,6 +4608,7 @@ prompt.addEventListener('keydown', event => {
             proc.on('close', (code: number) => {
                 if (!settled && !this._tunnelUrl) {
                     this._tunnelProcess = null;
+                    this._tunnelProvider = null;
                     const authHint = launcher.provider === 'ngrok' ? '/authtoken' : '';
                     reject(new Error(`${launcher.provider} не запустился (${launcher.label}, код ${code}). Проверьте установку${authHint} или укажите публичный URL вручную в настройках приложения.`));
                 }
@@ -4599,6 +4617,7 @@ prompt.addEventListener('keydown', event => {
             proc.on('error', (err: Error) => {
                 if (!settled) {
                     this._tunnelProcess = null;
+                    this._tunnelProvider = null;
                     reject(new Error(`Ошибка запуска ${launcher.provider}: ${err.message}`));
                 }
             });
@@ -4607,6 +4626,7 @@ prompt.addEventListener('keydown', event => {
                 if (!settled && !this._tunnelUrl) {
                     proc.kill();
                     this._tunnelProcess = null;
+                    this._tunnelProvider = null;
                     reject(new Error(`Таймаут запуска ${launcher.provider} (15 сек). Проверьте установку или вставьте публичный URL вручную.`));
                 }
             }, 15000);
@@ -4633,6 +4653,7 @@ prompt.addEventListener('keydown', event => {
             this._tunnelProcess = null;
         }
         this._tunnelUrl = null;
+        this._tunnelProvider = null;
         console.log('[RemoteCodeOnPC] Туннель остановлен');
     }
 

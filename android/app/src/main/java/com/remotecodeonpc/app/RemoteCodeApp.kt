@@ -3,6 +3,8 @@ package com.remotecodeonpc.app
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.*
 import androidx.compose.foundation.background
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -193,6 +195,7 @@ fun RemoteCodeApp(
                         isConnected = state.isConnected,
                         tunnelActive = state.tunnelActive,
                         tunnelUrl = state.tunnelUrl,
+                        tunnelProvider = state.tunnelProvider,
                         localIp = state.localIp,
                         isTunnelStarting = state.isTunnelStarting,
                         tunnelError = state.tunnelError,
@@ -207,7 +210,7 @@ fun RemoteCodeApp(
                         onToggleTunnelMode = { viewModel.toggleTunnelMode(it) },
                         onBack = { viewModel.navigateTo("codex") },
                         onClearLogs = onClearLogs,
-                        onUpdateApp = { onUpdateApp(state.serverConfig) }
+                        onUpdateApp = { onUpdateApp(it) }
                     )
                 }
             } else {
@@ -237,15 +240,46 @@ private fun ConnectionScreen(
     onClearLogs: () -> Unit = {},
     onUpdateApp: (ServerConfig) -> Unit = {}
 ) {
-    var host by remember { mutableStateOf(serverConfig.host) }
-    var port by remember { mutableStateOf(serverConfig.port.toString()) }
-    var authToken by remember { mutableStateOf(serverConfig.authToken) }
+    var host by remember(serverConfig.host) { mutableStateOf(serverConfig.host) }
+    var port by remember(serverConfig.port) { mutableStateOf(serverConfig.port.toString()) }
+    var authToken by remember(serverConfig.authToken) { mutableStateOf(serverConfig.authToken) }
+    var useTunnel by remember(serverConfig.useTunnel) { mutableStateOf(serverConfig.useTunnel) }
+    var tunnelUrl by remember(serverConfig.tunnelUrl) { mutableStateOf(serverConfig.tunnelUrl) }
     var confirmClearLogs by remember { mutableStateOf(false) }
+    val trimmedTunnelUrl = tunnelUrl.trim().trimEnd('/')
+    val tunnelFormatOk = trimmedTunnelUrl.isBlank() ||
+        trimmedTunnelUrl.startsWith("http://") ||
+        trimmedTunnelUrl.startsWith("https://")
+    val canConnect = if (useTunnel) {
+        trimmedTunnelUrl.isNotBlank() && tunnelFormatOk && !isConnecting
+    } else {
+        host.isNotBlank() && port.toIntOrNull() != null && !isConnecting
+    }
+
+    fun emitConfig(
+        nextHost: String = host,
+        nextPort: String = port,
+        nextToken: String = authToken,
+        nextUseTunnel: Boolean = useTunnel,
+        nextTunnelUrl: String = tunnelUrl
+    ) {
+        val cleanTunnelUrl = nextTunnelUrl.trim().trimEnd('/')
+        onUpdateConfig(
+            serverConfig.copy(
+                host = nextHost.trim(),
+                port = nextPort.toIntOrNull() ?: serverConfig.port,
+                authToken = nextToken.trim(),
+                useTunnel = nextUseTunnel,
+                tunnelUrl = cleanTunnelUrl
+            )
+        )
+    }
 
     Column(
         modifier = Modifier
             .fillMaxSize()
             .background(DarkBackground)
+            .verticalScroll(rememberScrollState())
             .padding(32.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
@@ -276,46 +310,115 @@ private fun ConnectionScreen(
             modifier = Modifier.padding(bottom = 32.dp)
         )
 
-        // IP адрес
-        OutlinedTextField(
-            value = host,
-            onValueChange = {
-                host = it
-                onUpdateConfig(serverConfig.copy(host = it))
-            },
-            label = { Text("IP-адрес ПК", color = TextSecondary) },
-            placeholder = { Text("192.168.1.100", color = TextSecondary.copy(alpha = 0.5f)) },
-            singleLine = true,
-            leadingIcon = { Icon(Icons.Default.Wifi, contentDescription = null, tint = AccentBlue) },
-            modifier = Modifier.fillMaxWidth(),
-            colors = outlinedFieldColors(),
-            shape = androidx.compose.foundation.shape.RoundedCornerShape(12.dp)
-        )
+        Surface(
+            color = DarkSurfaceVariant,
+            shape = RoundedCornerShape(14.dp),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Column(modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        if (useTunnel) Icons.Default.Cloud else Icons.Default.Wifi,
+                        contentDescription = null,
+                        tint = if (useTunnel) AccentGreen else AccentBlue,
+                        modifier = Modifier.size(20.dp)
+                    )
+                    Spacer(modifier = Modifier.width(10.dp))
+                    Text(
+                        if (useTunnel) "Внешняя сеть" else "Локальная сеть",
+                        color = TextBright,
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    Spacer(modifier = Modifier.weight(1f))
+                    Switch(
+                        checked = useTunnel,
+                        onCheckedChange = {
+                            useTunnel = it
+                            emitConfig(nextUseTunnel = it)
+                        },
+                        colors = SwitchDefaults.colors(
+                            checkedThumbColor = AccentGreen,
+                            checkedTrackColor = AccentGreen.copy(alpha = 0.35f),
+                            uncheckedThumbColor = TextSecondary,
+                            uncheckedTrackColor = DarkSurfaceVariant
+                        )
+                    )
+                }
+                Text(
+                    if (useTunnel) {
+                        "Введите публичный URL Cloudflare/ngrok из меню подключения расширения. Адрес *.trycloudflare.com здесь нормален."
+                    } else {
+                        "Телефон и ПК должны быть в одной сети Wi-Fi/LAN. Используйте IP ПК и порт расширения."
+                    },
+                    color = TextSecondary,
+                    fontSize = 12.sp,
+                    lineHeight = 15.sp,
+                    modifier = Modifier.padding(top = 6.dp)
+                )
+            }
+        }
         Spacer(modifier = Modifier.height(12.dp))
 
-        // Порт
-        OutlinedTextField(
-            value = port,
-            onValueChange = {
-                port = it
-                onUpdateConfig(serverConfig.copy(port = it.toIntOrNull() ?: 8799))
-            },
-            label = { Text("Порт", color = TextSecondary) },
-            placeholder = { Text("8799", color = TextSecondary.copy(alpha = 0.5f)) },
-            singleLine = true,
-            leadingIcon = { Icon(Icons.Default.Tag, contentDescription = null, tint = AccentBlue) },
-            modifier = Modifier.fillMaxWidth(),
-            colors = outlinedFieldColors(),
-            shape = androidx.compose.foundation.shape.RoundedCornerShape(12.dp)
-        )
-        Spacer(modifier = Modifier.height(12.dp))
+        if (useTunnel) {
+            OutlinedTextField(
+                value = tunnelUrl,
+                onValueChange = {
+                    tunnelUrl = it
+                    emitConfig(nextTunnelUrl = it)
+                },
+                label = { Text("Публичный URL", color = TextSecondary) },
+                placeholder = { Text("https://example.trycloudflare.com", color = TextSecondary.copy(alpha = 0.5f)) },
+                singleLine = true,
+                leadingIcon = { Icon(Icons.Default.Public, contentDescription = null, tint = AccentGreen) },
+                modifier = Modifier.fillMaxWidth(),
+                isError = trimmedTunnelUrl.isNotBlank() && !tunnelFormatOk,
+                colors = outlinedFieldColors(),
+                shape = RoundedCornerShape(12.dp)
+            )
+            Spacer(modifier = Modifier.height(12.dp))
+        } else {
+            // IP адрес
+            OutlinedTextField(
+                value = host,
+                onValueChange = {
+                    host = it
+                    emitConfig(nextHost = it)
+                },
+                label = { Text("IP-адрес ПК", color = TextSecondary) },
+                placeholder = { Text("192.168.1.100", color = TextSecondary.copy(alpha = 0.5f)) },
+                singleLine = true,
+                leadingIcon = { Icon(Icons.Default.Wifi, contentDescription = null, tint = AccentBlue) },
+                modifier = Modifier.fillMaxWidth(),
+                colors = outlinedFieldColors(),
+                shape = RoundedCornerShape(12.dp)
+            )
+            Spacer(modifier = Modifier.height(12.dp))
+
+            // Порт
+            OutlinedTextField(
+                value = port,
+                onValueChange = {
+                    port = it.filter(Char::isDigit).take(5)
+                    emitConfig(nextPort = port)
+                },
+                label = { Text("Порт", color = TextSecondary) },
+                placeholder = { Text("8799", color = TextSecondary.copy(alpha = 0.5f)) },
+                singleLine = true,
+                leadingIcon = { Icon(Icons.Default.Tag, contentDescription = null, tint = AccentBlue) },
+                modifier = Modifier.fillMaxWidth(),
+                colors = outlinedFieldColors(),
+                shape = RoundedCornerShape(12.dp)
+            )
+            Spacer(modifier = Modifier.height(12.dp))
+        }
 
         // Токен (опционально)
         OutlinedTextField(
             value = authToken,
             onValueChange = {
                 authToken = it
-                onUpdateConfig(serverConfig.copy(authToken = it))
+                emitConfig(nextToken = it)
             },
             label = { Text("Токен (опционально)", color = TextSecondary) },
             placeholder = { Text("Оставьте пустым", color = TextSecondary.copy(alpha = 0.5f)) },
@@ -349,7 +452,7 @@ private fun ConnectionScreen(
         // Кнопка подключения
         Button(
             onClick = onConnect,
-            enabled = host.isNotBlank() && !isConnecting,
+            enabled = canConnect,
             modifier = Modifier
                 .fillMaxWidth()
                 .height(52.dp),
@@ -402,7 +505,9 @@ private fun ConnectionScreen(
                     serverConfig.copy(
                         host = host,
                         port = port.toIntOrNull() ?: 8799,
-                        authToken = authToken
+                        authToken = authToken,
+                        useTunnel = useTunnel,
+                        tunnelUrl = trimmedTunnelUrl
                     )
                 )
             },
@@ -459,6 +564,7 @@ private fun SettingsScreenV2(
     isConnected: Boolean,
     tunnelActive: Boolean,
     tunnelUrl: String?,
+    tunnelProvider: String?,
     localIp: String,
     isTunnelStarting: Boolean,
     tunnelError: String?,
@@ -470,7 +576,7 @@ private fun SettingsScreenV2(
     onToggleTunnelMode: (Boolean) -> Unit,
     onBack: () -> Unit,
     onClearLogs: () -> Unit,
-    onUpdateApp: () -> Unit
+    onUpdateApp: (ServerConfig) -> Unit
 ) {
     var compactHostText by remember(serverConfig.host) { mutableStateOf(serverConfig.host) }
     var compactPortText by remember(serverConfig.port) { mutableStateOf(serverConfig.port.toString()) }
@@ -487,17 +593,26 @@ private fun SettingsScreenV2(
         host = compactHostText.trim(),
         port = compactPort,
         authToken = compactTokenText.trim(),
-        useTunnel = compactUseTunnel && compactTunnelUrl.isNotBlank(),
+        useTunnel = compactUseTunnel,
         tunnelUrl = compactTunnelUrl
     )
     val tunnelFormatOk = compactTunnelUrl.isBlank() ||
         compactTunnelUrl.startsWith("http://") ||
         compactTunnelUrl.startsWith("https://")
-    val canSave = compactHostText.isNotBlank() && compactPortText.toIntOrNull() != null && tunnelFormatOk
+    val hasLocalTarget = compactHostText.isNotBlank() && compactPortText.toIntOrNull() != null
+    val hasPublicTarget = compactTunnelUrl.isNotBlank() && tunnelFormatOk
+    val canSave = if (compactUseTunnel) hasPublicTarget else hasLocalTarget
     val hasChanges = compactConfig != serverConfig
-    val modeLabel = if (serverConfig.useTunnel) "Внешняя сеть" else "Локальная сеть"
+    val modeLabel = if (compactUseTunnel) "Внешняя сеть" else "Локальная сеть"
     val remoteStatus = status?.remoteCode
     val extensionVersion = status?.serverVersion?.takeIf { it.isNotBlank() } ?: "—"
+    val currentTunnelProvider = tunnelProvider ?: remoteStatus?.tunnelProvider
+    val providerLabel = when {
+        currentTunnelProvider == "cloudflared" || compactTunnelUrl.contains("trycloudflare.com", ignoreCase = true) -> "Cloudflare"
+        currentTunnelProvider == "ngrok" || compactTunnelUrl.contains("ngrok", ignoreCase = true) -> "ngrok"
+        compactTunnelUrl.isNotBlank() -> "ручной URL"
+        else -> "не запущен"
+    }
     val authLabel = when {
         remoteStatus?.authRequired != true -> "не нужен"
         remoteStatus.authOk -> "принят"
@@ -531,6 +646,9 @@ private fun SettingsScreenV2(
             Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 9.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 InfoSettingRow("Статус", if (isConnected) "Подключено" else "Отключено")
                 InfoSettingRow("Режим", modeLabel)
+                if (compactUseTunnel || tunnelActive || compactTunnelUrl.isNotBlank()) {
+                    InfoSettingRow("Провайдер", providerLabel)
+                }
                 InfoSettingRow("APK", BuildConfig.VERSION_NAME)
                 InfoSettingRow("Расширение", extensionVersion)
                 InfoSettingRow("Токен", authLabel)
@@ -563,7 +681,7 @@ private fun SettingsScreenV2(
                     )
                 }
 
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     OutlinedTextField(
                         value = compactHostText,
                         onValueChange = { compactHostText = it },
@@ -571,7 +689,7 @@ private fun SettingsScreenV2(
                         singleLine = true,
                         textStyle = LocalTextStyle.current.copy(color = TextPrimary, fontSize = 15.sp),
                         leadingIcon = { Icon(Icons.Default.Computer, contentDescription = null, tint = AccentBlue, modifier = Modifier.size(18.dp)) },
-                        modifier = Modifier.weight(1f).height(compactFieldHeight),
+                        modifier = Modifier.fillMaxWidth().height(compactFieldHeight),
                         colors = outlinedFieldColors(),
                         shape = RoundedCornerShape(11.dp)
                     )
@@ -582,7 +700,7 @@ private fun SettingsScreenV2(
                         singleLine = true,
                         textStyle = LocalTextStyle.current.copy(color = TextPrimary, fontSize = 15.sp),
                         isError = compactPortText.toIntOrNull() == null,
-                        modifier = Modifier.width(96.dp).height(compactFieldHeight),
+                        modifier = Modifier.fillMaxWidth().height(compactFieldHeight),
                         colors = outlinedFieldColors(),
                         shape = RoundedCornerShape(11.dp)
                     )
@@ -601,6 +719,18 @@ private fun SettingsScreenV2(
                         isError = compactTunnelUrl.isNotBlank() && !tunnelFormatOk,
                         colors = outlinedFieldColors(),
                         shape = RoundedCornerShape(11.dp)
+                    )
+                    Text(
+                        if (providerLabel == "Cloudflare") {
+                            "Cloudflare URL вида *.trycloudflare.com используется вместо IP ПК из внешней сети."
+                        } else {
+                            "Внешний URL можно взять в VS Code: Remote Code -> Подключение."
+                        },
+                        color = TextSecondary,
+                        fontSize = 11.sp,
+                        lineHeight = 13.sp,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis
                     )
                 }
 
@@ -642,7 +772,7 @@ private fun SettingsScreenV2(
                             Icon(if (tunnelActive) Icons.Default.WifiOff else Icons.Default.Wifi, contentDescription = null, modifier = Modifier.size(18.dp))
                         }
                         Spacer(modifier = Modifier.width(6.dp))
-                        Text(if (tunnelActive) "Стоп" else "Туннель", maxLines = 1)
+                        Text(if (tunnelActive) "Остановить" else "Запустить", maxLines = 1, fontSize = 13.sp)
                     }
                     Button(
                         onClick = {
@@ -678,7 +808,7 @@ private fun SettingsScreenV2(
 
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             OutlinedButton(
-                onClick = onUpdateApp,
+                onClick = { onUpdateApp(compactConfig) },
                 modifier = Modifier.weight(1f).height(42.dp),
                 colors = ButtonDefaults.outlinedButtonColors(contentColor = AccentBlue),
                 shape = RoundedCornerShape(10.dp)

@@ -29,6 +29,7 @@ data class AppUiState(
     // Tunnel
     val tunnelActive: Boolean = false,
     val tunnelUrl: String? = null,
+    val tunnelProvider: String? = null,
     val localIp: String = "",
     val isTunnelStarting: Boolean = false,
     val tunnelError: String? = null,
@@ -162,7 +163,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             status = status.toWorkspaceStatus(),
             localIp = remote?.localIp?.takeIf { it.isNotBlank() } ?: _uiState.value.localIp,
             tunnelActive = remote?.tunnelActive ?: _uiState.value.tunnelActive,
-            tunnelUrl = remote?.publicUrl ?: remote?.tunnelUrl ?: _uiState.value.tunnelUrl
+            tunnelUrl = remote?.publicUrl ?: remote?.tunnelUrl ?: _uiState.value.tunnelUrl,
+            tunnelProvider = remote?.tunnelProvider ?: _uiState.value.tunnelProvider
         )
     }
 
@@ -176,8 +178,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun connect() {
         val config = _uiState.value.serverConfig
-        if (config.host.isBlank()) {
-            _uiState.value = _uiState.value.copy(connectionError = "Р’РІРµРґРёС‚Рµ IP Р°РґСЂРµСЃ РџРљ")
+        if (config.useTunnel && config.tunnelUrl.isBlank()) {
+            _uiState.value = _uiState.value.copy(connectionError = "Введите публичный URL для внешней сети")
+            return
+        }
+        if (!config.useTunnel && config.host.isBlank()) {
+            _uiState.value = _uiState.value.copy(connectionError = "Введите IP адрес ПК")
             return
         }
 
@@ -1156,6 +1162,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     _uiState.value = _uiState.value.copy(
                         tunnelActive = body?.tunnelActive ?: false,
                         tunnelUrl = url,
+                        tunnelProvider = body?.tunnelProvider,
                         localIp = body?.localIp ?: "",
                         tunnelError = if (body?.authRequired == true && !body.authOk) {
                             "Требуется токен доступа для управления туннелем."
@@ -1167,7 +1174,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     if (body?.tunnelActive == true && url != null) {
                         val updatedConfig = _uiState.value.serverConfig.copy(
                             tunnelUrl = url,
-                            useTunnel = body.tunnelActive
+                            useTunnel = _uiState.value.serverConfig.useTunnel
                         )
                         _uiState.value = _uiState.value.copy(serverConfig = updatedConfig)
                         saveConfig(updatedConfig)
@@ -1195,6 +1202,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     _uiState.value = _uiState.value.copy(
                         tunnelActive = true,
                         tunnelUrl = url,
+                        tunnelProvider = body.provider,
                         isTunnelStarting = false,
                         tunnelError = null
                     )
@@ -1249,6 +1257,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 _uiState.value = _uiState.value.copy(
                     tunnelActive = false,
                     tunnelUrl = null,
+                    tunnelProvider = null,
                     isTunnelStarting = false,
                     tunnelError = null,
                     serverConfig = _uiState.value.serverConfig.copy(
@@ -1282,7 +1291,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 useTunnel = false,
                 tunnelUrl = ""
             )
-            _uiState.value = _uiState.value.copy(serverConfig = updatedConfig)
+            _uiState.value = _uiState.value.copy(serverConfig = updatedConfig, tunnelProvider = null)
             saveConfig(updatedConfig)
             ApiClient.reset()
             connectWebSocket()
