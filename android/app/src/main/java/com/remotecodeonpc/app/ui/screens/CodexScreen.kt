@@ -45,7 +45,6 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.remotecodeonpc.app.CodexModel
-import com.remotecodeonpc.app.CodexStatus
 import com.remotecodeonpc.app.CodexSendResponse
 import com.remotecodeonpc.app.CodexChatMessage
 import com.remotecodeonpc.app.CodexActionEvent
@@ -66,7 +65,6 @@ import java.util.Locale
 @Composable
 fun CodexScreen(
     // Codex params
-    status: CodexStatus?,
     models: List<CodexModel>,
     selectedModel: String,
     selectedReasoningEffort: String,
@@ -90,7 +88,6 @@ fun CodexScreen(
     onSelectReasoningEffort: (String) -> Unit,
     onSelectProfile: (String) -> Unit,
     onToggleContext: () -> Unit,
-    onLaunchCodex: () -> Unit,
     onNewThread: () -> Unit,
     onLoadThreads: () -> Unit,
     onSwitchThread: (String) -> Unit,
@@ -161,7 +158,6 @@ fun CodexScreen(
         // Content
         when (selectedTab) {
             0 -> CodexChatTab(
-                status = status,
                 models = models,
                 selectedModel = selectedModel,
                 selectedReasoningEffort = selectedReasoningEffort,
@@ -179,7 +175,6 @@ fun CodexScreen(
                 onSelectReasoningEffort = onSelectReasoningEffort,
                 onSelectProfile = onSelectProfile,
                 onToggleContext = onToggleContext,
-                onLaunchCodex = onLaunchCodex,
                 onNewThread = onNewThread,
                 onLoadThreads = onLoadThreads,
                 onSwitchThread = onSwitchThread,
@@ -205,7 +200,6 @@ fun CodexScreen(
 
 @Composable
 fun CodexChatTab(
-    status: CodexStatus?,
     models: List<CodexModel>,
     selectedModel: String,
     selectedReasoningEffort: String,
@@ -223,7 +217,6 @@ fun CodexChatTab(
     onSelectReasoningEffort: (String) -> Unit,
     onSelectProfile: (String) -> Unit,
     onToggleContext: () -> Unit,
-    onLaunchCodex: () -> Unit,
     onNewThread: () -> Unit,
     onLoadThreads: () -> Unit,
     onSwitchThread: (String) -> Unit,
@@ -236,6 +229,7 @@ fun CodexChatTab(
     var showModelEffortSelector by remember { mutableStateOf(false) }
     var showProfileSelector by remember { mutableStateOf(false) }
     var showThreads by remember { mutableStateOf(false) }
+    var pendingDeleteThread by remember { mutableStateOf<CodexThread?>(null) }
     var attachments by remember { mutableStateOf<List<MessageAttachment>>(emptyList()) }
     val listState = rememberLazyListState()
     val context = LocalContext.current
@@ -392,7 +386,7 @@ fun CodexChatTab(
                                             modifier = Modifier.fillMaxWidth()
                                         )
                                     }
-                                    IconButton(onClick = { onDeleteThread(thread.id) }, modifier = Modifier.size(40.dp)) {
+                                    IconButton(onClick = { pendingDeleteThread = thread }, modifier = Modifier.size(40.dp)) {
                                         Icon(Icons.Outlined.Delete, contentDescription = "Удалить чат", tint = TextSecondary, modifier = Modifier.size(18.dp))
                                     }
                                 }
@@ -405,17 +399,63 @@ fun CodexChatTab(
             )
         }
 
+        pendingDeleteThread?.let { thread ->
+            AlertDialog(
+                onDismissRequest = { pendingDeleteThread = null },
+                title = { Text("Удалить чат?", color = TextBright) },
+                text = {
+                    Text(
+                        "Чат \"${threadDisplayTitle(thread)}\" будет удалён из списка Remote Code.",
+                        color = TextPrimary
+                    )
+                },
+                confirmButton = {
+                    TextButton(
+                        onClick = {
+                            onDeleteThread(thread.id)
+                            pendingDeleteThread = null
+                            showThreads = false
+                        }
+                    ) {
+                        Text("Удалить", color = ErrorRed)
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { pendingDeleteThread = null }) {
+                        Text("Отмена")
+                    }
+                },
+                containerColor = Color(0xFF202123)
+            )
+        }
+
         if (error != null) Text(error, color = ErrorRed, fontSize = 13.sp, modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp))
 
-        LazyColumn(state = listState, modifier = Modifier.fillMaxWidth().weight(1f).padding(horizontal = 12.dp), verticalArrangement = Arrangement.spacedBy(12.dp), contentPadding = PaddingValues(top = 16.dp, bottom = 12.dp)) {
-            if (sendResult?.success == true) item { DesktopStatusLine("\u041E\u0442\u043F\u0440\u0430\u0432\u043B\u0435\u043D\u043E", AccentGreen) }
-            items(chatHistory) { msg -> CodexMessageBubble(msg, onOpenFile) }
-            items(activeActionEvents) { event -> DesktopToolBlock(event, onRespondToAction) }
-            if (chatHistory.isEmpty() && sendResult == null && actionEvents.isEmpty()) item {
-                Column(modifier = Modifier.padding(top = 32.dp)) {
-                    Text("\u0417\u0430\u043F\u0440\u043E\u0441\u0438\u0442\u0435 \u0438\u0437\u043C\u0435\u043D\u0435\u043D\u0438\u044F, \u043F\u0440\u043E\u0432\u0435\u0440\u043A\u0443 \u0438\u043B\u0438 \u0440\u0430\u0431\u043E\u0442\u0443 \u0441 \u0444\u0430\u0439\u043B\u0430\u043C\u0438.", color = TextSecondary, fontSize = 15.sp)
-                    Spacer(modifier = Modifier.height(10.dp))
-                    Text("\u041A\u043E\u043D\u0442\u0435\u043A\u0441\u0442 IDE \u0438 \u0434\u0435\u0439\u0441\u0442\u0432\u0438\u044F Codex \u0431\u0443\u0434\u0443\u0442 \u0437\u0434\u0435\u0441\u044C, \u043A\u0430\u043A \u043D\u0430 \u041F\u041A.", color = TextSecondary.copy(alpha = 0.75f), fontSize = 13.sp)
+        Box(modifier = Modifier.fillMaxWidth().weight(1f)) {
+            LazyColumn(state = listState, modifier = Modifier.fillMaxSize().padding(horizontal = 12.dp), verticalArrangement = Arrangement.spacedBy(12.dp), contentPadding = PaddingValues(top = 16.dp, bottom = 12.dp)) {
+                if (sendResult?.success == true) item { DesktopStatusLine("\u041E\u0442\u043F\u0440\u0430\u0432\u043B\u0435\u043D\u043E", AccentGreen) }
+                items(chatHistory) { msg -> CodexMessageBubble(msg, onOpenFile) }
+                items(activeActionEvents) { event -> DesktopToolBlock(event, onRespondToAction) }
+                if (chatHistory.isEmpty() && sendResult == null && actionEvents.isEmpty()) item {
+                    Column(modifier = Modifier.padding(top = 32.dp)) {
+                        Text("\u0417\u0430\u043F\u0440\u043E\u0441\u0438\u0442\u0435 \u0438\u0437\u043C\u0435\u043D\u0435\u043D\u0438\u044F, \u043F\u0440\u043E\u0432\u0435\u0440\u043A\u0443 \u0438\u043B\u0438 \u0440\u0430\u0431\u043E\u0442\u0443 \u0441 \u0444\u0430\u0439\u043B\u0430\u043C\u0438.", color = TextSecondary, fontSize = 15.sp)
+                        Spacer(modifier = Modifier.height(10.dp))
+                        Text("\u041A\u043E\u043D\u0442\u0435\u043A\u0441\u0442 IDE \u0438 \u0434\u0435\u0439\u0441\u0442\u0432\u0438\u044F Codex \u0431\u0443\u0434\u0443\u0442 \u0437\u0434\u0435\u0441\u044C, \u043A\u0430\u043A \u043D\u0430 \u041F\u041A.", color = TextSecondary.copy(alpha = 0.75f), fontSize = 13.sp)
+                    }
+                }
+            }
+            val showJumpToBottom by remember { derivedStateOf { listState.canScrollForward } }
+            if (showJumpToBottom) {
+                FilledIconButton(
+                    onClick = {
+                        val targetIndex = (listState.layoutInfo.totalItemsCount - 1).coerceAtLeast(0)
+                        attachmentScope.launch { listState.animateScrollToItem(targetIndex) }
+                    },
+                    modifier = Modifier.align(Alignment.BottomEnd).padding(end = 18.dp, bottom = 18.dp).size(38.dp),
+                    shape = CircleShape,
+                    colors = IconButtonDefaults.filledIconButtonColors(containerColor = Color(0xCC2B2C2E))
+                ) {
+                    Icon(Icons.Default.KeyboardArrowDown, contentDescription = "К новым сообщениям", tint = TextPrimary, modifier = Modifier.size(22.dp))
                 }
             }
         }

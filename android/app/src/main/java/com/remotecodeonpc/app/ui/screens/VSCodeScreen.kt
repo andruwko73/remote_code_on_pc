@@ -17,23 +17,10 @@ import com.remotecodeonpc.app.ui.theme.*
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun VSCodeScreen(
-    agents: List<ChatAgent>,
-    selectedAgent: String,
-    chatHistory: List<ChatMessage>,
-    conversations: List<ChatConversation>,
-    currentChatId: String,
-    isChatLoading: Boolean,
-    chatError: String?,
-    isThinking: Boolean,
     folders: FoldersResponse?,
     currentFiles: FileTreeItem?,
     fileContent: FileContent?,
     isLoadingFiles: Boolean,
-    onSendMessage: (String) -> Unit,
-    onSelectAgent: (String) -> Unit,
-    onNewChat: () -> Unit,
-    onSwitchChat: (String) -> Unit,
-    codexStatus: CodexStatus?,
     codexModels: List<CodexModel>,
     codexSelectedModel: String,
     codexReasoningEffort: String,
@@ -51,7 +38,6 @@ fun VSCodeScreen(
     onSelectCodexReasoningEffort: (String) -> Unit,
     onSelectCodexProfile: (String) -> Unit,
     onToggleCodexContext: () -> Unit,
-    onLaunchCodex: () -> Unit,
     onNewCodexThread: () -> Unit,
     onLoadCodexThreads: () -> Unit,
     onSwitchCodexThread: (String) -> Unit,
@@ -119,7 +105,6 @@ fun VSCodeScreen(
 
         when (selectedTab) {
             0 -> CodexChatTab(
-                status = codexStatus,
                 models = codexModels,
                 selectedModel = codexSelectedModel,
                 selectedReasoningEffort = codexReasoningEffort,
@@ -137,7 +122,6 @@ fun VSCodeScreen(
                 onSelectReasoningEffort = onSelectCodexReasoningEffort,
                 onSelectProfile = onSelectCodexProfile,
                 onToggleContext = onToggleCodexContext,
-                onLaunchCodex = onLaunchCodex,
                 onNewThread = onNewCodexThread,
                 onLoadThreads = onLoadCodexThreads,
                 onSwitchThread = onSwitchCodexThread,

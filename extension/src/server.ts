@@ -2163,18 +2163,14 @@ export class RemoteServer {
                 return;
             case 'deleteThread':
                 if (typeof msg.threadId === 'string' && msg.threadId.trim()) {
-                    await this.deleteRemoteThread(msg.threadId.trim());
+                    await this.confirmAndDeleteThread(msg.threadId.trim());
                 }
                 return;
             case 'deleteCurrentThread':
                 await this.confirmAndDeleteCurrentThread();
                 return;
             case 'clearChat':
-                this.codexHistory = this.codexHistory.filter(message => message.threadId !== this.currentRemoteThreadId);
-                this.codexActionEvents = this.codexActionEvents.filter(event => event.threadId !== this.currentRemoteThreadId);
-                this.upsertRemoteCodeThread(this.currentRemoteThreadId, 'Новый чат', Date.now());
-                this.saveRemoteCodeState();
-                this.refreshPcChatPanel();
+                await this.confirmAndClearCurrentThread();
                 return;
             case 'openTerminal':
                 (vscode.window.activeTerminal || vscode.window.createTerminal('Remote Code')).show();
@@ -2273,14 +2269,41 @@ export class RemoteServer {
     }
 
     private async confirmAndDeleteCurrentThread(): Promise<void> {
+        await this.confirmAndDeleteThread(this.currentRemoteThreadId);
+    }
+
+    private async confirmAndDeleteThread(threadId: string): Promise<void> {
+        if (!threadId) return;
         const current = this.getRemoteCodeThreads().find(thread => thread.id === this.currentRemoteThreadId);
+        const target = this.getRemoteCodeThreads().find(thread => thread.id === threadId);
         const result = await vscode.window.showWarningMessage(
-            `Удалить чат "${current?.title || this.getCurrentThreadTitle()}" из Remote Code?`,
+            `Удалить чат "${target?.title || current?.title || this.getCurrentThreadTitle()}" из Remote Code?`,
             { modal: true },
             'Удалить'
         );
         if (result !== 'Удалить') return;
-        await this.deleteRemoteThread(this.currentRemoteThreadId);
+        await this.deleteRemoteThread(threadId);
+    }
+
+    private async confirmAndClearCurrentThread(): Promise<void> {
+        const current = this.getRemoteCodeThreads().find(thread => thread.id === this.currentRemoteThreadId);
+        const result = await vscode.window.showWarningMessage(
+            `Очистить сообщения и действия в чате "${current?.title || this.getCurrentThreadTitle()}"?`,
+            { modal: true },
+            'Очистить'
+        );
+        if (result !== 'Очистить') return;
+        this.codexHistory = this.codexHistory.filter(message => message.threadId !== this.currentRemoteThreadId);
+        this.codexActionEvents = this.codexActionEvents.filter(event => event.threadId !== this.currentRemoteThreadId);
+        this.upsertRemoteCodeThread(this.currentRemoteThreadId, 'Новый чат', Date.now());
+        this.saveRemoteCodeState();
+        this.refreshPcChatPanel(true);
+        this.broadcast({
+            type: 'codex:threads-update',
+            threads: this.getRemoteCodeThreads(),
+            currentThreadId: this.currentRemoteThreadId,
+            timestamp: Date.now()
+        });
     }
 
     private async deleteRemoteThread(threadId: string): Promise<void> {
@@ -3098,7 +3121,6 @@ ${actionRows}
     </div>
   </form>
   <div class="subcontrols">
-    <button class="link-btn" type="button" data-action="showUsageStatus">${icon.laptop} &#1056;&#1072;&#1073;&#1086;&#1090;&#1072;&#1090;&#1100; &#1083;&#1086;&#1082;&#1072;&#1083;&#1100;&#1085;&#1086; <span class="chev">${icon.chevron}</span></button>
     <button class="link-btn" type="button" data-action="showBranch">${icon.branch} ${this.escapeHtml(branchLabel)} <span class="chev">${icon.chevron}</span></button>
   </div>
 </div>

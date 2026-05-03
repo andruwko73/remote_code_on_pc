@@ -6,6 +6,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -44,23 +45,10 @@ fun RemoteCodeApp(
                 // Основные экраны
                 when (state.currentScreen) {
                     "vscode" -> VSCodeScreen(
-                        agents = state.chatAgents,
-                        selectedAgent = state.selectedAgent,
-                        chatHistory = state.chatHistory,
-                        conversations = state.conversations,
-                        currentChatId = state.currentChatId,
-                        isChatLoading = state.isChatLoading,
-                        chatError = state.chatError,
-                        isThinking = state.isThinking,
                         folders = state.folders,
                         currentFiles = state.currentFiles,
                         fileContent = state.fileContent,
                         isLoadingFiles = state.isLoadingFiles,
-                        onSendMessage = { viewModel.sendCodexMessage(it) },
-                        onSelectAgent = { viewModel.selectAgent(it) },
-                        onNewChat = { viewModel.newChat() },
-                        onSwitchChat = { viewModel.switchToChat(it) },
-                        codexStatus = state.codexStatus,
                         codexModels = state.codexModels,
                         codexSelectedModel = state.codexSelectedModel,
                         codexReasoningEffort = state.codexReasoningEffort,
@@ -78,7 +66,6 @@ fun RemoteCodeApp(
                         onSelectCodexReasoningEffort = { viewModel.selectCodexReasoningEffort(it) },
                         onSelectCodexProfile = { viewModel.selectCodexProfile(it) },
                         onToggleCodexContext = { viewModel.toggleCodexContext() },
-                        onLaunchCodex = { viewModel.launchCodex() },
                         onNewCodexThread = { viewModel.newCodexThread() },
                         onLoadCodexThreads = { viewModel.loadCodexThreads() },
                         onSwitchCodexThread = { viewModel.switchCodexThread(it) },
@@ -105,7 +92,6 @@ fun RemoteCodeApp(
                         onNavigateToSettings = { viewModel.navigateTo("settings") }
                     )
                     "codex" -> CodexScreen(
-                        status = state.codexStatus,
                         models = state.codexModels,
                         selectedModel = state.codexSelectedModel,
                         selectedReasoningEffort = state.codexReasoningEffort,
@@ -127,7 +113,6 @@ fun RemoteCodeApp(
                         onSelectReasoningEffort = { viewModel.selectCodexReasoningEffort(it) },
                         onSelectProfile = { viewModel.selectCodexProfile(it) },
                         onToggleContext = { viewModel.toggleCodexContext() },
-                        onLaunchCodex = { viewModel.launchCodex() },
                         onNewThread = { viewModel.newCodexThread() },
                         onLoadThreads = { viewModel.loadCodexThreads(loadCurrent = false) },
                         onSwitchThread = { viewModel.switchCodexThread(it) },
@@ -255,6 +240,7 @@ private fun ConnectionScreen(
     var host by remember { mutableStateOf(serverConfig.host) }
     var port by remember { mutableStateOf(serverConfig.port.toString()) }
     var authToken by remember { mutableStateOf(serverConfig.authToken) }
+    var confirmClearLogs by remember { mutableStateOf(false) }
 
     Column(
         modifier = Modifier
@@ -401,7 +387,7 @@ private fun ConnectionScreen(
 
         Spacer(modifier = Modifier.height(8.dp))
         OutlinedButton(
-            onClick = onClearLogs,
+            onClick = { confirmClearLogs = true },
             modifier = Modifier.fillMaxWidth(),
             colors = ButtonDefaults.outlinedButtonColors(contentColor = TextSecondary),
             shape = androidx.compose.foundation.shape.RoundedCornerShape(12.dp)
@@ -429,6 +415,30 @@ private fun ConnectionScreen(
             Icon(Icons.Default.SystemUpdate, contentDescription = null, modifier = Modifier.size(18.dp))
             Spacer(modifier = Modifier.width(8.dp))
             Text("Обновить из GitHub", fontSize = 14.sp)
+        }
+
+        if (confirmClearLogs) {
+            AlertDialog(
+                onDismissRequest = { confirmClearLogs = false },
+                title = { Text("Очистить логи?") },
+                text = { Text("Локальные диагностические логи приложения будут удалены.") },
+                confirmButton = {
+                    TextButton(
+                        onClick = {
+                            confirmClearLogs = false
+                            onClearLogs()
+                        }
+                    ) {
+                        Text("Очистить", color = ErrorRed)
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { confirmClearLogs = false }) {
+                        Text("Отмена")
+                    }
+                },
+                containerColor = DarkSurface
+            )
         }
 
         Spacer(modifier = Modifier.height(16.dp))
@@ -468,6 +478,7 @@ private fun SettingsScreenV2(
     var compactPortText by remember(serverConfig.port) { mutableStateOf(serverConfig.port.toString()) }
     var compactTokenText by remember(serverConfig.authToken) { mutableStateOf(serverConfig.authToken) }
     var compactUseTunnel by remember(serverConfig.useTunnel) { mutableStateOf(serverConfig.useTunnel) }
+    var confirmClearLogs by remember { mutableStateOf(false) }
     var compactTunnelText by remember(serverConfig.tunnelUrl, tunnelUrl) {
         mutableStateOf(serverConfig.tunnelUrl.ifBlank { tunnelUrl.orEmpty() })
     }
@@ -503,7 +514,7 @@ private fun SettingsScreenV2(
             verticalAlignment = Alignment.CenterVertically
         ) {
             IconButton(onClick = onBack, modifier = Modifier.size(34.dp)) {
-                Icon(Icons.Default.ArrowBack, contentDescription = "Назад", tint = TextSecondary, modifier = Modifier.size(20.dp))
+                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Назад", tint = TextSecondary, modifier = Modifier.size(20.dp))
             }
             Spacer(modifier = Modifier.width(4.dp))
             Text("Настройки", color = TextBright, fontSize = 19.sp, fontWeight = FontWeight.Bold)
@@ -650,12 +661,12 @@ private fun SettingsScreenV2(
                 Text("Обновить", maxLines = 1, fontSize = 13.sp)
             }
             OutlinedButton(
-                onClick = onClearLogs,
+                onClick = { confirmClearLogs = true },
                 modifier = Modifier.weight(1f).height(42.dp),
                 colors = ButtonDefaults.outlinedButtonColors(contentColor = TextSecondary),
                 shape = RoundedCornerShape(10.dp)
             ) {
-                Text("Логи", maxLines = 1, fontSize = 13.sp)
+                Text("Очистить", maxLines = 1, fontSize = 13.sp)
             }
             OutlinedButton(
                 onClick = onDisconnect,
@@ -665,6 +676,30 @@ private fun SettingsScreenV2(
             ) {
                 Text("Откл.", maxLines = 1, fontSize = 13.sp)
             }
+        }
+
+        if (confirmClearLogs) {
+            AlertDialog(
+                onDismissRequest = { confirmClearLogs = false },
+                title = { Text("Очистить логи?", color = TextBright) },
+                text = { Text("Локальные диагностические логи приложения будут удалены.", color = TextPrimary) },
+                confirmButton = {
+                    TextButton(
+                        onClick = {
+                            confirmClearLogs = false
+                            onClearLogs()
+                        }
+                    ) {
+                        Text("Очистить", color = ErrorRed)
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { confirmClearLogs = false }) {
+                        Text("Отмена")
+                    }
+                },
+                containerColor = DarkSurface
+            )
         }
     }
 }
