@@ -3202,7 +3202,7 @@ button.send.stop:hover{background:#fff}
 @keyframes pulse{0%,100%{opacity:.35;transform:scale(.82)}50%{opacity:1;transform:scale(1)}}
 @keyframes spin{to{transform:rotate(360deg)}}
 @media (min-width: 1280px){:root{--progress-offset:282px}}
-@media (max-width: 1279px){.content-shell{display:block;overflow:auto}.messages{height:auto;overflow:visible}.progress-panel{display:none}.scroll-bottom{display:none}}
+@media (max-width: 1279px){.content-shell{display:flex;overflow:hidden}.messages{height:auto;overflow:auto}.progress-panel{display:none}.scroll-bottom{display:none}}
 @media (max-width: 680px){.top{padding:0 10px}.messages{padding-left:14px;padding-right:14px}.composer-wrap{padding-left:8px;padding-right:8px}.controls{flex-wrap:wrap}button.send{margin-left:auto}.subcontrols{gap:8px;flex-wrap:wrap}.dropdown.profile{flex-basis:132px}}
 </style>
 </head>
@@ -3516,13 +3516,27 @@ function updateComposerHeight() {
 function updateScrollBottomButton() {
   scrollBottom?.classList.toggle('hidden', isNearBottom());
 }
+function scrollMessagesToBottom(behavior = 'auto') {
+  messages.scrollTo({ top: messages.scrollHeight, behavior });
+  updateScrollBottomButton();
+}
+function scheduleScrollMessagesToBottom() {
+  requestAnimationFrame(() => {
+    scrollMessagesToBottom();
+    requestAnimationFrame(() => scrollMessagesToBottom());
+  });
+}
 scrollBottom?.addEventListener('click', () => {
-  messages.scrollTo({ top: messages.scrollHeight, behavior: 'smooth' });
+  scrollMessagesToBottom('smooth');
 });
 messages.addEventListener('scroll', updateScrollBottomButton, { passive: true });
-messages.scrollTop = messages.scrollHeight;
 updateComposerHeight();
 updateScrollBottomButton();
+scheduleScrollMessagesToBottom();
+window.addEventListener('resize', () => {
+  updateComposerHeight();
+  scheduleScrollMessagesToBottom();
+}, { passive: true });
 function autoGrowPrompt() {
   prompt.style.height = 'auto';
   const max = 190;
@@ -3534,6 +3548,7 @@ function autoGrowPrompt() {
 }
 prompt.addEventListener('input', autoGrowPrompt);
 autoGrowPrompt();
+scheduleScrollMessagesToBottom();
 setTimeout(() => prompt.focus(), 0);
 function readClipboardFile(file) {
   return new Promise((resolve, reject) => {
