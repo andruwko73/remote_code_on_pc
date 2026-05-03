@@ -2866,24 +2866,25 @@ export class RemoteServer {
             ? this.selectedReasoningEffort
             : 'medium';
         const icon = {
-            edit: '<svg viewBox="0 0 24 24"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>',
-            more: '<svg viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="19" cy="12" r="1.5"/></svg>',
-            play: '<svg viewBox="0 0 24 24"><path d="m8 5 11 7-11 7Z"/></svg>',
-            terminal: '<svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="m8 9 3 3-3 3"/><path d="M13 15h4"/></svg>',
-            trash: '<svg viewBox="0 0 24 24"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v5"/><path d="M14 11v5"/></svg>',
-            settings: '<svg viewBox="0 0 24 24"><path d="M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Z"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.88l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06A1.7 1.7 0 0 0 15 19.4a1.7 1.7 0 0 0-1 .6 1.7 1.7 0 0 0-.4 1.1V21a2 2 0 1 1-4 0v-.09A1.7 1.7 0 0 0 8 19.4a1.7 1.7 0 0 0-1.88.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.7 1.7 0 0 0 3.6 15a1.7 1.7 0 0 0-.6-1 1.7 1.7 0 0 0-1.1-.4H1.8a2 2 0 1 1 0-4h.09A1.7 1.7 0 0 0 3.6 8a1.7 1.7 0 0 0-.34-1.88l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.7 1.7 0 0 0 8 3.6a1.7 1.7 0 0 0 1-.6 1.7 1.7 0 0 0 .4-1.1V1.8a2 2 0 1 1 4 0v.09A1.7 1.7 0 0 0 15 3.6a1.7 1.7 0 0 0 1.88-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.7 1.7 0 0 0 19.4 8c.11.36.32.7.6 1 .31.26.7.4 1.1.4h.1a2 2 0 1 1 0 4h-.1A1.7 1.7 0 0 0 19.4 15Z"/></svg>',
-            plus: '<svg viewBox="0 0 24 24"><path d="M12 5v14"/><path d="M5 12h14"/></svg>',
-            chevron: '<svg viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg>',
-            send: '<svg viewBox="0 0 24 24"><path d="M12 19V5"/><path d="m5 12 7-7 7 7"/></svg>',
-            stop: '<svg viewBox="0 0 24 24"><rect x="7" y="7" width="10" height="10" rx="1.5"/></svg>',
-            sparkle: '<svg viewBox="0 0 24 24"><path d="M12 3 14.2 9.8 21 12l-6.8 2.2L12 21l-2.2-6.8L3 12l6.8-2.2Z"/></svg>',
-            branch: '<svg viewBox="0 0 24 24"><path d="M6 3v12"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="6" r="3"/><path d="M8.5 15.5 18 6"/></svg>',
-            laptop: '<svg viewBox="0 0 24 24"><rect x="4" y="5" width="16" height="11" rx="2"/><path d="M2 19h20"/></svg>',
-            copy: '<svg viewBox="0 0 24 24"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>',
-            up: '<svg viewBox="0 0 24 24"><path d="M7 10v11"/><path d="M15 5.9 14 10h5.8a2 2 0 0 1 2 2.4l-1.4 7A2 2 0 0 1 18.4 21H4a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2h2.8a2 2 0 0 0 1.7-1L12 3a2 2 0 0 1 3 2.9Z"/></svg>',
-            down: '<svg viewBox="0 0 24 24"><path d="M17 14V3"/><path d="M9 18.1 10 14H4.2a2 2 0 0 1-2-2.4l1.4-7A2 2 0 0 1 5.6 3H20a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2h-2.8a2 2 0 0 0-1.7 1L12 21a2 2 0 0 1-3-2.9Z"/></svg>',
-            scrollDown: '<svg viewBox="0 0 24 24"><path d="M12 5v14"/><path d="m19 12-7 7-7-7"/></svg>',
-            layout: '<svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M12 4v16"/></svg>',
+            edit: this.webIcon('edit'),
+            more: this.webIcon('more'),
+            play: this.webIcon('play'),
+            terminal: this.webIcon('terminal'),
+            trash: this.webIcon('trash'),
+            settings: this.webIcon('settings'),
+            plus: this.webIcon('plus'),
+            chevron: this.webIcon('chevronDown'),
+            send: this.webIcon('send'),
+            stop: this.webIcon('stop'),
+            sparkle: this.webIcon('sparkle'),
+            branch: this.webIcon('branch'),
+            laptop: this.webIcon('laptop'),
+            copy: this.webIcon('copy'),
+            up: this.webIcon('thumbUp'),
+            down: this.webIcon('thumbDown'),
+            scrollDown: this.webIcon('scrollDown'),
+            layout: this.webIcon('panel'),
+            panel: this.webIcon('panel'),
             vscode: '<svg class="vscode-icon" viewBox="0 0 24 24"><path d="M17.8 3 8.4 12l9.4 9 2.2-.9V3.9Z"/><path d="m8.4 12-4 3.2L2.5 14 6.4 12 2.5 10 4.4 8.8Z"/></svg>'
         };
         const rows = messages.map(message => {
@@ -2913,7 +2914,7 @@ export class RemoteServer {
             <div class="action-head">
                 <strong>${this.escapeHtml(event.title)}</strong>
                 <span class="action-status">${this.escapeHtml(event.status)}</span>
-                ${resolved ? `<button type="button" class="action-toggle" data-action-toggle="${this.escapeHtml(event.id)}">Показать</button><button type="button" class="action-dismiss" data-dismiss-action-id="${this.escapeHtml(event.id)}" title="Убрать">×</button>` : ''}
+                ${resolved ? `<button type="button" class="action-toggle" data-action-toggle="${this.escapeHtml(event.id)}">Показать</button><button type="button" class="action-dismiss" data-dismiss-action-id="${this.escapeHtml(event.id)}" title="Убрать">${this.webIcon('x')}</button>` : ''}
             </div>
             <pre>${body}</pre>
             ${event.actionable && event.status === 'pending' ? `<div class="action-buttons">
@@ -2930,12 +2931,13 @@ export class RemoteServer {
 html,body{height:100%}
 body{margin:0;background:#0f1011;color:#dedede;font:15px/1.58 var(--vscode-font-family);display:flex;flex-direction:column;letter-spacing:0}
 button{font:inherit}
-svg{width:15px;height:15px;display:block;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+svg{width:15px;height:15px;display:block;fill:none;stroke:currentColor;stroke-width:1.75;stroke-linecap:round;stroke-linejoin:round;shape-rendering:geometricPrecision}
 .top{height:46px;border-bottom:1px solid #232426;background:#121314;display:flex;align-items:center;gap:7px;padding:0 min(3vw,32px)}
 .edit-icon{color:#a5a6a8}
 .thread-title{font-size:15px;color:#f2f2f2;font-weight:650;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:660px;line-height:1.2}
 .toolbar-spacer{flex:1}
 .icon-btn{width:26px;height:26px;border:0;border-radius:7px;background:transparent;color:#9ea0a4;display:inline-flex;align-items:center;justify-content:center;cursor:pointer;padding:0}
+.icon-btn svg{width:16px;height:16px;stroke-width:1.65}
 .icon-btn:hover{background:#232426;color:#f0f0f0}
 .thread-menu-wrap{position:relative;min-width:0;display:flex;align-items:center;gap:7px}
 .thread-menu-btn{border:0;background:transparent;color:#f0f0f0;display:flex;align-items:center;gap:6px;min-width:0;max-width:680px;cursor:pointer;border-radius:8px;padding:5px 6px}
@@ -2951,6 +2953,7 @@ svg{width:15px;height:15px;display:block;fill:none;stroke:currentColor;stroke-wi
 .connector-btn:hover,.connector-menu-wrap.open .connector-btn{background:#202123;color:#f0f0f0}
 .connector-btn svg{width:15px;height:15px}
 .connector-btn span{white-space:nowrap}
+.vscode-icon path{fill:#7eb6ff;stroke:none}
 .top-menu .item{font-size:13px}
 .thread-row{display:flex;align-items:stretch;gap:4px;border-radius:8px;position:relative}
 .thread-row:hover{background:#2a2c2f}
@@ -2984,8 +2987,10 @@ svg{width:15px;height:15px;display:block;fill:none;stroke:currentColor;stroke-wi
 .change-card{margin:10px 0 12px;background:#242526;border:1px solid #333538;border-radius:9px;overflow:hidden;color:#dedede;white-space:normal;box-shadow:0 10px 24px rgba(0,0,0,.12)}
 .change-head{display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:42px;padding:0 12px;background:#2b2c2e;border-bottom:1px solid #383a3d;font-weight:600;line-height:1.2;white-space:normal}
 .change-summary{display:flex;align-items:center;gap:7px;min-width:0;color:#e0e0e0;font-size:14.5px;white-space:normal}
-.change-actions{display:flex;align-items:center;gap:16px;color:#9b9da1;font-weight:500;white-space:normal}
-.change-action{border:0;background:transparent;color:#9b9b9b;height:28px;padding:0 2px;border-radius:5px;cursor:pointer;font:inherit;font-size:13px;line-height:1}
+.change-actions{display:flex;align-items:center;gap:12px;color:#9b9da1;font-weight:500;white-space:normal}
+.change-action{border:0;background:transparent;color:#9b9b9b;height:28px;padding:0 4px;border-radius:6px;cursor:pointer;font:inherit;font-size:13px;line-height:1;display:inline-flex;align-items:center;justify-content:center;gap:5px}
+.change-action svg{width:15px;height:15px;stroke-width:1.65}
+.change-action.icon-only{width:28px;padding:0}
 .change-action:hover{background:#37393d;color:#e8e8e8}
 .change-row{display:flex;align-items:center;gap:10px;min-height:40px;padding:0 12px;border:0;border-top:1px solid #303235;background:transparent;color:#dedede;width:100%;text-align:left;cursor:pointer;font:inherit;font-size:14px;line-height:1.2;white-space:normal}
 .change-row:hover{background:#2c2d30}
@@ -2994,6 +2999,9 @@ svg{width:15px;height:15px;display:block;fill:none;stroke:currentColor;stroke-wi
 .delta{font-family:var(--vscode-editor-font-family, monospace);font-size:13px}
 .delta.plus{color:#68d995}.delta.minus{color:#f07f7f}
 .chev{color:#9b9b9b}
+.row-chev{width:26px;height:26px;border-radius:6px;display:inline-flex;align-items:center;justify-content:center;color:#a2a4a8;flex:0 0 auto}
+.row-chev svg{width:15px;height:15px;stroke-width:1.65}
+.change-row:hover .row-chev{color:#d1d1d1;background:#34363a}
 .change-card.collapsed .change-row:nth-of-type(n+4){display:none}
 pre{margin:0;white-space:pre-wrap;word-wrap:break-word;font:inherit}
 .msg-tools{position:absolute;right:2px;bottom:0;display:flex;gap:4px;opacity:0;transform:translateY(2px);transition:opacity .12s ease, transform .12s ease}
@@ -3010,9 +3018,10 @@ pre{margin:0;white-space:pre-wrap;word-wrap:break-word;font:inherit}
 .action.completed .action-status{color:#77c993}.action.failed .action-status{color:#ef9a9a}
 .action pre{max-height:220px;overflow:auto;color:#cfcfcf;font:12px/1.45 var(--vscode-editor-font-family, monospace)}
 .action.resolved.collapsed pre{display:none}
-.action-toggle,.action-dismiss{border:0;background:transparent;color:#9b9b9b;border-radius:5px;cursor:pointer;padding:2px 4px;font:inherit;font-size:12px}
+.action-toggle,.action-dismiss{border:0;background:transparent;color:#9b9b9b;border-radius:6px;cursor:pointer;padding:2px 5px;font:inherit;font-size:12px;display:inline-flex;align-items:center;justify-content:center}
 .action-toggle:hover,.action-dismiss:hover{background:#34363a;color:#e8e8e8}
-.action-dismiss{font-size:16px;line-height:1}
+.action-dismiss{width:24px;height:24px;padding:0}
+.action-dismiss svg{width:14px;height:14px;stroke-width:1.65}
 .action-buttons{display:flex;gap:8px;justify-content:flex-end;margin-top:10px}
 .action-buttons button{border:1px solid #3a3d42;background:#2c2e31;color:#d9d9d9;border-radius:8px;padding:6px 10px;cursor:pointer}
 .action-buttons button:hover{background:#383b3f}
@@ -3031,6 +3040,7 @@ textarea::placeholder{color:#818389}
 .composer-attachment{border:1px solid #424449;background:#242528;color:#dcdcdc;border-radius:999px;display:inline-flex;align-items:center;gap:6px;max-width:100%;padding:4px 7px;font-size:12px}
 .composer-attachment span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .composer-attachment button{border:0;background:transparent;color:#a5a5a5;padding:0;width:16px;height:16px;border-radius:999px;display:inline-flex;align-items:center;justify-content:center;cursor:pointer}
+.composer-attachment button svg{width:12px;height:12px;stroke-width:1.75}
 .composer-attachment button:hover{background:#383a3f;color:#fff}
 .dropdown{position:relative;flex:0 0 auto;min-width:0}
 .dropdown.model-effort{width:max-content;min-width:156px;max-width:230px}
@@ -3102,7 +3112,7 @@ button.send.stop:hover{background:#fff}
     </div>
   </div>
   <button class="icon-btn" type="button" data-action="openTerminal" title="&#1058;&#1077;&#1088;&#1084;&#1080;&#1085;&#1072;&#1083;">${icon.terminal}</button>
-  <button class="icon-btn" type="button" data-action="toggleLayout" title="&#1055;&#1072;&#1085;&#1077;&#1083;&#1100;">${icon.layout}</button>
+  <button class="icon-btn" type="button" data-action="toggleLayout" title="&#1055;&#1072;&#1085;&#1077;&#1083;&#1100;">${icon.panel}</button>
 </div>
 <main class="messages" id="messages">
 ${rows || '<div class="msg system"><div class="role">Система</div><pre>Жду сообщение с телефона или из VS Code.</pre></div>'}
@@ -3167,7 +3177,7 @@ function renderAttachments() {
     label.textContent = size ? (file.name + ' · ' + size) : file.name;
     const remove = document.createElement('button');
     remove.type = 'button';
-    remove.textContent = '×';
+    remove.innerHTML = ${JSON.stringify(this.webIcon('x'))};
     remove.title = 'Убрать вложение';
     remove.addEventListener('click', () => {
       attachedFiles = attachedFiles.filter((_, itemIndex) => itemIndex !== index);
@@ -3550,20 +3560,67 @@ prompt.addEventListener('keydown', event => {
             additions: this.parseDelta(change.plus),
             deletions: Math.abs(this.parseDelta(change.minus))
         })).join('');
-        return `<div class="change-card collapsed"><div class="change-head"><span class="change-summary">${this.renderInlineContent(header)}</span><span class="change-actions"><button type="button" class="change-action" data-change-action="review">Проверить</button><button type="button" class="change-action" data-change-action="toggle">↕</button></span></div>${rows}</div>`;
+        return `<div class="change-card collapsed"><div class="change-head"><span class="change-summary">${this.renderInlineContent(header)}</span><span class="change-actions"><button type="button" class="change-action" data-change-action="review"><span>Проверить</span>${this.webIcon('external')}</button><button type="button" class="change-action icon-only" data-change-action="toggle" title="Свернуть/развернуть">${this.webIcon('expand')}</button></span></div>${rows}</div>`;
     }
 
     private renderGitChangeCard(summary: GitChangeSummary): string {
         const fileWord = this.pluralRu(summary.files.length, 'файл', 'файла', 'файлов');
         const header = `Изменено ${summary.files.length} ${fileWord} <span class="delta plus">+${summary.additions}</span> <span class="delta minus">-${summary.deletions}</span>`;
         const rows = summary.files.map(file => this.renderChangeRow(file)).join('');
-        return `<div class="change-card collapsed" data-commit="${this.escapeHtml(summary.commit || '')}"><div class="change-head"><span class="change-summary">${header}</span><span class="change-actions"><button type="button" class="change-action" data-change-action="review">Проверить</button><button type="button" class="change-action" data-change-action="toggle">↕</button></span></div>${rows}</div>`;
+        return `<div class="change-card collapsed" data-commit="${this.escapeHtml(summary.commit || '')}"><div class="change-head"><span class="change-summary">${header}</span><span class="change-actions"><button type="button" class="change-action" data-change-action="review"><span>Проверить</span>${this.webIcon('external')}</button><button type="button" class="change-action icon-only" data-change-action="toggle" title="Свернуть/развернуть">${this.webIcon('expand')}</button></span></div>${rows}</div>`;
     }
 
     private renderChangeRow(change: GitChangeFile): string {
         const additions = change.additions ? `<span class="delta plus">+${this.escapeHtml(String(change.additions))}</span>` : '';
         const deletions = change.deletions ? `<span class="delta minus">-${this.escapeHtml(String(change.deletions))}</span>` : '';
-        return `<button type="button" class="change-row" data-path="${this.escapeHtml(change.path)}"><span class="change-path">${this.escapeHtml(change.path)}</span>${additions}${deletions}<span class="chev">⌄</span></button>`;
+        return `<button type="button" class="change-row" data-path="${this.escapeHtml(change.path)}"><span class="change-path">${this.escapeHtml(change.path)}</span>${additions}${deletions}<span class="row-chev">${this.webIcon('chevronDown')}</span></button>`;
+    }
+
+    private webIcon(name: 'branch' | 'chevronDown' | 'copy' | 'edit' | 'expand' | 'external' | 'laptop' | 'more' | 'panel' | 'play' | 'plus' | 'scrollDown' | 'send' | 'settings' | 'sparkle' | 'stop' | 'terminal' | 'thumbDown' | 'thumbUp' | 'trash' | 'x'): string {
+        switch (name) {
+            case 'branch':
+                return '<svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="4" cy="4" r="1.9"/><circle cx="12" cy="12" r="1.9"/><path d="M4 6v1.4A4.6 4.6 0 0 0 8.6 12H10"/></svg>';
+            case 'chevronDown':
+                return '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4.25 6.25 8 10l3.75-3.75"/></svg>';
+            case 'copy':
+                return '<svg viewBox="0 0 16 16" aria-hidden="true"><rect x="6" y="5" width="7" height="8" rx="1.2"/><path d="M4 10.5H3.2A1.2 1.2 0 0 1 2 9.3V3.2A1.2 1.2 0 0 1 3.2 2h6.1A1.2 1.2 0 0 1 10.5 3.2V4"/></svg>';
+            case 'edit':
+                return '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M10.8 2.7a1.35 1.35 0 0 1 1.9 1.9L5.5 11.8 3 12.5l.7-2.5Z"/><path d="M9.8 3.7l2 2"/></svg>';
+            case 'expand':
+                return '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M6.25 2.75H3.5v2.75"/><path d="M3.5 2.75 7 6.25"/><path d="M9.75 13.25h2.75V10.5"/><path d="M12.5 13.25 9 9.75"/></svg>';
+            case 'external':
+                return '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M5 11 11 5"/><path d="M6.25 5H11v4.75"/></svg>';
+            case 'laptop':
+                return '<svg viewBox="0 0 16 16" aria-hidden="true"><rect x="3" y="3.5" width="10" height="7" rx="1.2"/><path d="M1.75 12.5h12.5"/></svg>';
+            case 'more':
+                return '<svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="3.5" cy="8" r=".9"/><circle cx="8" cy="8" r=".9"/><circle cx="12.5" cy="8" r=".9"/></svg>';
+            case 'panel':
+                return '<svg viewBox="0 0 16 16" aria-hidden="true"><rect x="2.25" y="2.25" width="11.5" height="11.5" rx="1.6"/><path d="M8 2.25v11.5"/></svg>';
+            case 'play':
+                return '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M5.5 3.75 12 8l-6.5 4.25Z"/></svg>';
+            case 'plus':
+                return '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 3.25v9.5"/><path d="M3.25 8h9.5"/></svg>';
+            case 'scrollDown':
+                return '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 3v9"/><path d="m4.5 8.5 3.5 3.5 3.5-3.5"/></svg>';
+            case 'send':
+                return '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 12.5v-9"/><path d="M4.5 7 8 3.5 11.5 7"/></svg>';
+            case 'settings':
+                return '<svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="2.25"/><path d="M8 1.9v1.4"/><path d="M8 12.7v1.4"/><path d="m3.7 3.7 1 1"/><path d="m11.3 11.3 1 1"/><path d="M1.9 8h1.4"/><path d="M12.7 8h1.4"/><path d="m3.7 12.3 1-1"/><path d="m11.3 4.7 1-1"/></svg>';
+            case 'sparkle':
+                return '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 1.75 9.25 6.75 14.25 8 9.25 9.25 8 14.25 6.75 9.25 1.75 8 6.75 6.75Z"/></svg>';
+            case 'stop':
+                return '<svg viewBox="0 0 16 16" aria-hidden="true"><rect x="5" y="5" width="6" height="6" rx="1.1"/></svg>';
+            case 'terminal':
+                return '<svg viewBox="0 0 16 16" aria-hidden="true"><rect x="2.25" y="3" width="11.5" height="10" rx="1.4"/><path d="m5 6.25 2 1.75-2 1.75"/><path d="M8.5 10h3"/></svg>';
+            case 'thumbDown':
+                return '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M5.5 2.5v7"/><path d="M9.5 13.5 7.5 9.5H3.4a1.4 1.4 0 0 1-1.35-1.75l.8-3.8A1.4 1.4 0 0 1 4.2 2.9h7.3v7H9.2l1.25 2.55a.8.8 0 0 1-.95 1.05Z"/></svg>';
+            case 'thumbUp':
+                return '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M5.5 13.5v-7"/><path d="M9.5 2.5 7.5 6.5H3.4a1.4 1.4 0 0 0-1.35 1.75l.8 3.8A1.4 1.4 0 0 0 4.2 13.1h7.3v-7H9.2l1.25-2.55a.8.8 0 0 0-.95-1.05Z"/></svg>';
+            case 'trash':
+                return '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 4.5h10"/><path d="M6 4.5V3.25h4V4.5"/><path d="m12 4.5-.6 8.25H4.6L4 4.5"/><path d="M6.5 6.75v3.8"/><path d="M9.5 6.75v3.8"/></svg>';
+            case 'x':
+                return '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4.5 4.5 11.5 11.5"/><path d="M11.5 4.5 4.5 11.5"/></svg>';
+        }
     }
 
     private parseDelta(value?: string): number {

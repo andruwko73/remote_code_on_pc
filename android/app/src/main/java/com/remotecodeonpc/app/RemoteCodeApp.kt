@@ -360,9 +360,7 @@ private fun ConnectionScreen(
             shape = androidx.compose.foundation.shape.RoundedCornerShape(12.dp)
         ) {
             if (isConnecting) {
-                // Не используем CircularProgressIndicator — вызывает NoSuchMethodError
-                // на некоторых версиях Android из-за бага Compose Animation
-                Text("⏳", fontSize = 18.sp)
+                Icon(Icons.Default.Sync, contentDescription = null, modifier = Modifier.size(18.dp))
                 Spacer(modifier = Modifier.width(8.dp))
                 Text("Подключение...", fontSize = 16.sp)
             } else {
@@ -501,6 +499,7 @@ private fun SettingsScreenV2(
     val compactTunnelError = tunnelError
         ?.replace('\n', ' ')
         ?.replace("Установите ngrok.exe и добавьте его в PATH либо вставьте готовый публичный URL вручную в настройках приложения.", "Поставьте ngrok/cloudflared или вставьте публичный URL вручную.")
+    val compactFieldHeight = 62.dp
 
     Column(
         modifier = Modifier
@@ -561,7 +560,7 @@ private fun SettingsScreenV2(
                         label = { Text("IP ПК", color = TextSecondary, fontSize = 12.sp) },
                         singleLine = true,
                         leadingIcon = { Icon(Icons.Default.Computer, contentDescription = null, tint = AccentBlue, modifier = Modifier.size(18.dp)) },
-                        modifier = Modifier.weight(1f).height(54.dp),
+                        modifier = Modifier.weight(1f).height(compactFieldHeight),
                         colors = outlinedFieldColors(),
                         shape = RoundedCornerShape(11.dp)
                     )
@@ -571,7 +570,7 @@ private fun SettingsScreenV2(
                         label = { Text("Порт", color = TextSecondary, fontSize = 12.sp) },
                         singleLine = true,
                         isError = compactPortText.toIntOrNull() == null,
-                        modifier = Modifier.width(104.dp).height(54.dp),
+                        modifier = Modifier.width(112.dp).height(compactFieldHeight),
                         colors = outlinedFieldColors(),
                         shape = RoundedCornerShape(11.dp)
                     )
@@ -584,7 +583,7 @@ private fun SettingsScreenV2(
                         label = { Text("Публичный URL", color = TextSecondary, fontSize = 12.sp) },
                         singleLine = true,
                         leadingIcon = { Icon(Icons.Default.Public, contentDescription = null, tint = AccentGreen, modifier = Modifier.size(18.dp)) },
-                        modifier = Modifier.fillMaxWidth().height(54.dp),
+                        modifier = Modifier.fillMaxWidth().height(compactFieldHeight),
                         enabled = compactUseTunnel || tunnelActive,
                         isError = compactTunnelUrl.isNotBlank() && !tunnelFormatOk,
                         colors = outlinedFieldColors(),
@@ -598,7 +597,7 @@ private fun SettingsScreenV2(
                     label = { Text("Токен доступа", color = TextSecondary, fontSize = 12.sp) },
                     singleLine = true,
                     leadingIcon = { Icon(Icons.Default.Lock, contentDescription = null, tint = AccentBlue, modifier = Modifier.size(18.dp)) },
-                    modifier = Modifier.fillMaxWidth().height(54.dp),
+                    modifier = Modifier.fillMaxWidth().height(compactFieldHeight),
                     colors = outlinedFieldColors(),
                     shape = RoundedCornerShape(11.dp)
                 )
