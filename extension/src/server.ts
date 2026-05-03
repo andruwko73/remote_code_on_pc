@@ -2697,6 +2697,10 @@ export class RemoteServer {
                     await vscode.window.setStatusBarMessage(`Remote Code: изменения коммита ${msg.commit.trim()} показаны в блоке чата`, 1800);
                 }
                 return;
+            case 'undoChangeBlock':
+                await vscode.commands.executeCommand('workbench.view.scm');
+                await vscode.window.setStatusBarMessage('Remote Code: открыл Source Control для отмены изменений', 1800);
+                return;
             case 'stopGeneration':
                 this.stopActiveGeneration(true);
                 return;
@@ -3633,11 +3637,11 @@ svg{width:15px;height:15px;display:block;fill:none;stroke:currentColor;stroke-wi
 .change-card{margin:10px 0 12px;background:var(--codex-surface);border:1px solid var(--codex-border);border-radius:9px;overflow:hidden;color:var(--codex-text);white-space:normal;box-shadow:0 10px 24px rgba(0,0,0,.12)}
 .change-head{display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:42px;padding:0 12px;background:var(--codex-surface-2);border-bottom:1px solid var(--codex-border);font-weight:600;line-height:1.2;white-space:normal}
 .change-summary{display:flex;align-items:center;gap:7px;min-width:0;color:var(--codex-text);font-size:14.5px;white-space:normal}
-.change-actions{display:flex;align-items:center;gap:12px;color:#9b9da1;font-weight:500;white-space:normal}
-.change-action{border:0;background:transparent;color:#9b9b9b;height:28px;padding:0 4px;border-radius:6px;cursor:pointer;font:inherit;font-size:13px;line-height:1;display:inline-flex;align-items:center;justify-content:center;gap:5px}
-.change-action svg{width:15px;height:15px;stroke-width:1.65}
-.change-action.icon-only{width:28px;padding:0}
-.change-action:hover{background:var(--codex-selected);color:#e8e8e8}
+.change-actions{display:flex;align-items:center;gap:19px;color:#999;font-weight:500;white-space:normal;flex:0 0 auto}
+.change-action{border:0;background:transparent;color:#969696;height:28px;padding:0 1px;border-radius:6px;cursor:pointer;font:inherit;font-size:13px;line-height:1;display:inline-flex;align-items:center;justify-content:center;gap:5px;opacity:.92}
+.change-action svg{width:14px;height:14px;stroke-width:1.7}
+.change-action.icon-only{width:20px;padding:0}
+.change-action:hover{background:transparent;color:#d8d8d8;opacity:1}
 .change-row{display:flex;align-items:center;gap:10px;min-height:40px;padding:0 12px;border:0;border-top:1px solid var(--codex-border);background:transparent;color:var(--codex-text);width:100%;text-align:left;cursor:pointer;font:inherit;font-size:14px;line-height:1.2;white-space:normal}
 .change-row:hover{background:var(--codex-surface-2)}
 .change-row:first-of-type{border-top:0}
@@ -3645,9 +3649,9 @@ svg{width:15px;height:15px;display:block;fill:none;stroke:currentColor;stroke-wi
 .delta{font-family:var(--vscode-editor-font-family, monospace);font-size:13px}
 .delta.plus{color:var(--codex-green)}.delta.minus{color:var(--codex-red)}
 .chev{color:#9b9b9b}
-.row-chev{width:26px;height:26px;border-radius:6px;display:inline-flex;align-items:center;justify-content:center;color:#a2a4a8;flex:0 0 auto}
-.row-chev svg{width:15px;height:15px;stroke-width:1.65}
-.change-row:hover .row-chev{color:#d1d1d1;background:var(--codex-selected)}
+.row-chev{width:20px;height:24px;border-radius:6px;display:inline-flex;align-items:center;justify-content:center;color:#a2a4a8;flex:0 0 auto}
+.row-chev svg{width:14px;height:14px;stroke-width:1.7}
+.change-row:hover .row-chev{color:#d1d1d1;background:transparent}
 .change-card.collapsed .change-row:nth-of-type(n+6){display:none}
 pre{margin:0;white-space:pre-wrap;word-wrap:break-word;font:inherit}
 .msg-tools{position:absolute;right:2px;bottom:0;display:flex;gap:4px;opacity:0;transform:translateY(2px);transition:opacity .12s ease, transform .12s ease}
@@ -4149,6 +4153,10 @@ document.querySelectorAll('.change-action').forEach(button => {
       card?.classList.toggle('collapsed');
       return;
     }
+    if (action === 'undo') {
+      vscode.postMessage({ type: 'action', action: 'undoChangeBlock', commit: card?.dataset.commit || '' });
+      return;
+    }
     if (action === 'review') {
       vscode.postMessage({ type: 'action', action: 'reviewChangeBlock', commit: card?.dataset.commit || '' });
     }
@@ -4295,9 +4303,15 @@ prompt.addEventListener('keydown', event => {
         actions: RemoteCodeActionEvent[],
         isBusy: boolean
     ): Array<{ label: string; status: 'pending' | 'running' | 'done' }> {
+        let latestLabels: string[] = [];
         const latestUserIndex = (() => {
             for (let i = messages.length - 1; i >= 0; i--) {
-                if (messages[i].role === 'user' && messages[i].content.trim()) return i;
+                if (messages[i].role !== 'user' || !messages[i].content.trim()) continue;
+                const labels = this.extractProgressTaskLabels(messages[i].content);
+                if (labels.length > 0) {
+                    latestLabels = labels;
+                    return i;
+                }
             }
             return -1;
         })();
@@ -4305,9 +4319,8 @@ prompt.addEventListener('keydown', event => {
         const hasAssistantAfter = latestUserIndex >= 0
             ? messages.slice(latestUserIndex + 1).some(message => message.role === 'assistant' && message.content.trim())
             : false;
-        const labels = this.extractProgressTaskLabels(latestUser?.content || '');
-        const items = labels.length > 0
-            ? labels.slice(0, 5).map((label, index) => ({
+        const items = latestLabels.length > 0
+            ? latestLabels.slice(0, 5).map((label, index) => ({
                 label,
                 status: (isBusy ? (index === 0 ? 'running' : 'pending') : (hasAssistantAfter ? 'done' : 'pending')) as 'pending' | 'running' | 'done'
             }))
@@ -4347,7 +4360,7 @@ prompt.addEventListener('keydown', event => {
         }
         for (const rawLine of normalized.split('\n')) {
             const line = rawLine.trim();
-            if (!line || line.startsWith('#') || /^Files mentioned by the user/i.test(line)) continue;
+            if (!line || this.isTechnicalProgressLine(line) || line.startsWith('#') || /^Files mentioned by the user/i.test(line)) continue;
             if (/^[A-Za-z]:[\\/]/.test(line) || /^##\s+.+\.(?:png|jpe?g|webp|gif|txt|md|log|json):/i.test(line)) continue;
             const match = line.match(/^(?:\d+[\.)]|[-*•])\s+(.{3,})$/);
             if (match?.[1]) {
@@ -4359,10 +4372,18 @@ prompt.addEventListener('keydown', event => {
             const firstTextLine = normalized
                 .split('\n')
                 .map(line => line.trim())
-                .find(line => line && !line.startsWith('#') && !/^[A-Za-z]:[\\/]/.test(line));
+                .find(line => line && !this.isTechnicalProgressLine(line) && !line.startsWith('#') && !/^[A-Za-z]:[\\/]/.test(line));
             if (firstTextLine) labels.push(firstTextLine.replace(/\s+/g, ' ').slice(0, 140));
         }
         return labels;
+    }
+
+    private isTechnicalProgressLine(line: string): boolean {
+        return /^<\/?(?:image|video|audio|file|environment_context|attachments?)(?:\s|>|$)/i.test(line)
+            || /^<[^>]+>$/.test(line)
+            || /^!\[[^\]]*]\([^)]+\)$/.test(line)
+            || /^##\s+.+\.(?:png|jpe?g|webp|gif|txt|md|log|json):/i.test(line)
+            || /^Files mentioned by the user/i.test(line);
     }
 
     private getGitPanelStatus(): { changes: number; githubCli: boolean } {
@@ -4597,14 +4618,14 @@ prompt.addEventListener('keydown', event => {
             additions: this.parseDelta(change.plus),
             deletions: Math.abs(this.parseDelta(change.minus))
         })).join('');
-        return `<div class="change-card collapsed"><div class="change-head"><span class="change-summary">${this.renderInlineContent(header)}</span><span class="change-actions"><button type="button" class="change-action" data-change-action="review"><span>Проверить</span>${this.webIcon('external')}</button><button type="button" class="change-action icon-only" data-change-action="toggle" title="Свернуть/развернуть">${this.webIcon('expand')}</button></span></div>${rows}</div>`;
+        return `<div class="change-card collapsed"><div class="change-head"><span class="change-summary">${this.renderInlineContent(header)}</span><span class="change-actions"><button type="button" class="change-action" data-change-action="undo" title="Открыть Source Control для отмены изменений"><span>Отменить</span>${this.webIcon('undo')}</button><button type="button" class="change-action" data-change-action="review"><span>Проверить</span>${this.webIcon('external')}</button><button type="button" class="change-action icon-only" data-change-action="toggle" title="Свернуть/развернуть">${this.webIcon('expand')}</button></span></div>${rows}</div>`;
     }
 
     private renderGitChangeCard(summary: GitChangeSummary): string {
         const fileWord = this.pluralRu(summary.files.length, 'файл', 'файла', 'файлов');
         const header = `Изменено ${summary.files.length} ${fileWord} <span class="delta plus">+${summary.additions}</span> <span class="delta minus">-${summary.deletions}</span>`;
         const rows = summary.files.map(file => this.renderChangeRow(file)).join('');
-        return `<div class="change-card collapsed" data-commit="${this.escapeHtml(summary.commit || '')}"><div class="change-head"><span class="change-summary">${header}</span><span class="change-actions"><button type="button" class="change-action" data-change-action="review"><span>Проверить</span>${this.webIcon('external')}</button><button type="button" class="change-action icon-only" data-change-action="toggle" title="Свернуть/развернуть">${this.webIcon('expand')}</button></span></div>${rows}</div>`;
+        return `<div class="change-card collapsed" data-commit="${this.escapeHtml(summary.commit || '')}"><div class="change-head"><span class="change-summary">${header}</span><span class="change-actions"><button type="button" class="change-action" data-change-action="undo" title="Открыть Source Control для отмены изменений"><span>Отменить</span>${this.webIcon('undo')}</button><button type="button" class="change-action" data-change-action="review"><span>Проверить</span>${this.webIcon('external')}</button><button type="button" class="change-action icon-only" data-change-action="toggle" title="Свернуть/развернуть">${this.webIcon('expand')}</button></span></div>${rows}</div>`;
     }
 
     private renderChangeRow(change: GitChangeFile): string {
@@ -4613,7 +4634,7 @@ prompt.addEventListener('keydown', event => {
         return `<button type="button" class="change-row" data-path="${this.escapeHtml(change.path)}"><span class="change-path">${this.escapeHtml(change.path)}</span>${additions}${deletions}<span class="row-chev">${this.webIcon('chevronDown')}</span></button>`;
     }
 
-    private webIcon(name: 'archive' | 'branch' | 'chevronDown' | 'command' | 'copy' | 'edit' | 'expand' | 'extensions' | 'external' | 'file' | 'globe' | 'laptop' | 'more' | 'panel' | 'pin' | 'play' | 'plus' | 'scrollDown' | 'search' | 'send' | 'settings' | 'sparkle' | 'stop' | 'terminal' | 'thumbDown' | 'thumbUp' | 'trash' | 'x'): string {
+    private webIcon(name: 'archive' | 'branch' | 'chevronDown' | 'command' | 'copy' | 'edit' | 'expand' | 'extensions' | 'external' | 'file' | 'globe' | 'laptop' | 'more' | 'panel' | 'pin' | 'play' | 'plus' | 'scrollDown' | 'search' | 'send' | 'settings' | 'sparkle' | 'stop' | 'terminal' | 'thumbDown' | 'thumbUp' | 'trash' | 'undo' | 'x'): string {
         switch (name) {
             case 'archive':
                 return '<svg viewBox="0 0 16 16" aria-hidden="true"><rect x="2.5" y="3" width="11" height="3" rx="1"/><path d="M4 6v7h8V6"/><path d="M6.25 9h3.5"/></svg>';
@@ -4669,6 +4690,8 @@ prompt.addEventListener('keydown', event => {
                 return '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M5.5 13.5v-7"/><path d="M9.5 2.5 7.5 6.5H3.4a1.4 1.4 0 0 0-1.35 1.75l.8 3.8A1.4 1.4 0 0 0 4.2 13.1h7.3v-7H9.2l1.25-2.55a.8.8 0 0 0-.95-1.05Z"/></svg>';
             case 'trash':
                 return '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 4.5h10"/><path d="M6 4.5V3.25h4V4.5"/><path d="m12 4.5-.6 8.25H4.6L4 4.5"/><path d="M6.5 6.75v3.8"/><path d="M9.5 6.75v3.8"/></svg>';
+            case 'undo':
+                return '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M6.2 5.2H3.2V2.2"/><path d="M3.45 5.2A5.4 5.4 0 1 1 5.1 11"/></svg>';
             case 'x':
                 return '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4.5 4.5 11.5 11.5"/><path d="M11.5 4.5 4.5 11.5"/></svg>';
         }

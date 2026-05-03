@@ -2,7 +2,7 @@
   "name": "remote-code-on-pc",
   "displayName": "Remote Code on PC",
   "description": "HTTP/WebSocket сервер для удаленного управления VS Code с Android-приложения",
-  "version": "1.1.59",
+  "version": "1.1.60",
   "publisher": "remote-code-on-pc",
   "license": "MIT",
   "engines": {
