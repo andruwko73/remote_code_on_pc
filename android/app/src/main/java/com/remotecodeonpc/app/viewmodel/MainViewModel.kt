@@ -11,11 +11,13 @@ import com.remotecodeonpc.app.network.ApiClient
 import com.remotecodeonpc.app.network.SimpleHttpClient
 import com.remotecodeonpc.app.network.WebSocketClient
 import com.remotecodeonpc.app.network.WebSocketListener
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 data class AppUiState(
     // Connection
@@ -212,19 +214,24 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     loadCodexThreads(loadCurrent = true)
                 } else {
                     CrashLogger.w("ViewModel", "getStatus failed: code=${response.code()}, message=${response.message()}")
+                    val errorText = if (response.code() == 401) {
+                        "Требуется токен доступа. Скопируйте токен в VS Code: Remote Code on PC: Подключение."
+                    } else {
+                        formatConnectionError(config, "Ошибка ${response.code()}: ${response.message()}", response.code())
+                    }
                     _uiState.value = _uiState.value.copy(
                         isConnecting = false,
-                        connectionError = if (response.code() == 401) {
-                            "Требуется токен доступа. Скопируйте токен в VS Code: Remote Code on PC: Подключение."
-                        } else {
-                            formatConnectionError(config, "Ошибка ${response.code()}: ${response.message()}", response.code())
-                        }
+                        isConnected = false,
+                        isWebSocketConnected = false,
+                        connectionError = errorText,
+                        tunnelActive = if (config.useTunnel) false else _uiState.value.tunnelActive,
+                        tunnelError = if (config.useTunnel) errorText else _uiState.value.tunnelError
                     )
                 }
             } catch (e: Exception) {
                 CrashLogger.e("ViewModel", "connect() exception, trying simple HTTP fallback", e)
                 try {
-                    val status = SimpleHttpClient.getStatus(config)
+                    val status = withContext(Dispatchers.IO) { SimpleHttpClient.getStatus(config) }
                     CrashLogger.i("ViewModel", "Connected with simple HTTP fallback: version=${status.version}")
                     val authError = tokenRequiredError(status)
                     applyConnectionStatus(status, authError == null, authError)
@@ -238,9 +245,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     loadCodexThreads(loadCurrent = true)
                 } catch (fallbackError: Exception) {
                     CrashLogger.e("ViewModel", "simple HTTP fallback failed", fallbackError)
+                    val errorText = formatConnectionError(config, fallbackError.message ?: e.message ?: "connection failed")
                     _uiState.value = _uiState.value.copy(
                         isConnecting = false,
-                        connectionError = formatConnectionError(config, fallbackError.message ?: e.message ?: "connection failed")
+                        isConnected = false,
+                        isWebSocketConnected = false,
+                        connectionError = errorText,
+                        tunnelActive = if (config.useTunnel) false else _uiState.value.tunnelActive,
+                        tunnelError = if (config.useTunnel) errorText else _uiState.value.tunnelError
                     )
                 }
             }
@@ -1249,12 +1261,22 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                             "Ошибка ${validation.code()}: ${validation.message()}",
                             validation.code()
                         )
+                        val localConfig = _uiState.value.serverConfig.copy(
+                            useTunnel = false,
+                            tunnelUrl = url
+                        )
                         _uiState.value = _uiState.value.copy(
+                            serverConfig = localConfig,
                             isTunnelStarting = false,
                             tunnelActive = false,
+                            tunnelUrl = url,
+                            tunnelProvider = body.provider,
+                            isConnected = false,
+                            isWebSocketConnected = false,
                             tunnelError = errorText,
                             connectionError = errorText
                         )
+                        saveConfig(localConfig)
                         ApiClient.reset()
                         return@launch
                     }

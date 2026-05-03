@@ -147,6 +147,7 @@ export class RemoteServer {
     private _tunnelUrl: string | null = null;
     private _tunnelProvider: 'ngrok' | 'cloudflared' | null = null;
     private _tunnelProcess: any = null;
+    private tunnelStartPromise: Promise<string> | null = null;
     private _localIp: string = '';
 
     // WebSocket event listeners cleanup
@@ -4316,8 +4317,14 @@ prompt.addEventListener('keydown', event => {
     // POST /api/tunnel/start
     private async handleTunnelStart(_req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
         if (this._tunnelUrl) {
-            this.jsonResponse(res, 200, { success: true, url: this._tunnelUrl, provider: this._tunnelProvider, message: 'Туннель уже активен' });
-            return;
+            const currentUrl = this._tunnelUrl;
+            const currentProvider = this._tunnelProvider || 'ngrok';
+            if (this._tunnelProcess && await this.isTunnelHealthy(currentUrl)) {
+                this.jsonResponse(res, 200, { success: true, url: currentUrl, provider: currentProvider, message: 'Туннель уже активен' });
+                return;
+            }
+            console.warn(`[RemoteCodeOnPC] stale tunnel detected, restarting: ${currentUrl}`);
+            this.stopTunnel();
         }
         try {
             const url = await this.startTunnel();
@@ -4948,16 +4955,29 @@ prompt.addEventListener('keydown', event => {
         });
     }
 
+    private async isTunnelHealthy(publicUrl: string): Promise<boolean> {
+        try {
+            const statusCode = await this.httpStatus(`${publicUrl.replace(/\/+$/, '')}/api/status`, 5000);
+            return statusCode >= 200 && statusCode < 300;
+        } catch {
+            return false;
+        }
+    }
+
     private sleep(ms: number): Promise<void> {
         return new Promise(resolve => setTimeout(resolve, ms));
     }
 
     private async startTunnel(): Promise<string> {
+        if (this.tunnelStartPromise) return this.tunnelStartPromise;
         const launcher = this.findTunnelLauncher();
         if (!launcher) {
             throw new Error('Не найден рабочий ngrok или cloudflared. Установите один из них либо вставьте готовый публичный URL вручную в настройках приложения.');
         }
-        return this.startTunnelWithLauncher(launcher);
+        this.tunnelStartPromise = this.startTunnelWithLauncher(launcher).finally(() => {
+            this.tunnelStartPromise = null;
+        });
+        return this.tunnelStartPromise;
     }
 
     private stopTunnel(): void {
