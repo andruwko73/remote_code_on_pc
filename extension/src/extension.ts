@@ -115,7 +115,24 @@ export function activate(context: vscode.ExtensionContext) {
         vscode.window.showInformationMessage(msg);
     });
 
-    context.subscriptions.push(startCmd, stopCmd, tunnelCmd, statusCmd, openChatCmd);
+    const connectionCmd = vscode.commands.registerCommand('remoteCodeOnPC.connection', async () => {
+        if (!server) {
+            server = new RemoteServer(context);
+        }
+        if (!server.isRunning) {
+            try {
+                await server.start();
+                updateStatusBar();
+            } catch (err: any) {
+                vscode.window.showErrorMessage(`Remote Code server failed: ${err.message}`);
+                server = undefined;
+                return;
+            }
+        }
+        await server.showConnectionSettings();
+    });
+
+    context.subscriptions.push(startCmd, stopCmd, tunnelCmd, statusCmd, openChatCmd, connectionCmd);
 }
 
 function updateStatusBar() {

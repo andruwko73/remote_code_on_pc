@@ -181,7 +181,10 @@ fun CodexScreen(
                 onDeleteThread = onDeleteThread,
                 onStopGeneration = onStopGeneration,
                 onRespondToAction = onRespondToAction,
-                onOpenFile = onOpenFile
+                onOpenFile = {
+                    onOpenFile(it)
+                    selectedTab = 1
+                }
             )
             1 -> FilesScreen(
                 folders = folders,

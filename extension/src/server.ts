@@ -4,6 +4,7 @@ import * as url from 'url';
 import * as path from 'path';
 import * as fs from 'fs';
 import * as os from 'os';
+import * as crypto from 'crypto';
 import * as vscode from 'vscode';
 import { WebSocketServer, WebSocket } from 'ws';
 import { spawn, spawnSync, execSync } from 'child_process';
@@ -304,14 +305,15 @@ export class RemoteServer {
             return;
         }
 
-        // Auth check
-        if (this._authToken && !this.checkAuth(req)) {
+        const parsedUrl = url.parse(req.url || '/', true);
+        const pathname = parsedUrl.pathname || '/';
+
+        // Public status endpoints let the Android app distinguish "PC not found"
+        // from "PC found, token required" without exposing protected data.
+        if (this._authToken && !this.isPublicStatusEndpoint(pathname) && !this.checkAuth(req)) {
             this.jsonResponse(res, 401, { error: 'Unauthorized' });
             return;
         }
-
-        const parsedUrl = url.parse(req.url || '/', true);
-        const pathname = parsedUrl.pathname || '/';
 
         try {
             switch (true) {
@@ -399,12 +401,15 @@ export class RemoteServer {
     // ========== API HANDLERS ==========
 
     // GET /api/status
-    private async handleStatus(_req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
+    private async handleStatus(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
         const workspaceFolders = vscode.workspace.workspaceFolders || [];
         const activeEditor = vscode.window.activeTextEditor;
+        const authOk = this.checkAuth(req);
+        const publicUrl = this._tunnelUrl || null;
 
         this.jsonResponse(res, 200, {
             version: vscode.version,
+            serverVersion: this.getExtensionVersion(),
             appName: vscode.env.appName,
             isRunning: true,
             platform: process.platform,
@@ -413,9 +418,13 @@ export class RemoteServer {
                 host: this._host,
                 localIp: this._localIp,
                 localUrl: `http://${this._localIp}:${this._port}`,
-                publicUrl: this._tunnelUrl,
-                tunnelActive: !!this._tunnelUrl,
-                authRequired: !!this._authToken
+                publicUrl,
+                tunnelUrl: publicUrl,
+                activeUrl: publicUrl || `http://${this._localIp}:${this._port}`,
+                tunnelActive: !!publicUrl,
+                authRequired: !!this._authToken,
+                authOk,
+                tokenConfigured: !!this._authToken
             },
             workspace: {
                 folders: workspaceFolders.map(f => ({
@@ -1232,6 +1241,22 @@ export class RemoteServer {
         return parsed.query.token === this._authToken;
     }
 
+    private isPublicStatusEndpoint(pathname: string): boolean {
+        return pathname === '/api/status' || pathname === '/api/tunnel/status';
+    }
+
+    private getExtensionVersion(): string {
+        return vscode.extensions.getExtension('remote-code-on-pc.remote-code-on-pc')?.packageJSON?.version
+            || (this._context as any).extension?.packageJSON?.version
+            || 'dev';
+    }
+
+    private enrichCodexMessageForClient(message: CodexChatMessage): CodexChatMessage {
+        if (message.changeSummary?.files?.length) return message;
+        const summary = this.getGitChangeSummaryFromMessage(message.content || '');
+        return summary ? { ...message, changeSummary: summary } : message;
+    }
+
     private jsonResponse(res: http.ServerResponse, status: number, data: any): void {
         const body = JSON.stringify(data);
         const bytes = Buffer.byteLength(body, 'utf8');
@@ -1556,7 +1581,7 @@ export class RemoteServer {
             seen.add(key);
             merged.push(message);
         }
-        return merged.slice(-limit);
+        return merged.slice(-limit).map(message => this.enrichCodexMessageForClient(message));
     }
 
     private createRemoteCodeThread(): string {
@@ -2027,6 +2052,57 @@ export class RemoteServer {
         this.openPcChatPanel();
     }
 
+    public async showConnectionSettings(): Promise<void> {
+        const localUrl = `http://${this._localIp || '127.0.0.1'}:${this._port}`;
+        const publicUrl = this._tunnelUrl || '';
+        const tokenState = this._authToken ? 'токен включен' : 'токен не задан';
+        const items: Array<vscode.QuickPickItem & { action: string }> = [
+            { label: 'Скопировать локальный URL', description: localUrl, action: 'copyLocal' },
+            { label: publicUrl ? 'Скопировать публичный URL' : 'Запустить внешний туннель', description: publicUrl || 'ngrok/cloudflared', action: publicUrl ? 'copyPublic' : 'startTunnel' },
+            { label: this._authToken ? 'Скопировать токен доступа' : 'Создать токен доступа', description: tokenState, action: this._authToken ? 'copyToken' : 'createToken' },
+            { label: 'Открыть настройки расширения', description: 'порт, host, token, file watchers', action: 'openSettings' }
+        ];
+        const picked = await vscode.window.showQuickPick(items, {
+            title: 'Remote Code: подключение',
+            placeHolder: `${localUrl}${publicUrl ? ` / ${publicUrl}` : ''} · ${tokenState}`
+        });
+        if (!picked) return;
+        switch (picked.action) {
+            case 'copyLocal':
+                await vscode.env.clipboard.writeText(localUrl);
+                await vscode.window.setStatusBarMessage('Remote Code: локальный URL скопирован', 1800);
+                return;
+            case 'copyPublic':
+                await vscode.env.clipboard.writeText(publicUrl);
+                await vscode.window.setStatusBarMessage('Remote Code: публичный URL скопирован', 1800);
+                return;
+            case 'copyToken':
+                await vscode.env.clipboard.writeText(this._authToken);
+                await vscode.window.showInformationMessage('Remote Code: токен скопирован. Вставьте его в настройках APK.');
+                return;
+            case 'createToken': {
+                const token = crypto.randomBytes(24).toString('hex');
+                await vscode.workspace.getConfiguration('remoteCodeOnPC').update('authToken', token, vscode.ConfigurationTarget.Global);
+                this._authToken = token;
+                await vscode.env.clipboard.writeText(token);
+                await vscode.window.showInformationMessage('Remote Code: токен создан и скопирован. Вставьте его в приложении на телефоне.');
+                return;
+            }
+            case 'startTunnel':
+                try {
+                    const url = await this.startTunnel();
+                    await vscode.env.clipboard.writeText(url);
+                    await vscode.window.showInformationMessage(`Remote Code: туннель запущен и URL скопирован: ${url}`);
+                } catch (err: any) {
+                    await vscode.window.showErrorMessage(`Remote Code: не удалось запустить туннель: ${err?.message || err}`);
+                }
+                return;
+            case 'openSettings':
+                await vscode.commands.executeCommand('workbench.action.openSettings', 'remoteCodeOnPC');
+                return;
+        }
+    }
+
     private openPcChatPanel(): void {
         if (this.pcChatPanel) {
             this.pcChatPanel.reveal(vscode.ViewColumn.Beside, true);
@@ -2180,6 +2256,9 @@ export class RemoteServer {
                 return;
             case 'openScm':
                 await vscode.commands.executeCommand('workbench.view.scm');
+                return;
+            case 'showConnectionSettings':
+                await this.showConnectionSettings();
                 return;
             case 'openSettings':
                 await vscode.commands.executeCommand('workbench.action.openSettings', 'remoteCodeOnPC');
@@ -3099,6 +3178,7 @@ button.send.stop:hover{background:#fff}
       <button class="item" type="button" data-action="renameThread">&#1055;&#1077;&#1088;&#1077;&#1080;&#1084;&#1077;&#1085;&#1086;&#1074;&#1072;&#1090;&#1100; &#1095;&#1072;&#1090;</button>
       <button class="item" type="button" data-action="clearChat">&#1054;&#1095;&#1080;&#1089;&#1090;&#1080;&#1090;&#1100; &#1095;&#1072;&#1090;</button>
       <button class="item" type="button" data-action="deleteCurrentThread">&#1059;&#1076;&#1072;&#1083;&#1080;&#1090;&#1100; &#1095;&#1072;&#1090;</button>
+      <button class="item" type="button" data-action="showConnectionSettings">&#1055;&#1086;&#1076;&#1082;&#1083;&#1102;&#1095;&#1077;&#1085;&#1080;&#1077;</button>
       <button class="item" type="button" data-action="openSettings">&#1053;&#1072;&#1089;&#1090;&#1088;&#1086;&#1081;&#1082;&#1080;</button>
     </div>
   </div>
@@ -3952,7 +4032,8 @@ prompt.addEventListener('keydown', event => {
     // ========== TUNNEL (Internet access) HANDLERS ==========
 
     // GET /api/tunnel/status
-    private async handleTunnelStatus(_req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
+    private async handleTunnelStatus(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
+        const authOk = this.checkAuth(req);
         this.jsonResponse(res, 200, {
             tunnelActive: !!this._tunnelUrl,
             tunnelUrl: this._tunnelUrl,
@@ -3960,7 +4041,10 @@ prompt.addEventListener('keydown', event => {
             port: this._port,
             localUrl: `http://${this._localIp}:${this._port}`,
             publicUrl: this._tunnelUrl,
-            authRequired: !!this._authToken
+            authRequired: !!this._authToken,
+            authOk,
+            tokenConfigured: !!this._authToken,
+            manualUrlSupported: true
         });
     }
 

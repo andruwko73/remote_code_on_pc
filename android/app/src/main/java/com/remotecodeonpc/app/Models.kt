@@ -12,12 +12,28 @@ data class ServerConfig(
 
 data class WorkspaceStatus(
     val version: String = "",
+    val serverVersion: String = "",
     val appName: String = "",
     val isRunning: Boolean = false,
     val platform: String = "",
+    val remoteCode: RemoteCodeStatus? = null,
     val workspace: WorkspaceInfo? = null,
     val uptime: Double = 0.0,
     val memoryUsage: Long = 0
+)
+
+data class RemoteCodeStatus(
+    val port: Int = 8799,
+    val host: String = "",
+    val localIp: String = "",
+    val localUrl: String = "",
+    val publicUrl: String? = null,
+    val tunnelUrl: String? = null,
+    val activeUrl: String? = null,
+    val tunnelActive: Boolean = false,
+    val authRequired: Boolean = false,
+    val authOk: Boolean = true,
+    val tokenConfigured: Boolean = false
 )
 
 data class WorkspaceInfo(
@@ -95,9 +111,11 @@ data class DiagnosticsResponse(
 // Обёртки для API
 data class StatusResponse(
     val version: String = "",
+    val serverVersion: String = "",
     val appName: String = "",
     val isRunning: Boolean = false,
     val platform: String = "",
+    val remoteCode: RemoteCodeStatus? = null,
     val workspace: WorkspaceInfo? = null,
     val uptime: Double = 0.0,
     val memoryUsage: Long = 0
@@ -274,7 +292,11 @@ data class TunnelStatusResponse(
     val localIp: String = "",
     val port: Int = 8799,
     val localUrl: String = "",
-    val publicUrl: String? = null
+    val publicUrl: String? = null,
+    val authRequired: Boolean = false,
+    val authOk: Boolean = true,
+    val tokenConfigured: Boolean = false,
+    val manualUrlSupported: Boolean = true
 )
 
 data class TunnelActionResponse(

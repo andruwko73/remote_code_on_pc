@@ -496,6 +496,14 @@ private fun SettingsScreenV2(
     val canSave = compactHostText.isNotBlank() && compactPortText.toIntOrNull() != null && tunnelFormatOk
     val hasChanges = compactConfig != serverConfig
     val modeLabel = if (serverConfig.useTunnel) "Внешняя сеть" else "Локальная сеть"
+    val remoteStatus = status?.remoteCode
+    val extensionVersion = status?.serverVersion?.takeIf { it.isNotBlank() } ?: "—"
+    val authLabel = when {
+        remoteStatus?.authRequired != true -> "не нужен"
+        remoteStatus.authOk -> "принят"
+        compactTokenText.isBlank() -> "нужен"
+        else -> "не принят"
+    }
     val compactTunnelError = tunnelError
         ?.replace('\n', ' ')
         ?.replace("Установите ngrok.exe и добавьте его в PATH либо вставьте готовый публичный URL вручную в настройках приложения.", "Поставьте ngrok/cloudflared или вставьте публичный URL вручную.")
@@ -524,6 +532,8 @@ private fun SettingsScreenV2(
                 InfoSettingRow("Статус", if (isConnected) "Подключено" else "Отключено")
                 InfoSettingRow("Режим", modeLabel)
                 InfoSettingRow("APK", BuildConfig.VERSION_NAME)
+                InfoSettingRow("Расширение", extensionVersion)
+                InfoSettingRow("Токен", authLabel)
                 InfoSettingRow("VS Code", status?.version ?: "—")
                 if (localIp.isNotBlank()) InfoSettingRow("IP ПК", localIp)
             }
@@ -559,6 +569,7 @@ private fun SettingsScreenV2(
                         onValueChange = { compactHostText = it },
                         label = { Text("IP ПК", color = TextSecondary, fontSize = 12.sp) },
                         singleLine = true,
+                        textStyle = LocalTextStyle.current.copy(color = TextPrimary, fontSize = 15.sp),
                         leadingIcon = { Icon(Icons.Default.Computer, contentDescription = null, tint = AccentBlue, modifier = Modifier.size(18.dp)) },
                         modifier = Modifier.weight(1f).height(compactFieldHeight),
                         colors = outlinedFieldColors(),
@@ -569,8 +580,9 @@ private fun SettingsScreenV2(
                         onValueChange = { compactPortText = it.filter(Char::isDigit).take(5) },
                         label = { Text("Порт", color = TextSecondary, fontSize = 12.sp) },
                         singleLine = true,
+                        textStyle = LocalTextStyle.current.copy(color = TextPrimary, fontSize = 15.sp),
                         isError = compactPortText.toIntOrNull() == null,
-                        modifier = Modifier.width(112.dp).height(compactFieldHeight),
+                        modifier = Modifier.width(96.dp).height(compactFieldHeight),
                         colors = outlinedFieldColors(),
                         shape = RoundedCornerShape(11.dp)
                     )
@@ -582,6 +594,7 @@ private fun SettingsScreenV2(
                         onValueChange = { compactTunnelText = it },
                         label = { Text("Публичный URL", color = TextSecondary, fontSize = 12.sp) },
                         singleLine = true,
+                        textStyle = LocalTextStyle.current.copy(color = TextPrimary, fontSize = 14.sp),
                         leadingIcon = { Icon(Icons.Default.Public, contentDescription = null, tint = AccentGreen, modifier = Modifier.size(18.dp)) },
                         modifier = Modifier.fillMaxWidth().height(compactFieldHeight),
                         enabled = compactUseTunnel || tunnelActive,
@@ -596,10 +609,23 @@ private fun SettingsScreenV2(
                     onValueChange = { compactTokenText = it },
                     label = { Text("Токен доступа", color = TextSecondary, fontSize = 12.sp) },
                     singleLine = true,
+                    textStyle = LocalTextStyle.current.copy(color = TextPrimary, fontSize = 14.sp),
                     leadingIcon = { Icon(Icons.Default.Lock, contentDescription = null, tint = AccentBlue, modifier = Modifier.size(18.dp)) },
                     modifier = Modifier.fillMaxWidth().height(compactFieldHeight),
                     colors = outlinedFieldColors(),
                     shape = RoundedCornerShape(11.dp)
+                )
+                Text(
+                    when (authLabel) {
+                        "нужен" -> "Скопируйте токен в VS Code: меню Remote Code -> Подключение."
+                        "не принят" -> "Токен не совпал с настройками расширения."
+                        else -> "Локальный и внешний режим используют один токен."
+                    },
+                    color = if (authLabel == "не принят" || authLabel == "нужен") ErrorRed else TextSecondary,
+                    fontSize = 11.sp,
+                    lineHeight = 13.sp,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis
                 )
 
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -717,6 +743,8 @@ private fun InfoSettingRow(label: String, value: String) {
             fontSize = 14.sp,
             fontWeight = FontWeight.Medium,
             textAlign = TextAlign.End,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
             modifier = Modifier.weight(1f)
         )
     }

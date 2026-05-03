@@ -130,6 +130,42 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    private fun StatusResponse?.toWorkspaceStatus(): WorkspaceStatus {
+        return WorkspaceStatus(
+            version = this?.version ?: "",
+            serverVersion = this?.serverVersion ?: "",
+            appName = this?.appName ?: "",
+            isRunning = this?.isRunning ?: false,
+            platform = this?.platform ?: "",
+            remoteCode = this?.remoteCode,
+            workspace = this?.workspace,
+            uptime = this?.uptime ?: 0.0,
+            memoryUsage = this?.memoryUsage ?: 0
+        )
+    }
+
+    private fun tokenRequiredError(status: StatusResponse?): String? {
+        val remote = status?.remoteCode ?: return null
+        return if (remote.authRequired && !remote.authOk) {
+            "Требуется токен доступа. В VS Code откройте Remote Code on PC: Подключение, скопируйте токен и вставьте его в приложении."
+        } else {
+            null
+        }
+    }
+
+    private fun applyConnectionStatus(status: StatusResponse?, connected: Boolean, error: String?) {
+        val remote = status?.remoteCode
+        _uiState.value = _uiState.value.copy(
+            isConnected = connected,
+            isConnecting = false,
+            connectionError = error,
+            status = status.toWorkspaceStatus(),
+            localIp = remote?.localIp?.takeIf { it.isNotBlank() } ?: _uiState.value.localIp,
+            tunnelActive = remote?.tunnelActive ?: _uiState.value.tunnelActive,
+            tunnelUrl = remote?.publicUrl ?: remote?.tunnelUrl ?: _uiState.value.tunnelUrl
+        )
+    }
+
     // ===== CONNECTION =====
 
     fun updateServerConfig(config: ServerConfig) {
@@ -159,20 +195,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 if (response.isSuccessful) {
                     val status = response.body()
                     CrashLogger.i("ViewModel", "Connected! status: version=${status?.version}")
-                    _uiState.value = _uiState.value.copy(
-                        isConnected = true,
-                        isConnecting = false,
-                        connectionError = null,
-                        status = WorkspaceStatus(
-                            version = status?.version ?: "",
-                            appName = status?.appName ?: "",
-                            isRunning = status?.isRunning ?: false,
-                            platform = status?.platform ?: "",
-                            workspace = status?.workspace,
-                            uptime = status?.uptime ?: 0.0,
-                            memoryUsage = status?.memoryUsage ?: 0
-                        )
-                    )
+                    val authError = tokenRequiredError(status)
+                    applyConnectionStatus(status, authError == null, authError)
+                    if (authError != null) return@launch
                     connectWebSocket()
                     loadFolders()
                     // Heavy history scans are loaded on demand to keep first paint fast.
@@ -184,7 +209,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     CrashLogger.w("ViewModel", "getStatus failed: code=${response.code()}, message=${response.message()}")
                     _uiState.value = _uiState.value.copy(
                         isConnecting = false,
-                        connectionError = "РћС€РёР±РєР° ${response.code()}: ${response.message()}"
+                        connectionError = if (response.code() == 401) {
+                            "Требуется токен доступа. Скопируйте токен в VS Code: Remote Code on PC: Подключение."
+                        } else {
+                            "Ошибка ${response.code()}: ${response.message()}"
+                        }
                     )
                 }
             } catch (e: Exception) {
@@ -192,20 +221,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 try {
                     val status = SimpleHttpClient.getStatus(config)
                     CrashLogger.i("ViewModel", "Connected with simple HTTP fallback: version=${status.version}")
-                    _uiState.value = _uiState.value.copy(
-                        isConnected = true,
-                        isConnecting = false,
-                        connectionError = null,
-                        status = WorkspaceStatus(
-                            version = status.version,
-                            appName = status.appName,
-                            isRunning = status.isRunning,
-                            platform = status.platform,
-                            workspace = status.workspace,
-                            uptime = status.uptime,
-                            memoryUsage = status.memoryUsage
-                        )
-                    )
+                    val authError = tokenRequiredError(status)
+                    applyConnectionStatus(status, authError == null, authError)
+                    if (authError != null) return@launch
                     connectWebSocket()
                     loadFolders()
                     // Heavy history scans are loaded on demand to keep first paint fast.
@@ -1134,16 +1152,21 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 val response = api.getTunnelStatus()
                 if (response.isSuccessful) {
                     val body = response.body()
+                    val url = body?.publicUrl ?: body?.tunnelUrl
                     _uiState.value = _uiState.value.copy(
                         tunnelActive = body?.tunnelActive ?: false,
-                        tunnelUrl = body?.tunnelUrl,
+                        tunnelUrl = url,
                         localIp = body?.localIp ?: "",
-                        tunnelError = null
+                        tunnelError = if (body?.authRequired == true && !body.authOk) {
+                            "Требуется токен доступа для управления туннелем."
+                        } else {
+                            null
+                        }
                     )
                     // Р•СЃР»Рё С‚СѓРЅРЅРµР»СЊ Р°РєС‚РёРІРµРЅ вЂ” РѕР±РЅРѕРІР»СЏРµРј РєРѕРЅС„РёРі РґР»СЏ Android
-                    if (body?.tunnelActive == true && body.tunnelUrl != null) {
+                    if (body?.tunnelActive == true && url != null) {
                         val updatedConfig = _uiState.value.serverConfig.copy(
-                            tunnelUrl = body.tunnelUrl,
+                            tunnelUrl = url,
                             useTunnel = body.tunnelActive
                         )
                         _uiState.value = _uiState.value.copy(serverConfig = updatedConfig)
@@ -1184,10 +1207,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     ApiClient.reset()
                     connectWebSocket()
                 } else {
-                    val errorText = body?.error
-                        ?: response.errorBody()?.string()?.let { parseServerError(it) }
-                        ?: body?.message
-                        ?: "Ошибка ${response.code()}"
+                    val errorText = if (response.code() == 401) {
+                        "Требуется токен доступа для запуска туннеля."
+                    } else {
+                        body?.error
+                            ?: response.errorBody()?.string()?.let { parseServerError(it) }
+                            ?: body?.message
+                            ?: "Ошибка ${response.code()}"
+                    }
                     _uiState.value = _uiState.value.copy(
                         isTunnelStarting = false,
                         tunnelActive = false,
