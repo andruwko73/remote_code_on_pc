@@ -3075,23 +3075,23 @@ svg{width:15px;height:15px;display:block;fill:none;stroke:currentColor;stroke-wi
 .thread-delete:hover{background:#463033;color:#f2b0b0}
 .content-shell{flex:1;min-height:0;display:flex;overflow:hidden}
 .messages{flex:1;min-width:0;overflow:auto;padding:18px min(3.3vw,38px) 12px}
-.progress-panel{width:320px;max-width:33vw;align-self:flex-start;margin:16px min(2vw,28px) 16px 0;background:rgba(36,36,36,.96);border:1px solid var(--codex-border);border-radius:22px;padding:18px;box-shadow:0 18px 48px rgba(0,0,0,.34);max-height:calc(100% - 32px);overflow:auto;color:#cfcfcf}
-.progress-title{font-size:15px;font-weight:650;color:#9e9e9e;margin-bottom:10px}
-.progress-list,.progress-section{display:flex;flex-direction:column;gap:10px}
-.progress-item{display:grid;grid-template-columns:22px 1fr;gap:9px;align-items:start;color:#b9b9b9;font-size:14px;line-height:1.42}
-.progress-dot{width:15px;height:15px;border:1.8px solid #8f9094;border-radius:999px;margin-top:3px;display:inline-flex;align-items:center;justify-content:center;color:#cacaca}
+.progress-panel{width:268px;max-width:22vw;align-self:flex-start;margin:14px min(1.6vw,22px) 14px 0;background:rgba(36,36,36,.96);border:1px solid var(--codex-border);border-radius:18px;padding:14px;box-shadow:0 16px 42px rgba(0,0,0,.32);max-height:calc(100% - 28px);overflow:auto;color:#cfcfcf}
+.progress-title{font-size:13.5px;font-weight:650;color:#9e9e9e;margin-bottom:9px}
+.progress-list,.progress-section{display:flex;flex-direction:column;gap:8px}
+.progress-item{display:grid;grid-template-columns:20px 1fr;gap:8px;align-items:start;color:#b9b9b9;font-size:12.5px;line-height:1.4}
+.progress-dot{width:14px;height:14px;border:1.7px solid #8f9094;border-radius:999px;margin-top:2px;display:inline-flex;align-items:center;justify-content:center;color:#cacaca}
 .progress-item.done .progress-dot::after{content:'✓';font-size:11px;line-height:1}
 .progress-item.done .progress-dot{border-color:#a6a7aa}
 .progress-item.running .progress-dot{border-color:#a6a7aa;border-left-color:transparent;animation:spin .9s linear infinite}
 .progress-item.pending{color:#aaa}
-.progress-divider{height:1px;background:var(--codex-border);margin:14px 0}
-.progress-subtitle{font-size:13px;color:#8f8f8f;font-weight:650;margin:0 0 10px}
-.progress-button,.progress-artifact{border:0;background:transparent;color:#f0f0f0;width:100%;display:flex;align-items:center;gap:10px;text-align:left;padding:4px 2px;border-radius:8px;cursor:pointer;font:inherit;font-size:14px;line-height:1.25}
+.progress-divider{height:1px;background:var(--codex-border);margin:12px 0}
+.progress-subtitle{font-size:12.5px;color:#8f8f8f;font-weight:650;margin:0 0 8px}
+.progress-button,.progress-artifact{border:0;background:transparent;color:#f0f0f0;width:100%;display:flex;align-items:center;gap:8px;text-align:left;padding:4px 2px;border-radius:8px;cursor:pointer;font:inherit;font-size:12.5px;line-height:1.25}
 .progress-button:hover,.progress-artifact:hover{background:var(--codex-selected)}
 .progress-button svg,.progress-artifact svg{width:15px;height:15px;flex:0 0 auto}
 .progress-muted{color:#9a9a9a}
 .progress-artifact span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.progress-empty{font-size:13px;color:#888}
+.progress-empty{font-size:12.5px;color:#888}
 .msg{position:relative;padding:1px 0 18px;margin:0 auto;background:transparent;border:0;max-width:960px}
 .msg.user{max-width:640px;margin-left:auto;margin-right:min(2vw,20px);color:var(--codex-bright)}
 .msg.user .role,.msg.user .meta{display:none}
@@ -3201,9 +3201,9 @@ button.send.stop:hover{background:#fff}
 .scroll-bottom.hidden{opacity:0;pointer-events:none;transform:translateY(8px)}
 @keyframes pulse{0%,100%{opacity:.35;transform:scale(.82)}50%{opacity:1;transform:scale(1)}}
 @keyframes spin{to{transform:rotate(360deg)}}
-@media (min-width: 1050px){:root{--progress-offset:330px}}
-@media (max-width: 1049px){.content-shell{display:block;overflow:auto}.messages{height:auto;overflow:visible}.progress-panel{width:auto;max-width:960px;margin:0 min(3.3vw,38px) 12px}.scroll-bottom{display:none}}
-@media (max-width: 680px){.top{padding:0 10px}.messages{padding-left:14px;padding-right:14px}.composer-wrap{padding-left:8px;padding-right:8px}.controls{flex-wrap:wrap}button.send{margin-left:auto}.subcontrols{gap:8px;flex-wrap:wrap}.dropdown.profile{flex-basis:132px}.progress-panel{margin-left:14px;margin-right:14px}}
+@media (min-width: 1280px){:root{--progress-offset:282px}}
+@media (max-width: 1279px){.content-shell{display:block;overflow:auto}.messages{height:auto;overflow:visible}.progress-panel{display:none}.scroll-bottom{display:none}}
+@media (max-width: 680px){.top{padding:0 10px}.messages{padding-left:14px;padding-right:14px}.composer-wrap{padding-left:8px;padding-right:8px}.controls{flex-wrap:wrap}button.send{margin-left:auto}.subcontrols{gap:8px;flex-wrap:wrap}.dropdown.profile{flex-basis:132px}}
 </style>
 </head>
 <body>
@@ -3725,16 +3725,27 @@ prompt.addEventListener('keydown', event => {
 
     private extractProgressTaskLabels(content: string): string[] {
         const labels: string[] = [];
-        for (const rawLine of content.replace(/\r\n/g, '\n').split('\n')) {
+        let normalized = content.replace(/\r\n/g, '\n');
+        const requestMatch = normalized.match(/##\s*My request for Codex:\s*/i);
+        if (requestMatch?.index !== undefined) {
+            normalized = normalized.slice(requestMatch.index + requestMatch[0].length);
+        }
+        for (const rawLine of normalized.split('\n')) {
             const line = rawLine.trim();
+            if (!line || line.startsWith('#') || /^Files mentioned by the user/i.test(line)) continue;
+            if (/^[A-Za-z]:[\\/]/.test(line) || /^##\s+.+\.(?:png|jpe?g|webp|gif|txt|md|log|json):/i.test(line)) continue;
             const match = line.match(/^(?:\d+[\.)]|[-*•])\s+(.{3,})$/);
             if (match?.[1]) {
                 labels.push(match[1].replace(/\s+/g, ' ').slice(0, 120));
             }
             if (labels.length >= 5) break;
         }
-        if (labels.length === 0 && content.trim()) {
-            labels.push(content.trim().replace(/\s+/g, ' ').slice(0, 140));
+        if (labels.length === 0 && normalized.trim()) {
+            const firstTextLine = normalized
+                .split('\n')
+                .map(line => line.trim())
+                .find(line => line && !line.startsWith('#') && !/^[A-Za-z]:[\\/]/.test(line));
+            if (firstTextLine) labels.push(firstTextLine.replace(/\s+/g, ' ').slice(0, 140));
         }
         return labels;
     }
