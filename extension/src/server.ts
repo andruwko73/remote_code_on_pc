@@ -4792,7 +4792,7 @@ prompt.addEventListener('keydown', event => {
     private startTunnelWithLauncher(launcher: TunnelLauncher): Promise<string> {
         return new Promise((resolve, reject) => {
             const args = launcher.provider === 'cloudflared'
-                ? [...launcher.prefixArgs, 'tunnel', '--url', `http://127.0.0.1:${this._port}`, '--no-autoupdate']
+                ? [...launcher.prefixArgs, 'tunnel', '--url', `http://127.0.0.1:${this._port}`, '--no-autoupdate', '--protocol', 'http2']
                 : [...launcher.prefixArgs, 'http', String(this._port), '--log=stdout'];
 
             const ngrokConfig = path.join(process.env.USERPROFILE || '', '.ngrok2', 'ngrok.yml');
