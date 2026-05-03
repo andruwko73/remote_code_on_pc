@@ -255,7 +255,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             try {
                 val api = ApiClient.getApi(config)
                 val response = api.getStatus()
-                if (!config.useTunnel || response.isSuccessful || (response.code() != 503 && response.code() != 502)) {
+                if (!config.useTunnel || response.isSuccessful || !isRetryableTunnelStatus(response.code())) {
                     return response
                 }
                 lastResponse = response
@@ -271,10 +271,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         throw lastError ?: IllegalStateException("connection failed")
     }
 
+    private fun isRetryableTunnelStatus(code: Int): Boolean = code == 502 || code == 503 || code == 530
+
     private fun formatConnectionError(config: ServerConfig, raw: String, code: Int? = null): String {
         if (!config.useTunnel) return "Connection error: $raw"
         val lower = raw.lowercase()
         return when {
+            code == 530 || "http 530" in lower || "status code 530" in lower || "ошибка 530" in lower || "error 530" in lower ->
+                "Cloudflare вернул 530: публичный URL потерял связь с ПК или устарел. Остановите и снова запустите туннель, дождитесь нового trycloudflare URL и подключитесь к нему."
             code == 503 || code == 502 || "503" in lower || "bad gateway" in lower ->
                 "Туннель найден, но Cloudflare/ngrok пока не достучался до ПК. Перезапустите туннель в расширении и подождите 10-20 секунд."
             "unable to resolve host" in lower || "no address associated" in lower || "failed to resolve" in lower ->
@@ -1234,16 +1238,32 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 val body = response.body()
                 val url = body?.url
                 if (response.isSuccessful && body?.success == true && !url.isNullOrBlank()) {
+                    val updatedConfig = _uiState.value.serverConfig.copy(
+                        useTunnel = true,
+                        tunnelUrl = url
+                    )
+                    val validation = getStatusWithRetries(updatedConfig)
+                    if (!validation.isSuccessful) {
+                        val errorText = formatConnectionError(
+                            updatedConfig,
+                            "Ошибка ${validation.code()}: ${validation.message()}",
+                            validation.code()
+                        )
+                        _uiState.value = _uiState.value.copy(
+                            isTunnelStarting = false,
+                            tunnelActive = false,
+                            tunnelError = errorText,
+                            connectionError = errorText
+                        )
+                        ApiClient.reset()
+                        return@launch
+                    }
                     _uiState.value = _uiState.value.copy(
                         tunnelActive = true,
                         tunnelUrl = url,
                         tunnelProvider = body.provider,
                         isTunnelStarting = false,
                         tunnelError = null
-                    )
-                    val updatedConfig = _uiState.value.serverConfig.copy(
-                        useTunnel = true,
-                        tunnelUrl = url
                     )
                     _uiState.value = _uiState.value.copy(serverConfig = updatedConfig)
                     saveConfig(updatedConfig)

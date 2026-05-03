@@ -4900,21 +4900,30 @@ prompt.addEventListener('keydown', event => {
                     this._tunnelProcess = null;
                     this._tunnelUrl = null;
                     this._tunnelProvider = null;
-                    reject(new Error(`Таймаут запуска ${launcher.provider} (30 сек). Проверьте установку или вставьте публичный URL вручную.`));
+                    reject(new Error(`Таймаут запуска ${launcher.provider} (45 сек). Проверьте установку или вставьте публичный URL вручную.`));
                 }
-            }, 30000);
+            }, 45000);
         });
     }
 
     private async waitForTunnelReady(publicUrl: string, provider: 'ngrok' | 'cloudflared'): Promise<void> {
-        const attempts = provider === 'cloudflared' ? 12 : 8;
+        const attempts = provider === 'cloudflared' ? 18 : 8;
+        const requiredOkStreak = provider === 'cloudflared' ? 3 : 1;
+        let okStreak = 0;
         let lastError = 'not checked';
         for (let attempt = 1; attempt <= attempts; attempt++) {
             try {
                 const statusCode = await this.httpStatus(`${publicUrl.replace(/\/+$/, '')}/api/status`, 5000);
-                if (statusCode >= 200 && statusCode < 300) return;
-                lastError = `HTTP ${statusCode}`;
+                if (statusCode >= 200 && statusCode < 300) {
+                    okStreak += 1;
+                    if (okStreak >= requiredOkStreak) return;
+                    lastError = `HTTP ${statusCode}, stable ${okStreak}/${requiredOkStreak}`;
+                } else {
+                    okStreak = 0;
+                    lastError = `HTTP ${statusCode}`;
+                }
             } catch (err: any) {
+                okStreak = 0;
                 lastError = err?.message || String(err);
             }
             await this.sleep(attempt < 4 ? 1200 : 2200);
