@@ -13,6 +13,8 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -241,6 +243,7 @@ private fun ConnectionScreen(
     var host by remember(serverConfig.host) { mutableStateOf(serverConfig.host) }
     var port by remember(serverConfig.port) { mutableStateOf(serverConfig.port.toString()) }
     var authToken by remember(serverConfig.authToken) { mutableStateOf(serverConfig.authToken) }
+    var showToken by remember { mutableStateOf(false) }
     var useTunnel by remember(serverConfig.useTunnel) { mutableStateOf(serverConfig.useTunnel) }
     var tunnelUrl by remember(serverConfig.tunnelUrl) { mutableStateOf(serverConfig.tunnelUrl) }
     var confirmClearLogs by remember { mutableStateOf(false) }
@@ -428,6 +431,17 @@ private fun ConnectionScreen(
             },
             singleLine = true,
             leadingIcon = { Icon(Icons.Default.Lock, contentDescription = null, tint = AccentBlue) },
+            trailingIcon = {
+                IconButton(onClick = { showToken = !showToken }) {
+                    Icon(
+                        if (showToken) Icons.Default.VisibilityOff else Icons.Default.Visibility,
+                        contentDescription = if (showToken) "Скрыть токен" else "Показать токен",
+                        tint = TextSecondary,
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
+            },
+            visualTransformation = if (showToken) VisualTransformation.None else PasswordVisualTransformation(),
             modifier = Modifier.fillMaxWidth().height(58.dp),
             textStyle = LocalTextStyle.current.copy(fontSize = 14.sp),
             isError = externalTokenMissing,
@@ -603,6 +617,7 @@ private fun SettingsScreenV2(
     var compactHostText by remember(serverConfig.host) { mutableStateOf(serverConfig.host) }
     var compactPortText by remember(serverConfig.port) { mutableStateOf(serverConfig.port.toString()) }
     var compactTokenText by remember(serverConfig.authToken) { mutableStateOf(serverConfig.authToken) }
+    var showCompactToken by remember { mutableStateOf(false) }
     var compactUseTunnel by remember(serverConfig.useTunnel) { mutableStateOf(serverConfig.useTunnel) }
     var confirmClearLogs by remember { mutableStateOf(false) }
     var compactTunnelText by remember(serverConfig.tunnelUrl, tunnelUrl) {
@@ -767,6 +782,17 @@ private fun SettingsScreenV2(
                     singleLine = true,
                     textStyle = LocalTextStyle.current.copy(color = TextPrimary, fontSize = 14.sp),
                     leadingIcon = { Icon(Icons.Default.Lock, contentDescription = null, tint = AccentBlue, modifier = Modifier.size(18.dp)) },
+                    trailingIcon = {
+                        IconButton(onClick = { showCompactToken = !showCompactToken }) {
+                            Icon(
+                                if (showCompactToken) Icons.Default.VisibilityOff else Icons.Default.Visibility,
+                                contentDescription = if (showCompactToken) "Скрыть токен" else "Показать токен",
+                                tint = TextSecondary,
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
+                    },
+                    visualTransformation = if (showCompactToken) VisualTransformation.None else PasswordVisualTransformation(),
                     modifier = Modifier.fillMaxWidth().height(compactFieldHeight),
                     colors = outlinedFieldColors(),
                     shape = RoundedCornerShape(11.dp)

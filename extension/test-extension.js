@@ -222,9 +222,12 @@ const androidFiles = [
 const remoteCodeApp = fs.readFileSync(path.join(androidBase, 'app', 'src', 'main', 'java', 'com', 'remotecodeonpc', 'app', 'RemoteCodeApp.kt'), 'utf-8');
 const codexScreen = fs.readFileSync(path.join(androidBase, 'app', 'src', 'main', 'java', 'com', 'remotecodeonpc', 'app', 'ui', 'screens', 'CodexScreen.kt'), 'utf-8');
 const apiClient = fs.readFileSync(path.join(androidBase, 'app', 'src', 'main', 'java', 'com', 'remotecodeonpc', 'app', 'network', 'ApiClient.kt'), 'utf-8');
+const connectionUrl = fs.readFileSync(path.join(androidBase, 'app', 'src', 'main', 'java', 'com', 'remotecodeonpc', 'app', 'network', 'ConnectionUrl.kt'), 'utf-8');
 assert(!remoteCodeApp.includes('.verticalScroll(rememberScrollState())'), 'Android connection screen avoids forced startup scroll', 'startup screen still has verticalScroll');
 assert(remoteCodeApp.includes('Arrangement.spacedBy(7.dp, Alignment.CenterVertically)'), 'Android connection screen is compact', 'compact connection layout missing');
 assert(remoteCodeApp.includes('Text("Логи"') && remoteCodeApp.includes('Text("Очистить"') && remoteCodeApp.includes('Text("Обновить"'), 'Android startup action buttons are present', 'startup action row missing');
+assert(remoteCodeApp.includes('PasswordVisualTransformation') && remoteCodeApp.includes('showToken') && remoteCodeApp.includes('showCompactToken'), 'Android token fields are masked by default', 'token field must not show secrets by default');
+assert(connectionUrl.includes('withKeeneticPort') && connectionUrl.includes('netcraze') && connectionUrl.includes('.keenetic.'), 'Android Keenetic URL gets Remote Code port', 'Keenetic URLs without explicit port should use the app port');
 assert(codexScreen.includes('item(key = "bottom-anchor")'), 'Android chat scrolls to a true bottom anchor', 'bottom anchor missing');
 assert(codexScreen.includes('showCurrentThreadMenu') && codexScreen.includes('pendingDeleteThread') && codexScreen.includes('onNavigateToSettings()'), 'Android current-chat menu buttons work', 'current chat menu wiring missing');
 assert(codexScreen.includes('attachmentPicker.launch') && codexScreen.includes('startVoiceInput'), 'Android composer file and voice buttons work', 'composer media/voice wiring missing');

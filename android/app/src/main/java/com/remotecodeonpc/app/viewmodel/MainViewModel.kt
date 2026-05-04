@@ -295,11 +295,17 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private fun formatConnectionError(config: ServerConfig, raw: String, code: Int? = null): String {
         if (!config.useTunnel) return "Connection error: $raw"
         val lower = raw.lowercase()
-        val externalPort = config.tunnelUrl
-            .substringAfterLast(":", "")
-            .substringBefore("/")
-            .toIntOrNull()
-            ?: config.port
+        val externalPort = runCatching {
+            val normalizedUrl = if (
+                config.tunnelUrl.startsWith("http://", ignoreCase = true) ||
+                config.tunnelUrl.startsWith("https://", ignoreCase = true)
+            ) {
+                config.tunnelUrl
+            } else {
+                "http://${config.tunnelUrl}"
+            }
+            java.net.URI(normalizedUrl).port.takeIf { it > 0 }
+        }.getOrNull() ?: config.port
         return when {
             "unexpected end of stream" in lower || "failed to connect" in lower ||
                 "connection reset" in lower || "timeout" in lower || "timed out" in lower ->
