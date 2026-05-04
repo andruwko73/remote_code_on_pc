@@ -289,7 +289,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private fun formatConnectionError(config: ServerConfig, raw: String, code: Int? = null): String {
         if (!config.useTunnel) return "Connection error: $raw"
         val lower = raw.lowercase()
+        val externalPort = config.tunnelUrl
+            .substringAfterLast(":", "")
+            .substringBefore("/")
+            .toIntOrNull()
+            ?: config.port
         return when {
+            "unexpected end of stream" in lower || "failed to connect" in lower ||
+                "connection reset" in lower || "timeout" in lower || "timed out" in lower ->
+                "Публичный URL не отвечает на TCP-порт $externalPort. В Keenetic нужен прямой доступ/KeenDNS Direct и проброс TCP $externalPort -> IP ПК:${config.port}; затем повторите подключение."
             code == 530 || "http 530" in lower || "status code 530" in lower || "ошибка 530" in lower || "error 530" in lower ->
                 "Публичный Keenetic URL доступен, но не доходит до ПК. Проверьте KeenDNS, проброс TCP-порта 8799 на IP ПК и что расширение запущено."
             code == 503 || code == 502 || "503" in lower || "bad gateway" in lower ->
