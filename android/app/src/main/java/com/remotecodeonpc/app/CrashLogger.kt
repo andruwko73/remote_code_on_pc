@@ -33,22 +33,22 @@ object CrashLogger {
     }
 
     fun d(tag: String, message: String) {
-        Log.d(tag, message)
+        Log.d(tag, sanitize(message))
         writeToFile("D", tag, message)
     }
 
     fun i(tag: String, message: String) {
-        Log.i(tag, message)
+        Log.i(tag, sanitize(message))
         writeToFile("I", tag, message)
     }
 
     fun w(tag: String, message: String) {
-        Log.w(tag, message)
+        Log.w(tag, sanitize(message))
         writeToFile("W", tag, message)
     }
 
     fun e(tag: String, message: String, tr: Throwable? = null) {
-        Log.e(tag, message, tr)
+        Log.e(tag, sanitize("$message${if (tr != null) " | ${tr::class.simpleName}: ${tr.message}" else ""}"))
         writeToFile("E", tag, "$message${if (tr != null) " | ${tr::class.simpleName}: ${tr.message}" else ""}")
         if (tr != null) {
             writeToFile("E", tag, stackTrace(tr))
@@ -56,7 +56,7 @@ object CrashLogger {
     }
 
     fun logException(tag: String, tr: Throwable) {
-        Log.e(tag, "Exception: ${tr.message}", tr)
+        Log.e(tag, sanitize("Exception: ${tr::class.simpleName}: ${tr.message}"))
         writeToFile("E", tag, "${tr::class.simpleName}: ${tr.message}")
         writeToFile("E", tag, stackTrace(tr))
     }
@@ -71,7 +71,7 @@ object CrashLogger {
     fun getLogContent(): String {
         val file = getLogFile() ?: return "No logs"
         return try {
-            file.readText().takeLast(MAX_SHARE_SIZE)
+            sanitize(file.readText().takeLast(MAX_SHARE_SIZE))
         } catch (e: Exception) {
             "Failed to read logs: ${e.message}"
         }
@@ -108,14 +108,30 @@ object CrashLogger {
                 rotate(file, File(dir, "app_logs_old.txt"))
             }
             val timestamp = dateFormat.format(Date())
-            val safeMessage = if (message.length > MAX_ENTRY_CHARS) {
-                message.take(MAX_ENTRY_CHARS) + "\n... truncated ..."
+            val sanitizedMessage = sanitize(message)
+            val safeMessage = if (sanitizedMessage.length > MAX_ENTRY_CHARS) {
+                sanitizedMessage.take(MAX_ENTRY_CHARS) + "\n... truncated ..."
             } else {
-                message
+                sanitizedMessage
             }
             file.appendText("[$timestamp] [$level] [$tag] $safeMessage\n")
         } catch (_: Exception) {
         }
+    }
+
+    private fun sanitize(value: String): String {
+        return value
+            .replace(Regex("""(?i)(Authorization:\s*Bearer\s+)[A-Za-z0-9._~+/\-]+"""), "$1[redacted]")
+            .replace(Regex("""(?i)(Bearer\s+)[A-Za-z0-9._~+/\-]{12,}"""), "$1[redacted]")
+            .replace(Regex("""(?i)([?&]token=)[^&\s]+"""), "$1[redacted]")
+            .replace(Regex("""(?i)(authToken["'\s:=]+)[A-Za-z0-9._~+/\-]{12,}"""), "$1[redacted]")
+            .replace(Regex("""\b(?:10|127)\.\d{1,3}\.\d{1,3}\.\d{1,3}\b"""), "[private-ip]")
+            .replace(Regex("""\b172\.(?:1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3}\b"""), "[private-ip]")
+            .replace(Regex("""\b192\.168\.\d{1,3}\.\d{1,3}\b"""), "[private-ip]")
+            .replace(
+                Regex("""(?i)https?://[^\s"'<>]+(?:trycloudflare\.com|netcraze\.io|keenetic\.(?:link|name|pro|io|net))[^\s"'<>]*"""),
+                "[public-url]"
+            )
     }
 
     private fun trimExistingLogs() {

@@ -517,7 +517,8 @@ export class RemoteServer {
 
         // Public status endpoints let the Android app distinguish "PC not found"
         // from "PC found, token required" without exposing protected data.
-        if (this._authToken && !this.isPublicStatusEndpoint(pathname) && !this.checkAuth(req)) {
+        const publicAccess = this.requestUsesPublicAccess(req);
+        if ((this._authToken || publicAccess) && !this.isPublicStatusEndpoint(pathname) && !this.checkAuth(req, publicAccess)) {
             this.jsonResponse(res, 401, { error: 'Unauthorized' });
             return;
         }
@@ -611,9 +612,14 @@ export class RemoteServer {
     private async handleStatus(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
         const workspaceFolders = vscode.workspace.workspaceFolders || [];
         const activeEditor = vscode.window.activeTextEditor;
-        const authOk = this.checkAuth(req);
+        const publicAccess = this.requestUsesPublicAccess(req);
+        const authOk = this.checkAuth(req, publicAccess);
         const publicUrl = this.getPublicUrl();
         const publicProvider = this.getPublicProvider();
+        if ((this._authToken || publicAccess) && !authOk) {
+            this.jsonResponse(res, 200, this.publicAuthRequiredStatus(publicUrl, publicProvider));
+            return;
+        }
 
         this.jsonResponse(res, 200, {
             version: vscode.version,
@@ -1446,8 +1452,8 @@ export class RemoteServer {
 
     // ========== HELPERS ==========
 
-    private checkAuth(req: http.IncomingMessage): boolean {
-        if (!this._authToken) return true;
+    private checkAuth(req: http.IncomingMessage, requireConfiguredToken = false): boolean {
+        if (!this._authToken) return !requireConfiguredToken;
         const authHeader = req.headers['authorization'];
         if (authHeader === `Bearer ${this._authToken}`) return true;
         const parsed = url.parse(req.url || '/', true);
@@ -1462,6 +1468,89 @@ export class RemoteServer {
         return vscode.extensions.getExtension('remote-code-on-pc.remote-code-on-pc')?.packageJSON?.version
             || (this._context as any).extension?.packageJSON?.version
             || 'dev';
+    }
+
+    private publicAuthRequiredStatus(publicUrl: string | null, publicProvider: PublicAccessProvider | null): any {
+        return {
+            version: vscode.version,
+            serverVersion: this.getExtensionVersion(),
+            appName: vscode.env.appName,
+            isRunning: true,
+            platform: process.platform,
+            remoteCode: {
+                port: this._port,
+                host: this._host,
+                localIp: '',
+                localUrl: '',
+                publicUrl: null,
+                tunnelUrl: null,
+                activeUrl: '',
+                tunnelActive: !!publicUrl,
+                tunnelProvider: publicProvider,
+                keeneticHost: '',
+                keeneticZone: this.getKeeneticZone(),
+                keeneticScheme: this.getKeeneticScheme(),
+                autoUrlSupported: true,
+                authRequired: true,
+                authOk: false,
+                tokenConfigured: !!this._authToken
+            },
+            workspace: {
+                folders: [],
+                activeFile: null,
+                activeFileLanguage: null
+            },
+            uptime: process.uptime(),
+            memoryUsage: 0
+        };
+    }
+
+    private requestUsesPublicAccess(req: http.IncomingMessage): boolean {
+        const hostHeader = String(req.headers.host || '').trim().toLowerCase();
+        const host = this.extractHost(hostHeader);
+        if (!host || this.isLocalOrPrivateHost(host)) return false;
+        const publicHosts = [
+            this.getConfiguredPublicUrl(),
+            this._tunnelUrl || '',
+            this.getConfiguredKeeneticHost()
+        ]
+            .map(value => this.extractHost(value))
+            .filter(Boolean);
+        if (publicHosts.some(publicHost => publicHost === host)) return true;
+        if (this.looksLikeKeeneticHost(host)
+            || host.endsWith('.trycloudflare.com')
+            || host.endsWith('.netcraze.io')
+            || host.endsWith('.ngrok-free.app')
+            || host.endsWith('.ngrok.io')) {
+            return true;
+        }
+        return true;
+    }
+
+    private extractHost(value: string | null | undefined): string {
+        const raw = (value || '').trim();
+        if (!raw) return '';
+        try {
+            return new URL(raw.includes('://') ? raw : `http://${raw}`).hostname.toLowerCase();
+        } catch {
+            return raw.replace(/^https?:\/\//i, '').split('/')[0].split(':')[0].toLowerCase();
+        }
+    }
+
+    private isLocalOrPrivateHost(host: string): boolean {
+        const normalized = host.toLowerCase();
+        const machineName = os.hostname().toLowerCase();
+        if (normalized === 'localhost' || normalized === '::1' || normalized === '0.0.0.0') return true;
+        if (normalized === machineName || normalized === `${machineName}.local`) return true;
+        if (normalized.startsWith('127.')) return true;
+        if (normalized.startsWith('10.')) return true;
+        if (normalized.startsWith('192.168.')) return true;
+        const match = normalized.match(/^172\.(\d{1,2})\./);
+        if (match) {
+            const second = Number(match[1]);
+            if (second >= 16 && second <= 31) return true;
+        }
+        return normalized === (this._localIp || '').toLowerCase();
     }
 
     private enrichCodexMessageForClient(message: CodexChatMessage): CodexChatMessage {
@@ -1487,7 +1576,7 @@ export class RemoteServer {
             const dir = this._context.globalStorageUri.fsPath;
             fs.mkdirSync(dir, { recursive: true });
             const file = path.join(dir, 'remote-http.log');
-            const entry = `[${new Date().toISOString()}] ${line}\n`;
+            const entry = `[${new Date().toISOString()}] ${this.sanitizeLogText(line)}\n`;
             fs.appendFileSync(file, entry, 'utf8');
             const maxBytes = 256 * 1024;
             const stat = fs.statSync(file);
@@ -1498,6 +1587,18 @@ export class RemoteServer {
         } catch {
             // Logging must never break the server.
         }
+    }
+
+    private sanitizeLogText(value: string): string {
+        return String(value || '')
+            .replace(/(Authorization:\s*Bearer\s+)[A-Za-z0-9._~+/-]+/gi, '$1[redacted]')
+            .replace(/(Bearer\s+)[A-Za-z0-9._~+/-]{12,}/gi, '$1[redacted]')
+            .replace(/([?&]token=)[^&\s]+/gi, '$1[redacted]')
+            .replace(/(authToken["'\s:=]+)[A-Za-z0-9._~+/-]{12,}/gi, '$1[redacted]')
+            .replace(/\b(?:10|127)\.\d{1,3}\.\d{1,3}\.\d{1,3}\b/g, '[private-ip]')
+            .replace(/\b172\.(?:1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3}\b/g, '[private-ip]')
+            .replace(/\b192\.168\.\d{1,3}\.\d{1,3}\b/g, '[private-ip]')
+            .replace(/https?:\/\/[^\s"'<>]+(?:trycloudflare\.com|netcraze\.io|keenetic\.(?:link|name|pro|io|net))[^\s"'<>]*/gi, '[public-url]');
     }
 
     private async handleAppApk(_req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
@@ -5046,9 +5147,31 @@ prompt.addEventListener('keydown', event => {
 
     // GET /api/tunnel/status
     private async handleTunnelStatus(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
-        const authOk = this.checkAuth(req);
+        const publicAccess = this.requestUsesPublicAccess(req);
+        const authOk = this.checkAuth(req, publicAccess);
         const publicUrl = this.getPublicUrl();
         const publicProvider = this.getPublicProvider();
+        if ((this._authToken || publicAccess) && !authOk) {
+            this.jsonResponse(res, 200, {
+                tunnelActive: !!publicUrl,
+                tunnelUrl: null,
+                localIp: '',
+                port: this._port,
+                localUrl: '',
+                publicUrl: null,
+                tunnelProvider: publicProvider,
+                keeneticHost: '',
+                keeneticZone: this.getKeeneticZone(),
+                keeneticScheme: this.getKeeneticScheme(),
+                authRequired: true,
+                authOk: false,
+                tokenConfigured: !!this._authToken,
+                manualUrlSupported: true,
+                autoUrlSupported: true,
+                externalMode: publicProvider === 'keenetic' ? 'keenetic' : publicProvider
+            });
+            return;
+        }
         this.jsonResponse(res, 200, {
             tunnelActive: !!publicUrl,
             tunnelUrl: publicUrl,
@@ -5071,6 +5194,18 @@ prompt.addEventListener('keydown', event => {
 
     // POST /api/tunnel/start
     private async handleTunnelStart(_req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
+        if (!this._authToken) {
+            this.jsonResponse(res, 409, {
+                success: false,
+                provider: 'keenetic',
+                error: 'Для внешней сети сначала создайте токен доступа в VS Code: Remote Code -> Подключение -> Создать токен доступа, затем вставьте его в приложении.',
+                authRequired: true,
+                tokenConfigured: false,
+                manualUrlSupported: true,
+                autoUrlSupported: true
+            });
+            return;
+        }
         const resolved = await this.resolveKeeneticPublicUrl(true);
         if (resolved?.url) {
             this.jsonResponse(res, 200, {

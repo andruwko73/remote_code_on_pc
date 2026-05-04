@@ -1106,7 +1106,7 @@ private fun MobileChangeCard(
                 modifier = Modifier
                     .fillMaxWidth()
                     .background(Color(0xFF2D2D2D))
-                    .padding(horizontal = 12.dp, vertical = 9.dp),
+                    .padding(horizontal = 12.dp, vertical = 8.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
@@ -1116,8 +1116,22 @@ private fun MobileChangeCard(
                     fontWeight = FontWeight.SemiBold,
                     modifier = Modifier.weight(1f)
                 )
-                TextButton(onClick = { expanded = !expanded }, contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp)) {
-                    Text(if (expanded) "Скрыть" else "Показать", color = TextSecondary, fontSize = 12.sp)
+                TextButton(
+                    onClick = { summary.files.firstOrNull()?.let { onOpenFile(it.path) } },
+                    enabled = summary.files.isNotEmpty(),
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp)
+                ) {
+                    Text("Проверить", color = TextSecondary, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                    Spacer(modifier = Modifier.width(3.dp))
+                    Icon(Icons.Default.NorthEast, contentDescription = null, tint = TextSecondary, modifier = Modifier.size(13.dp))
+                }
+                IconButton(onClick = { expanded = !expanded }, modifier = Modifier.size(30.dp)) {
+                    Icon(
+                        if (expanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
+                        contentDescription = if (expanded) "Свернуть" else "Развернуть",
+                        tint = TextSecondary,
+                        modifier = Modifier.size(19.dp)
+                    )
                 }
             }
             visibleFiles.forEach { file ->
@@ -1160,7 +1174,7 @@ private fun ChangeFileRow(
                 Spacer(modifier = Modifier.width(6.dp))
                 Text("-${file.deletions}", color = ErrorRed, fontSize = 12.sp, fontFamily = FontFamily.Monospace)
             }
-            Icon(Icons.Default.KeyboardArrowDown, contentDescription = null, tint = TextSecondary, modifier = Modifier.size(18.dp))
+            Icon(Icons.Default.NorthEast, contentDescription = null, tint = TextSecondary, modifier = Modifier.size(15.dp))
         }
     }
 }
