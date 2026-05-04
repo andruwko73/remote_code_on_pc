@@ -21,10 +21,11 @@ object ConnectionUrl {
     private fun normalizeHttpBase(raw: String, config: ServerConfig): String {
         val trimmed = raw.trim().trimEnd('/')
         if (trimmed.isBlank()) return trimmed
-        val withScheme = if (trimmed.startsWith("http://", ignoreCase = true) || trimmed.startsWith("https://", ignoreCase = true)) {
-            trimmed
-        } else {
-            "http://$trimmed"
+        val withScheme = when {
+            trimmed.startsWith("http://", ignoreCase = true) ||
+                trimmed.startsWith("https://", ignoreCase = true) -> trimmed
+            trimmed.startsWith("//") -> "http:$trimmed"
+            else -> "http://$trimmed"
         }
         return if (config.useTunnel) withKeeneticPort(withScheme, config.port) else withScheme
     }

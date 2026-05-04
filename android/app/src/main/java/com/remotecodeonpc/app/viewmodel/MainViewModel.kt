@@ -8,6 +8,7 @@ import androidx.lifecycle.viewModelScope
 import com.remotecodeonpc.app.CrashLogger
 import com.remotecodeonpc.app.*
 import com.remotecodeonpc.app.network.ApiClient
+import com.remotecodeonpc.app.network.ConnectionUrl
 import com.remotecodeonpc.app.network.SimpleHttpClient
 import com.remotecodeonpc.app.network.WebSocketClient
 import com.remotecodeonpc.app.network.WebSocketListener
@@ -296,20 +297,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         if (!config.useTunnel) return "Connection error: $raw"
         val lower = raw.lowercase()
         val externalPort = runCatching {
-            val normalizedUrl = if (
-                config.tunnelUrl.startsWith("http://", ignoreCase = true) ||
-                config.tunnelUrl.startsWith("https://", ignoreCase = true)
-            ) {
-                config.tunnelUrl
-            } else {
-                "http://${config.tunnelUrl}"
-            }
-            java.net.URI(normalizedUrl).port.takeIf { it > 0 }
+            java.net.URI(ConnectionUrl.httpBase(config)).port.takeIf { it > 0 }
         }.getOrNull() ?: config.port
         return when {
             "unexpected end of stream" in lower || "failed to connect" in lower ||
                 "connection reset" in lower || "timeout" in lower || "timed out" in lower ->
-                "Публичный URL не отвечает на TCP-порт $externalPort. В Keenetic нужен прямой доступ/KeenDNS Direct и проброс TCP $externalPort -> IP ПК:${config.port}; затем повторите подключение."
+                "Публичный URL не дал HTTP-ответ на TCP-порту $externalPort. Это не ошибка токена: проверьте прямой доступ/KeenDNS Direct и проброс TCP $externalPort -> IP ПК:${config.port}; затем повторите подключение."
             code == 530 || "http 530" in lower || "status code 530" in lower || "ошибка 530" in lower || "error 530" in lower ->
                 "Публичный Keenetic URL доступен, но не доходит до ПК. Проверьте KeenDNS, проброс TCP-порта 8799 на IP ПК и что расширение запущено."
             code == 503 || code == 502 || "503" in lower || "bad gateway" in lower ->

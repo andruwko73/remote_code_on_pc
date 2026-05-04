@@ -229,6 +229,7 @@ assert(remoteCodeApp.includes('Arrangement.spacedBy(7.dp, Alignment.CenterVertic
 assert(remoteCodeApp.includes('Text("Логи"') && remoteCodeApp.includes('Text("Очистить"') && remoteCodeApp.includes('Text("Обновить"'), 'Android startup action buttons are present', 'startup action row missing');
 assert(remoteCodeApp.includes('PasswordVisualTransformation') && remoteCodeApp.includes('showToken') && remoteCodeApp.includes('showCompactToken'), 'Android token fields are masked by default', 'token field must not show secrets by default');
 assert(connectionUrl.includes('withKeeneticPort') && connectionUrl.includes('netcraze') && connectionUrl.includes('.keenetic.'), 'Android Keenetic URL gets Remote Code port', 'Keenetic URLs without explicit port should use the app port');
+assert(connectionUrl.includes('trimmed.startsWith("//")') && connectionUrl.includes('"http:$trimmed"'), 'Android normalizes protocol-relative public URLs', 'protocol-relative public URL should become http://host');
 assert(codexScreen.includes('item(key = "bottom-anchor")'), 'Android chat scrolls to a true bottom anchor', 'bottom anchor missing');
 assert(codexScreen.includes('showCurrentThreadMenu') && codexScreen.includes('pendingDeleteThread') && codexScreen.includes('onNavigateToSettings()'), 'Android current-chat menu buttons work', 'current chat menu wiring missing');
 assert(codexScreen.includes('attachmentPicker.launch') && codexScreen.includes('startVoiceInput'), 'Android composer file and voice buttons work', 'composer media/voice wiring missing');
