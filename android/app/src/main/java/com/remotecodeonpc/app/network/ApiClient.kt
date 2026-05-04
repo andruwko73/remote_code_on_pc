@@ -119,11 +119,7 @@ object ApiClient {
         }
 
         currentConfig = config
-        baseUrl = if (config.useTunnel && config.tunnelUrl.isNotBlank()) {
-            config.tunnelUrl.trimEnd('/')
-        } else {
-            "http://${config.host}:${config.port}"
-        }
+        baseUrl = ConnectionUrl.httpBase(config)
 
         CrashLogger.d("ApiClient", "Building Retrofit: baseUrl=$baseUrl, useTunnel=${config.useTunnel}")
 

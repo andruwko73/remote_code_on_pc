@@ -43,14 +43,7 @@ class WebSocketClient(private val config: ServerConfig) {
     }
 
     private fun doConnect() {
-        val baseWsUrl = if (config.useTunnel && config.tunnelUrl.isNotBlank()) {
-            config.tunnelUrl
-                .replace("http://", "ws://")
-                .replace("https://", "wss://")
-                .trimEnd('/') + "/ws"
-        } else {
-            "ws://${config.host}:${config.port}/ws"
-        }
+        val baseWsUrl = ConnectionUrl.wsBase(config).trimEnd('/') + "/ws"
         val wsUrl = if (config.authToken.isNotBlank()) {
             "$baseWsUrl?token=${URLEncoder.encode(config.authToken, "UTF-8")}"
         } else {
@@ -80,13 +73,10 @@ class WebSocketClient(private val config: ServerConfig) {
             override fun onMessage(webSocket: WebSocket, text: String) {
                 CrashLogger.d("WSClient", "WS message received: ${text.take(200)}")
                 try {
-                    val json = gson.fromJson(text, Map::class.java) as Map<String, Any>
+                    val json: Map<*, *> = gson.fromJson(text, Map::class.java) ?: emptyMap<Any, Any>()
                     val type = json["type"] as? String ?: "unknown"
-                    @Suppress("UNCHECKED_CAST")
-                    val nestedData = json["data"] as? Map<String, Any>
-                    val data = nestedData ?: json
-                        .filterKeys { it != "type" && it != "timestamp" }
-                        .mapValues { it.value as Any }
+                    val nestedData = json["data"] as? Map<*, *>
+                    val data = nestedData?.let(::normalizePayloadMap) ?: normalizePayloadMap(json)
                     this@WebSocketClient.listener?.onMessage(type, data)
                 } catch (e: Exception) {
                     CrashLogger.e("WSClient", "WS message parse error", e)
@@ -134,6 +124,16 @@ class WebSocketClient(private val config: ServerConfig) {
                 doConnect()
             }
         }
+    }
+
+    private fun normalizePayloadMap(raw: Map<*, *>): Map<String, Any> {
+        val result = mutableMapOf<String, Any>()
+        raw.forEach { (key, value) ->
+            if (key is String && key != "type" && key != "timestamp" && value != null) {
+                result[key] = value
+            }
+        }
+        return result
     }
 
     fun disconnect() {

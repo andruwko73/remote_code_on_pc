@@ -13,11 +13,7 @@ object SimpleHttpClient {
     private val gson = Gson()
 
     fun getStatus(config: ServerConfig): StatusResponse {
-        val baseUrl = if (config.useTunnel && config.tunnelUrl.isNotBlank()) {
-            config.tunnelUrl.trimEnd('/')
-        } else {
-            "http://${config.host}:${config.port}"
-        }
+        val baseUrl = ConnectionUrl.httpBase(config)
         val url = URL("$baseUrl/api/status")
         CrashLogger.d("SimpleHTTP", "GET $url")
 

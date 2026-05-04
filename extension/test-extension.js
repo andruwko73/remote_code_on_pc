@@ -151,8 +151,23 @@ assert(extContent.includes('remoteCodeOnPC.stop'), 'stop команда', 'Не 
 assert(extContent.includes('remoteCodeOnPC.tunnel'), 'tunnel команда', 'Не найдена');
 assert(extContent.includes('remoteCodeOnPC.status'), 'status команда', 'Не найдена');
 assert(extContent.includes('remoteCodeOnPC.openChat'), 'openChat команда', 'Не найдена');
-assert(extContent.includes('openOfficialCodex'), 'официальный Codex Sidebar', 'Не найден');
+assert(extContent.includes('server.openRemoteCodeChat'), 'собственный Remote Code чат', 'Не найден');
 assert(extContent.includes('updateStatusBar'), 'updateStatusBar функция', 'Не найдена');
+
+// ===== Тест 7.1: Проверка безопасности и webview-кнопок =====
+console.log('\n🔐 Тест 7.1: Безопасность внешнего доступа и webview actions');
+
+assert(serverContent.includes('requestUsesPublicAccess'), 'Определение внешнего Host', 'requestUsesPublicAccess не найден');
+assert(serverContent.includes('publicAuthRequiredStatus'), 'Минимальный статус без токена', 'publicAuthRequiredStatus не найден');
+assert(serverContent.includes('sanitizeLogText'), 'Маскирование логов расширения', 'sanitizeLogText не найден');
+assert(serverContent.includes('if (!this._authToken) return !requireConfiguredToken'), 'Внешний доступ требует настроенный токен', 'checkAuth не требует токен для public access');
+assert(serverContent.includes('liveDraftThreadIds'), 'Пустые чаты не закрепляются навсегда', 'liveDraftThreadIds не найден');
+
+const webviewActions = [...serverContent.matchAll(/data-action=\"([^\"]+)\"/g)].map(match => match[1]);
+const uniqueWebviewActions = [...new Set(webviewActions)].sort();
+const handlerCases = new Set([...serverContent.matchAll(/case\s+'([^']+)'\s*:/g)].map(match => match[1]));
+const missingWebviewHandlers = uniqueWebviewActions.filter(action => !handlerCases.has(action));
+assert(missingWebviewHandlers.length === 0, 'Все data-action имеют обработчик', missingWebviewHandlers.join(', ') || 'OK');
 
 // ===== Тест 8: Проверка package.json =====
 console.log('\n📦 Тест 8: Проверка package.json');

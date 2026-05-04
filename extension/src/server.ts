@@ -134,6 +134,7 @@ export class RemoteServer {
     private codexActionEvents: RemoteCodeActionEvent[] = [];
     private remoteCodeThreads: RemoteCodeThreadSummary[] = [];
     private currentRemoteThreadId: string = 'remote-code-default';
+    private liveDraftThreadIds: Set<string> = new Set();
     private pcChatPanel?: vscode.WebviewPanel;
     private pcChatRefreshTimer?: ReturnType<typeof setTimeout>;
     private remoteCodeStateSaveTimer?: ReturnType<typeof setTimeout>;
@@ -1760,20 +1761,14 @@ export class RemoteServer {
             this.hiddenCodexThreadIds = new Set(Array.isArray(savedHiddenCodexThreads) ? savedHiddenCodexThreads.filter(Boolean) : []);
             this.pinnedThreadIds = new Set(Array.isArray(savedPinnedThreads) ? savedPinnedThreads.filter(Boolean) : []);
             this.archivedThreadIds = new Set(Array.isArray(savedArchivedThreads) ? savedArchivedThreads.filter(Boolean) : []);
+            this.pruneEmptyRemoteCodeThreads(false);
             if (this.isHiddenThread(this.currentRemoteThreadId)) {
-                this.currentRemoteThreadId = this.remoteCodeThreads.find(thread => thread.id && !this.isHiddenThread(thread.id))?.id || 'remote-code-default';
+                this.currentRemoteThreadId = this.remoteCodeThreads.find(thread => thread.id && !this.isHiddenThread(thread.id))?.id || '';
             }
-            if (this.codexHistory.length === 0) {
-                this.codexHistory.push({
-                    id: `remote_system_${Date.now()}`,
-                    role: 'system',
-                    content: 'Remote Code Agent is ready. Messages from Android and VS Code stay in this shared thread.',
-                    timestamp: Date.now(),
-                    threadId: this.currentRemoteThreadId
-                });
-                this.saveRemoteCodeState();
+            if (this.currentRemoteThreadId && !this.remoteCodeThreads.some(thread => thread.id === this.currentRemoteThreadId) && !this.hasVisibleRemoteThreadContent(this.currentRemoteThreadId)) {
+                this.currentRemoteThreadId = this.remoteCodeThreads.find(thread => thread.id && !this.isHiddenThread(thread.id))?.id || '';
             }
-            if (!this.currentRemoteThreadId.startsWith('codex-file:')) {
+            if (this.currentRemoteThreadId && !this.currentRemoteThreadId.startsWith('codex-file:') && this.hasVisibleRemoteThreadContent(this.currentRemoteThreadId)) {
                 this.upsertRemoteCodeThread(this.currentRemoteThreadId, this.getCurrentThreadTitle(), Date.now());
             }
         } catch (err) {
@@ -1832,6 +1827,34 @@ export class RemoteServer {
         this.remoteCodeThreadsCache = undefined;
     }
 
+    private isUntitledRemoteThread(title?: string): boolean {
+        const normalized = (title || '').replace(/\s+/g, ' ').trim().toLowerCase();
+        return !normalized || normalized === 'новый чат' || normalized === 'new chat' || normalized === 'remote code';
+    }
+
+    private hasVisibleRemoteThreadContent(threadId: string): boolean {
+        if (!threadId) return false;
+        return this.codexHistory.some(message =>
+            (message.threadId || this.currentRemoteThreadId) === threadId &&
+            message.role !== 'system' &&
+            !!message.content.trim()
+        ) || this.codexActionEvents.some(event => event.threadId === threadId);
+    }
+
+    private pruneEmptyRemoteCodeThreads(keepLiveDrafts = true): void {
+        const before = this.remoteCodeThreads.length;
+        this.remoteCodeThreads = this.remoteCodeThreads.filter(thread => {
+            if (!thread?.id) return false;
+            if (thread.id.startsWith('codex-file:')) return true;
+            if (keepLiveDrafts && this.liveDraftThreadIds.has(thread.id)) return true;
+            if (!this.isUntitledRemoteThread(thread.title)) return true;
+            return this.hasVisibleRemoteThreadContent(thread.id);
+        });
+        if (this.remoteCodeThreads.length !== before) {
+            this.remoteCodeThreadsCache = undefined;
+        }
+    }
+
     private toCodexThreadId(codexId: string): string {
         return `codex-file:${codexId}`;
     }
@@ -1853,6 +1876,7 @@ export class RemoteServer {
         for (const thread of this.remoteCodeThreads) {
             if (!thread?.id) continue;
             if (this.isHiddenThread(thread.id)) continue;
+            if (this.isUntitledRemoteThread(thread.title) && !this.liveDraftThreadIds.has(thread.id) && !this.hasVisibleRemoteThreadContent(thread.id)) continue;
             byThread.set(thread.id, {
                 id: thread.id,
                 title: thread.title || 'Новый чат',
@@ -1882,7 +1906,7 @@ export class RemoteServer {
             const timestamp = Math.max(existing?.timestamp || 0, Math.round(message.timestamp || 0));
             byThread.set(id, { id, title, timestamp, source: existing?.source || (id.startsWith('codex-file:') ? 'codex' : 'remote') });
         }
-        if (!this.isHiddenThread(this.currentRemoteThreadId) && !byThread.has(this.currentRemoteThreadId)) {
+        if (this.currentRemoteThreadId && !this.isHiddenThread(this.currentRemoteThreadId) && !byThread.has(this.currentRemoteThreadId)) {
             byThread.set(this.currentRemoteThreadId, {
                 id: this.currentRemoteThreadId,
                 title: 'Новый чат',
@@ -1925,6 +1949,7 @@ export class RemoteServer {
     private createRemoteCodeThread(): string {
         const threadId = `remote-code-${Date.now()}`;
         this.currentRemoteThreadId = threadId;
+        this.liveDraftThreadIds.add(threadId);
         this.upsertRemoteCodeThread(threadId, 'Новый чат', Date.now());
         this.codexActionEvents = this.codexActionEvents.filter(event => event.threadId !== threadId);
         this.saveRemoteCodeState();
@@ -2851,9 +2876,10 @@ export class RemoteServer {
         this.stopActiveGeneration(false);
         this.archivedThreadIds.add(threadId);
         this.pinnedThreadIds.delete(threadId);
+        this.liveDraftThreadIds.delete(threadId);
         this.remoteCodeThreadsCache = undefined;
         const next = this.getRemoteCodeThreads().find(thread => thread.id !== threadId);
-        this.currentRemoteThreadId = next?.id || this.createRemoteCodeThread();
+        this.currentRemoteThreadId = next?.id || '';
         this.saveRemoteCodeState(true);
         this.refreshPcChatPanel(true);
         this.broadcast({ type: 'codex:threads-update', threads: this.getRemoteCodeThreads(), currentThreadId: this.currentRemoteThreadId, timestamp: Date.now() });
@@ -2929,6 +2955,7 @@ export class RemoteServer {
             this.hiddenCodexThreadIds.add(threadId);
         }
         this.pinnedThreadIds.delete(threadId);
+        this.liveDraftThreadIds.delete(threadId);
         this.archivedThreadIds.delete(threadId);
         this.remoteCodeThreads = this.remoteCodeThreads.filter(thread => thread.id !== threadId);
         this.codexHistory = this.codexHistory.filter(message => (message.threadId || this.currentRemoteThreadId) !== threadId);
@@ -2939,9 +2966,7 @@ export class RemoteServer {
             if (next?.id) {
                 this.currentRemoteThreadId = next.id;
             } else {
-                const newThreadId = `remote-code-${Date.now()}`;
-                this.currentRemoteThreadId = newThreadId;
-                this.upsertRemoteCodeThread(newThreadId, 'Новый чат', Date.now());
+                this.currentRemoteThreadId = '';
             }
             this.remoteCodeThreadsCache = undefined;
         }
@@ -5279,17 +5304,19 @@ prompt.addEventListener('keydown', event => {
     // GET /api/codex/history
     private async handleCodexHistory(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
         const params = url.parse(req.url || '', true).query;
+        const firstThreadId = this.getRemoteCodeThreads()[0]?.id || '';
         const requestedThreadId = typeof params.threadId === 'string' && params.threadId.trim()
             ? params.threadId.trim()
-            : this.currentRemoteThreadId;
-        this.currentRemoteThreadId = requestedThreadId || 'remote-code-default';
+            : (this.currentRemoteThreadId || firstThreadId);
+        this.currentRemoteThreadId = requestedThreadId || '';
         this.saveRemoteCodeState();
         this.refreshPcChatPanel();
-        const messages = this.getMessagesForRemoteThread(this.currentRemoteThreadId, 120)
-            .filter(m => m.role !== 'system');
+        const messages = this.currentRemoteThreadId
+            ? this.getMessagesForRemoteThread(this.currentRemoteThreadId, 120).filter(m => m.role !== 'system')
+            : [];
         this.jsonResponse(res, 200, {
             threadId: this.currentRemoteThreadId,
-            title: this.getRemoteCodeThreads().find(t => t.id === this.currentRemoteThreadId)?.title || 'Remote Code',
+            title: this.getRemoteCodeThreads().find(t => t.id === this.currentRemoteThreadId)?.title || 'Новый чат',
             messages
         });
     }
