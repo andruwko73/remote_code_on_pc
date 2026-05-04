@@ -58,6 +58,7 @@ import com.remotecodeonpc.app.FoldersResponse
 import com.remotecodeonpc.app.MessageAttachment
 import com.remotecodeonpc.app.ui.theme.*
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.util.Locale
@@ -182,6 +183,7 @@ fun CodexScreen(
                 onDeleteThread = onDeleteThread,
                 onStopGeneration = onStopGeneration,
                 onRespondToAction = onRespondToAction,
+                onNavigateToSettings = onNavigateToSettings,
                 onOpenFile = {
                     onOpenFile(it)
                     selectedTab = 1
@@ -227,12 +229,14 @@ fun CodexChatTab(
     onDeleteThread: (String) -> Unit,
     onStopGeneration: () -> Unit,
     onRespondToAction: (String, Boolean) -> Unit,
+    onNavigateToSettings: () -> Unit = {},
     onOpenFile: (String) -> Unit
 ) {
     var messageText by remember { mutableStateOf("") }
     var showModelEffortSelector by remember { mutableStateOf(false) }
     var showProfileSelector by remember { mutableStateOf(false) }
     var showThreads by remember { mutableStateOf(false) }
+    var showCurrentThreadMenu by remember { mutableStateOf(false) }
     var pendingDeleteThread by remember { mutableStateOf<CodexThread?>(null) }
     var attachments by remember { mutableStateOf<List<MessageAttachment>>(emptyList()) }
     val listState = rememberLazyListState()
@@ -331,8 +335,14 @@ fun CodexChatTab(
     ) {
         val statusRows = if (sendResult?.success == true) 1 else 0
         val timelineRows = if (timelineActionEvents.isNotEmpty()) 1 else 0
-        val targetIndex = statusRows + visibleChatHistory.size + timelineRows + approvalActionEvents.size - 1
-        if (targetIndex >= 0) listState.animateScrollToItem(targetIndex)
+        val emptyRows = if (chatHistory.isEmpty() && sendResult == null && actionEvents.isEmpty()) 1 else 0
+        val targetIndex = statusRows + visibleChatHistory.size + timelineRows + approvalActionEvents.size + emptyRows
+        if (targetIndex >= 0) {
+            delay(16)
+            listState.scrollToItem(targetIndex)
+            delay(80)
+            listState.animateScrollToItem(targetIndex)
+        }
     }
 
     Column(modifier = Modifier.fillMaxSize().imePadding().background(DarkBackground)) {
@@ -343,9 +353,72 @@ fun CodexChatTab(
                 .padding(horizontal = 14.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Text(currentThread?.let { threadDisplayTitle(it) } ?: "\u0414\u043E\u0440\u0430\u0431\u043E\u0442\u0430\u0442\u044C \u0443\u0434\u0430\u043B\u0451\u043D\u043D\u044B\u0439 \u0434\u043E\u0441\u0442\u0443\u043F", color = TextBright, fontSize = 15.sp, lineHeight = 18.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
-            IconButton(onClick = { onLoadThreads(); showThreads = true }, modifier = Modifier.size(34.dp)) {
-                Icon(Icons.Default.MoreHoriz, contentDescription = "\u0418\u0441\u0442\u043E\u0440\u0438\u044F", tint = TextSecondary, modifier = Modifier.size(21.dp))
+            Row(
+                modifier = Modifier
+                    .weight(1f)
+                    .clickable {
+                        onLoadThreads()
+                        showThreads = true
+                    },
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    currentThread?.let { threadDisplayTitle(it) } ?: "\u0414\u043E\u0440\u0430\u0431\u043E\u0442\u0430\u0442\u044C \u0443\u0434\u0430\u043B\u0451\u043D\u043D\u044B\u0439 \u0434\u043E\u0441\u0442\u0443\u043F",
+                    color = TextBright,
+                    fontSize = 15.sp,
+                    lineHeight = 18.sp,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f)
+                )
+                Icon(Icons.Default.ArrowDropDown, contentDescription = null, tint = TextSecondary, modifier = Modifier.size(18.dp))
+            }
+            Box {
+                IconButton(onClick = { showCurrentThreadMenu = true }, modifier = Modifier.size(34.dp)) {
+                    Icon(Icons.Default.MoreHoriz, contentDescription = "\u041C\u0435\u043D\u044E \u0447\u0430\u0442\u0430", tint = TextSecondary, modifier = Modifier.size(21.dp))
+                }
+                DropdownMenu(
+                    expanded = showCurrentThreadMenu,
+                    onDismissRequest = { showCurrentThreadMenu = false },
+                    modifier = Modifier.background(Color(0xFF242424))
+                ) {
+                    DropdownMenuItem(
+                        text = { Text("\u041D\u043E\u0432\u044B\u0439 \u0447\u0430\u0442", color = TextPrimary) },
+                        leadingIcon = { Icon(Icons.Outlined.Edit, contentDescription = null, tint = TextSecondary) },
+                        onClick = {
+                            showCurrentThreadMenu = false
+                            onNewThread()
+                        }
+                    )
+                    DropdownMenuItem(
+                        text = { Text("\u0418\u0441\u0442\u043E\u0440\u0438\u044F \u0447\u0430\u0442\u043E\u0432", color = TextPrimary) },
+                        leadingIcon = { Icon(Icons.Outlined.History, contentDescription = null, tint = TextSecondary) },
+                        onClick = {
+                            showCurrentThreadMenu = false
+                            onLoadThreads()
+                            showThreads = true
+                        }
+                    )
+                    DropdownMenuItem(
+                        text = { Text("\u0423\u0434\u0430\u043B\u0438\u0442\u044C \u0442\u0435\u043A\u0443\u0449\u0438\u0439 \u0447\u0430\u0442", color = ErrorRed) },
+                        leadingIcon = { Icon(Icons.Outlined.Delete, contentDescription = null, tint = ErrorRed) },
+                        enabled = currentThreadId.isNotBlank(),
+                        onClick = {
+                            showCurrentThreadMenu = false
+                            pendingDeleteThread = currentThread ?: CodexThread(id = currentThreadId, title = "\u0422\u0435\u043A\u0443\u0449\u0438\u0439 \u0447\u0430\u0442")
+                        }
+                    )
+                    HorizontalDivider(color = DividerColor)
+                    DropdownMenuItem(
+                        text = { Text("\u041D\u0430\u0441\u0442\u0440\u043E\u0439\u043A\u0438", color = TextPrimary) },
+                        leadingIcon = { Icon(Icons.Outlined.Settings, contentDescription = null, tint = TextSecondary) },
+                        onClick = {
+                            showCurrentThreadMenu = false
+                            onNavigateToSettings()
+                        }
+                    )
+                }
             }
             IconButton(onClick = onNewThread, modifier = Modifier.size(34.dp)) {
                 Icon(Icons.Outlined.Edit, contentDescription = "\u041D\u043E\u0432\u044B\u0439 \u0447\u0430\u0442", tint = TextSecondary, modifier = Modifier.size(20.dp))
@@ -467,6 +540,7 @@ fun CodexChatTab(
                         Text("\u041A\u043E\u043D\u0442\u0435\u043A\u0441\u0442 IDE \u0438 \u0434\u0435\u0439\u0441\u0442\u0432\u0438\u044F Codex \u0431\u0443\u0434\u0443\u0442 \u0437\u0434\u0435\u0441\u044C, \u043A\u0430\u043A \u043D\u0430 \u041F\u041A.", color = TextSecondary.copy(alpha = 0.75f), fontSize = 13.sp)
                     }
                 }
+                item(key = "bottom-anchor") { Spacer(modifier = Modifier.height(1.dp)) }
             }
             val showJumpToBottom by remember { derivedStateOf { listState.canScrollForward } }
             if (showJumpToBottom) {

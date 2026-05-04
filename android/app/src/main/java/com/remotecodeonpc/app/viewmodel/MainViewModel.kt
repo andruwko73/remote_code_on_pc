@@ -378,6 +378,21 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         val model = data["model"] as? String ?: return
                         _uiState.value = _uiState.value.copy(codexSelectedModel = model)
                     }
+                    "codex:preferences-changed" -> {
+                        val model = data["model"] as? String
+                        val effort = data["reasoningEffort"] as? String
+                        val profile = data["profile"] as? String
+                        val includeContext = data["includeContext"] as? Boolean
+                        _uiState.value = _uiState.value.copy(
+                            codexSelectedModel = model?.takeIf { it.isNotBlank() }
+                                ?: _uiState.value.codexSelectedModel,
+                            codexReasoningEffort = effort?.takeIf { it in listOf("low", "medium", "high", "xhigh") }
+                                ?: _uiState.value.codexReasoningEffort,
+                            codexProfile = profile?.takeIf { it in listOf("user", "review", "fast") }
+                                ?: _uiState.value.codexProfile,
+                            codexIncludeContext = includeContext ?: _uiState.value.codexIncludeContext
+                        )
+                    }
                     "codex:message", "codex:thinking", "codex:response" -> {
                         val threadId = data["threadId"] as? String
                         if (!threadId.isNullOrBlank() && threadId != _uiState.value.currentCodexThreadId) {
@@ -978,7 +993,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         codexSelectedModel = body?.selected?.takeIf { it.isNotBlank() } ?: "gpt-5.5",
                         codexReasoningEffort = body?.reasoningEffort ?: _uiState.value.codexReasoningEffort,
                         codexProfile = body?.profile?.takeIf { it in listOf("user", "review", "fast") }
-                            ?: _uiState.value.codexProfile
+                            ?: _uiState.value.codexProfile,
+                        codexIncludeContext = body?.includeContext ?: _uiState.value.codexIncludeContext
                     )
                 }
             } catch (e: Exception) {
@@ -989,14 +1005,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun selectCodexModel(modelId: String) {
         _uiState.value = _uiState.value.copy(codexSelectedModel = modelId)
-        viewModelScope.launch {
-            try {
-                val api = ApiClient.getApi(_uiState.value.serverConfig)
-                api.selectCodexModel(mapOf("modelId" to modelId))
-            } catch (e: Exception) {
-                _uiState.value = _uiState.value.copy(codexError = e.message)
-            }
-        }
+        syncCodexComposerPreferences()
     }
 
     fun selectCodexReasoningEffort(effort: String) {
@@ -1005,6 +1014,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             else -> "medium"
         }
         _uiState.value = _uiState.value.copy(codexReasoningEffort = normalized)
+        syncCodexComposerPreferences()
     }
 
     fun selectCodexProfile(profile: String) {
@@ -1013,10 +1023,31 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             else -> "user"
         }
         _uiState.value = _uiState.value.copy(codexProfile = normalized)
+        syncCodexComposerPreferences()
     }
 
     fun toggleCodexContext() {
         _uiState.value = _uiState.value.copy(codexIncludeContext = !_uiState.value.codexIncludeContext)
+        syncCodexComposerPreferences()
+    }
+
+    private fun syncCodexComposerPreferences() {
+        viewModelScope.launch {
+            try {
+                val state = _uiState.value
+                val api = ApiClient.getApi(state.serverConfig)
+                api.selectCodexModel(
+                    mapOf(
+                        "modelId" to state.codexSelectedModel,
+                        "reasoningEffort" to state.codexReasoningEffort,
+                        "profile" to state.codexProfile,
+                        "includeContext" to state.codexIncludeContext
+                    )
+                )
+            } catch (e: Exception) {
+                _uiState.value = _uiState.value.copy(codexError = e.message)
+            }
+        }
     }
 
     fun sendCodexMessage(text: String, attachments: List<MessageAttachment> = emptyList()) {

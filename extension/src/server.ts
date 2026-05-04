@@ -5524,6 +5524,7 @@ prompt.addEventListener('keydown', event => {
                 selected,
                 reasoningEffort: this.selectedReasoningEffort,
                 profile: this.selectedProfile,
+                includeContext: this.selectedIncludeContext,
                 note: 'Only Codex/OpenAI-compatible VS Code models are shown.'
             });
         } catch (err: any) {
@@ -5532,6 +5533,7 @@ prompt.addEventListener('keydown', event => {
                 selected: this.selectedAgent,
                 reasoningEffort: this.selectedReasoningEffort,
                 profile: this.selectedProfile,
+                includeContext: this.selectedIncludeContext,
                 error: err.message
             });
         }
@@ -5540,23 +5542,58 @@ prompt.addEventListener('keydown', event => {
     // POST /api/codex/models
     private async handleCodexSelectModel(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
         const body = await this.readBody(req);
-        const { modelId } = JSON.parse(body || '{}');
+        const { modelId, reasoningEffort, profile, includeContext } = JSON.parse(body || '{}');
+        const hasModel = typeof modelId === 'string' && modelId.trim().length > 0;
+        const hasComposerPreference =
+            typeof reasoningEffort === 'string' ||
+            typeof profile === 'string' ||
+            typeof includeContext === 'boolean';
 
-        if (!modelId) {
-            this.jsonResponse(res, 400, { error: 'modelId is required' });
+        if (!hasModel && !hasComposerPreference) {
+            this.jsonResponse(res, 400, { error: 'modelId or composer preference is required' });
             return;
         }
 
         try {
-            const agents = this.getRemoteCodeModelAgents(await this.getAvailableAgents());
-            if (!agents.find(agent => agent.name === modelId)) {
-                this.jsonResponse(res, 400, { error: `Model ${modelId} is not available for Remote Code Agent` });
-                return;
+            if (hasModel) {
+                const nextModel = modelId.trim();
+                const agents = this.getRemoteCodeModelAgents(await this.getAvailableAgents());
+                if (!agents.find(agent => agent.name === nextModel)) {
+                    this.jsonResponse(res, 400, { error: `Model ${nextModel} is not available for Remote Code Agent` });
+                    return;
+                }
+                this.selectedAgent = nextModel;
             }
-            this.selectedAgent = modelId;
+            if (typeof reasoningEffort === 'string') {
+                this.selectedReasoningEffort = this.normalizeReasoningEffort(reasoningEffort);
+            }
+            if (typeof profile === 'string' && ['user', 'review', 'fast'].includes(profile)) {
+                this.selectedProfile = profile;
+            }
+            if (typeof includeContext === 'boolean') {
+                this.selectedIncludeContext = includeContext;
+            }
             this.saveRemoteCodeState();
-            this.broadcast({ type: 'codex:model-changed', model: modelId, timestamp: Date.now() });
-            this.jsonResponse(res, 200, { success: true, model: modelId, result: `Model changed to ${modelId}` });
+            this.refreshPcChatPanel();
+            this.broadcast({
+                type: 'codex:preferences-changed',
+                model: this.selectedAgent,
+                reasoningEffort: this.selectedReasoningEffort,
+                profile: this.selectedProfile,
+                includeContext: this.selectedIncludeContext,
+                timestamp: Date.now()
+            });
+            if (hasModel) {
+                this.broadcast({ type: 'codex:model-changed', model: this.selectedAgent, timestamp: Date.now() });
+            }
+            this.jsonResponse(res, 200, {
+                success: true,
+                model: this.selectedAgent,
+                reasoningEffort: this.selectedReasoningEffort,
+                profile: this.selectedProfile,
+                includeContext: this.selectedIncludeContext,
+                result: `Composer preferences changed`
+            });
         } catch (err: any) {
             this.jsonResponse(res, 500, { error: err.message });
         }

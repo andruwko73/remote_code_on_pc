@@ -46,6 +46,18 @@ for (const f of requiredFiles) {
 console.log('\n📦 Тест 2: Проверка импортов server.ts');
 
 const serverContent = fs.readFileSync(path.join(__dirname, 'src', 'server.ts'), 'utf-8');
+const assertWebviewInteractionWiring = () => {
+    assert(serverContent.includes("data-change-action=\"review\"") && serverContent.includes("case 'reviewChangeBlock'"), 'Change-card review button works', 'review action missing');
+    assert(serverContent.includes("data-change-action=\"undo\"") && serverContent.includes("case 'undoChangeBlock'"), 'Change-card undo button works', 'undo action missing');
+    assert(serverContent.includes("data-change-action=\"toggle\"") && serverContent.includes("card?.classList.toggle('collapsed'"), 'Change-card expand button works', 'toggle action missing');
+    assert(serverContent.includes("message-tool") && serverContent.includes("case 'copyMessage'") && serverContent.includes("case 'messageFeedback'"), 'Message hover buttons work', 'copy/feedback handlers missing');
+    assert(serverContent.includes("data-action-id=") && serverContent.includes("actionResponse"), 'Approve/deny action buttons work', 'action response wiring missing');
+    assert(serverContent.includes("prompt.addEventListener('paste'") && serverContent.includes("pasteFiles"), 'Paste attachment flow works', 'paste attachment wiring missing');
+    assert(serverContent.includes("prompt.addEventListener('keydown'") && serverContent.includes("event.key === 'Enter'"), 'Enter sends message in extension', 'Enter send wiring missing');
+    assert(serverContent.includes("case 'stopGeneration'") && serverContent.includes("id=\"topRun\"") && serverContent.includes("id=\"send\""), 'Stop/run buttons are wired', 'stop/run wiring missing');
+    assert(serverContent.includes("codex:preferences-changed") && serverContent.includes("Composer preferences changed"), 'Composer preferences sync over API/WebSocket', 'preference sync missing');
+};
+assertWebviewInteractionWiring();
 
 assert(serverContent.includes("from 'ws'"), 'WebSocket импорт', 'ws не найден');
 assert(serverContent.includes("class RemoteServer"), 'Класс RemoteServer', 'Не найден');
@@ -203,6 +215,17 @@ const androidFiles = [
     'gradle/wrapper/gradle-wrapper.properties',
     'gradlew.bat',
 ];
+const remoteCodeApp = fs.readFileSync(path.join(androidBase, 'app', 'src', 'main', 'java', 'com', 'remotecodeonpc', 'app', 'RemoteCodeApp.kt'), 'utf-8');
+const codexScreen = fs.readFileSync(path.join(androidBase, 'app', 'src', 'main', 'java', 'com', 'remotecodeonpc', 'app', 'ui', 'screens', 'CodexScreen.kt'), 'utf-8');
+const apiClient = fs.readFileSync(path.join(androidBase, 'app', 'src', 'main', 'java', 'com', 'remotecodeonpc', 'app', 'network', 'ApiClient.kt'), 'utf-8');
+assert(!remoteCodeApp.includes('.verticalScroll(rememberScrollState())'), 'Android connection screen avoids forced startup scroll', 'startup screen still has verticalScroll');
+assert(remoteCodeApp.includes('Arrangement.spacedBy(7.dp, Alignment.CenterVertically)'), 'Android connection screen is compact', 'compact connection layout missing');
+assert(remoteCodeApp.includes('Text("Логи"') && remoteCodeApp.includes('Text("Очистить"') && remoteCodeApp.includes('Text("Обновить"'), 'Android startup action buttons are present', 'startup action row missing');
+assert(codexScreen.includes('item(key = "bottom-anchor")'), 'Android chat scrolls to a true bottom anchor', 'bottom anchor missing');
+assert(codexScreen.includes('showCurrentThreadMenu') && codexScreen.includes('pendingDeleteThread') && codexScreen.includes('onNavigateToSettings()'), 'Android current-chat menu buttons work', 'current chat menu wiring missing');
+assert(codexScreen.includes('attachmentPicker.launch') && codexScreen.includes('startVoiceInput'), 'Android composer file and voice buttons work', 'composer media/voice wiring missing');
+assert(codexScreen.includes('onStopGeneration') && codexScreen.includes('onRespondToAction'), 'Android stop and approve/deny actions are wired', 'stop/approval wiring missing');
+assert(apiClient.includes('selectCodexModel(@Body body: Map<String, @JvmSuppressWildcards Any>)'), 'Android composer preference API accepts booleans', 'selectCodexModel body type is too narrow');
 
 for (const f of androidFiles) {
     const fullPath = path.join(androidBase, f);
@@ -220,6 +243,7 @@ assert(serverContent.includes('getDefaultCodexModels'), 'getDefaultCodexModels',
 
 // Проверка Android Codex
 const mainVm = fs.readFileSync(path.join(androidBase, 'app', 'src', 'main', 'java', 'com', 'remotecodeonpc', 'app', 'viewmodel', 'MainViewModel.kt'), 'utf-8');
+assert(mainVm.includes('syncCodexComposerPreferences') && mainVm.includes('codex:preferences-changed'), 'Android composer buttons sync with extension', 'composer sync missing in ViewModel');
 assert(mainVm.includes('loadCodexStatus'), 'loadCodexStatus в MainViewModel', 'Не найден');
 assert(mainVm.includes('loadCodexModels'), 'loadCodexModels в MainViewModel', 'Не найден');
 assert(mainVm.includes('sendCodexMessage'), 'sendCodexMessage в MainViewModel', 'Не найден');
@@ -240,3 +264,4 @@ if (TESTS.failed === 0) {
 }
 
 console.log('='.repeat(50));
+process.exitCode = TESTS.failed === 0 ? 0 : 1;

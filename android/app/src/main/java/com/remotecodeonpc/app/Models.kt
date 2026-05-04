@@ -183,6 +183,7 @@ data class CodexModelsResponse(
     val selected: String = "",
     val reasoningEffort: String = "medium",
     val profile: String = "user",
+    val includeContext: Boolean = true,
     val note: String? = null,
     val error: String? = null
 )
@@ -275,6 +276,9 @@ data class CodexThreadsResponse(
 data class CodexSelectModelResponse(
     val success: Boolean = false,
     val model: String = "",
+    val reasoningEffort: String = "medium",
+    val profile: String = "user",
+    val includeContext: Boolean = true,
     val result: String? = null,
     val error: String? = null
 )

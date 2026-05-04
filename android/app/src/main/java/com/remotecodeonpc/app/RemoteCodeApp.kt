@@ -3,8 +3,6 @@ package com.remotecodeonpc.app
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.*
 import androidx.compose.foundation.background
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -279,35 +277,34 @@ private fun ConnectionScreen(
         modifier = Modifier
             .fillMaxSize()
             .background(DarkBackground)
-            .verticalScroll(rememberScrollState())
-            .padding(32.dp),
+            .imePadding()
+            .padding(horizontal = 20.dp, vertical = 10.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center
+        verticalArrangement = Arrangement.spacedBy(7.dp, Alignment.CenterVertically)
     ) {
         Icon(
             Icons.Default.Computer,
             contentDescription = null,
             tint = AccentBlue,
-            modifier = Modifier.size(80.dp)
+            modifier = Modifier.size(54.dp)
         )
-        Spacer(modifier = Modifier.height(16.dp))
         Text(
             "Remote Code on PC",
             color = TextBright,
-            fontSize = 24.sp,
+            fontSize = 22.sp,
             fontWeight = FontWeight.Bold
         )
         Text(
             "APK ${BuildConfig.VERSION_NAME}",
             color = TextSecondary.copy(alpha = 0.7f),
             fontSize = 12.sp,
-            modifier = Modifier.padding(top = 4.dp)
+            modifier = Modifier.padding(top = 0.dp)
         )
         Text(
             "Подключитесь к VS Code на ПК",
             color = TextSecondary,
-            fontSize = 14.sp,
-            modifier = Modifier.padding(bottom = 32.dp)
+            fontSize = 12.sp,
+            modifier = Modifier.padding(bottom = 2.dp)
         )
 
         Surface(
@@ -315,15 +312,15 @@ private fun ConnectionScreen(
             shape = RoundedCornerShape(14.dp),
             modifier = Modifier.fillMaxWidth()
         ) {
-            Column(modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp)) {
+            Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 9.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(
                         if (useTunnel) Icons.Default.Cloud else Icons.Default.Wifi,
                         contentDescription = null,
                         tint = if (useTunnel) AccentGreen else AccentBlue,
-                        modifier = Modifier.size(20.dp)
+                        modifier = Modifier.size(18.dp)
                     )
-                    Spacer(modifier = Modifier.width(10.dp))
+                    Spacer(modifier = Modifier.width(8.dp))
                     Text(
                         if (useTunnel) "Внешняя сеть" else "Локальная сеть",
                         color = TextBright,
@@ -352,13 +349,14 @@ private fun ConnectionScreen(
                         "Телефон и ПК должны быть в одной сети Wi-Fi/LAN. Используйте IP ПК и порт расширения."
                     },
                     color = TextSecondary,
-                    fontSize = 12.sp,
-                    lineHeight = 15.sp,
-                    modifier = Modifier.padding(top = 6.dp)
+                    fontSize = 11.sp,
+                    lineHeight = 13.sp,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.padding(top = 3.dp)
                 )
             }
         }
-        Spacer(modifier = Modifier.height(12.dp))
 
         if (useTunnel) {
             OutlinedTextField(
@@ -371,91 +369,94 @@ private fun ConnectionScreen(
                 placeholder = { Text("http://name.keenetic.link:8799", color = TextSecondary.copy(alpha = 0.5f)) },
                 singleLine = true,
                 leadingIcon = { Icon(Icons.Default.Public, contentDescription = null, tint = AccentGreen) },
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier.fillMaxWidth().height(58.dp),
+                textStyle = LocalTextStyle.current.copy(fontSize = 14.sp),
                 isError = trimmedTunnelUrl.isNotBlank() && !tunnelFormatOk,
                 colors = outlinedFieldColors(),
                 shape = RoundedCornerShape(12.dp)
             )
-            Spacer(modifier = Modifier.height(12.dp))
         } else {
-            // IP адрес
-            OutlinedTextField(
-                value = host,
-                onValueChange = {
-                    host = it
-                    emitConfig(nextHost = it)
-                },
-                label = { Text("IP-адрес ПК", color = TextSecondary) },
-                placeholder = { Text("192.168.1.100", color = TextSecondary.copy(alpha = 0.5f)) },
-                singleLine = true,
-                leadingIcon = { Icon(Icons.Default.Wifi, contentDescription = null, tint = AccentBlue) },
+            Row(
                 modifier = Modifier.fillMaxWidth(),
-                colors = outlinedFieldColors(),
-                shape = RoundedCornerShape(12.dp)
-            )
-            Spacer(modifier = Modifier.height(12.dp))
-
-            // Порт
-            OutlinedTextField(
-                value = port,
-                onValueChange = {
-                    port = it.filter(Char::isDigit).take(5)
-                    emitConfig(nextPort = port)
-                },
-                label = { Text("Порт", color = TextSecondary) },
-                placeholder = { Text("8799", color = TextSecondary.copy(alpha = 0.5f)) },
-                singleLine = true,
-                leadingIcon = { Icon(Icons.Default.Tag, contentDescription = null, tint = AccentBlue) },
-                modifier = Modifier.fillMaxWidth(),
-                colors = outlinedFieldColors(),
-                shape = RoundedCornerShape(12.dp)
-            )
-            Spacer(modifier = Modifier.height(12.dp))
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                OutlinedTextField(
+                    value = host,
+                    onValueChange = {
+                        host = it
+                        emitConfig(nextHost = it)
+                    },
+                    label = { Text("IP ПК", color = TextSecondary, fontSize = 12.sp) },
+                    placeholder = { Text("192.168.1.100", color = TextSecondary.copy(alpha = 0.5f)) },
+                    singleLine = true,
+                    leadingIcon = { Icon(Icons.Default.Wifi, contentDescription = null, tint = AccentBlue) },
+                    modifier = Modifier.weight(1f).height(58.dp),
+                    textStyle = LocalTextStyle.current.copy(fontSize = 14.sp),
+                    colors = outlinedFieldColors(),
+                    shape = RoundedCornerShape(12.dp)
+                )
+                OutlinedTextField(
+                    value = port,
+                    onValueChange = {
+                        port = it.filter(Char::isDigit).take(5)
+                        emitConfig(nextPort = port)
+                    },
+                    label = { Text("Порт", color = TextSecondary, fontSize = 12.sp) },
+                    placeholder = { Text("8799", color = TextSecondary.copy(alpha = 0.5f)) },
+                    singleLine = true,
+                    modifier = Modifier.width(116.dp).height(58.dp),
+                    textStyle = LocalTextStyle.current.copy(fontSize = 14.sp),
+                    colors = outlinedFieldColors(),
+                    shape = RoundedCornerShape(12.dp)
+                )
+            }
         }
 
-        // Токен (опционально)
         OutlinedTextField(
             value = authToken,
             onValueChange = {
                 authToken = it
                 emitConfig(nextToken = it)
             },
-            label = { Text("Токен (опционально)", color = TextSecondary) },
-            placeholder = { Text("Оставьте пустым", color = TextSecondary.copy(alpha = 0.5f)) },
+            label = { Text("Токен", color = TextSecondary, fontSize = 12.sp) },
+            placeholder = { Text("необязательно", color = TextSecondary.copy(alpha = 0.5f)) },
             singleLine = true,
             leadingIcon = { Icon(Icons.Default.Lock, contentDescription = null, tint = AccentBlue) },
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier.fillMaxWidth().height(58.dp),
+            textStyle = LocalTextStyle.current.copy(fontSize = 14.sp),
             colors = outlinedFieldColors(),
             shape = androidx.compose.foundation.shape.RoundedCornerShape(12.dp)
         )
 
-        // Ошибка
         error?.let {
-            Spacer(modifier = Modifier.height(12.dp))
             Surface(
                 color = ErrorRed.copy(alpha = 0.15f),
                 shape = androidx.compose.foundation.shape.RoundedCornerShape(8.dp)
             ) {
                 Row(
-                    modifier = Modifier.fillMaxWidth().padding(12.dp),
+                    modifier = Modifier.fillMaxWidth().padding(9.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Icon(Icons.Default.Error, contentDescription = null, tint = ErrorRed, modifier = Modifier.size(18.dp))
                     Spacer(modifier = Modifier.width(8.dp))
-                    Text(it, color = ErrorRed, fontSize = 13.sp)
+                    Text(
+                        it,
+                        color = ErrorRed,
+                        fontSize = 12.sp,
+                        lineHeight = 14.sp,
+                        maxLines = 3,
+                        overflow = TextOverflow.Ellipsis
+                    )
                 }
             }
         }
 
-        Spacer(modifier = Modifier.height(24.dp))
-
-        // Кнопка подключения
         Button(
             onClick = onConnect,
             enabled = canConnect,
             modifier = Modifier
                 .fillMaxWidth()
-                .height(52.dp),
+                .height(46.dp),
             colors = ButtonDefaults.buttonColors(
                 containerColor = AccentBlue,
                 disabledContainerColor = AccentBlue.copy(alpha = 0.3f)
@@ -465,59 +466,61 @@ private fun ConnectionScreen(
             if (isConnecting) {
                 Icon(Icons.Default.Sync, contentDescription = null, modifier = Modifier.size(18.dp))
                 Spacer(modifier = Modifier.width(8.dp))
-                Text("Подключение...", fontSize = 16.sp)
+                Text("Подключение...", fontSize = 15.sp)
             } else {
                 Icon(Icons.Default.PlayArrow, contentDescription = null)
                 Spacer(modifier = Modifier.width(8.dp))
-                Text("Подключиться", fontSize = 16.sp)
+                Text("Подключиться", fontSize = 15.sp)
             }
         }
 
-        // Кнопка отправки логов (всегда видна)
-        Spacer(modifier = Modifier.height(8.dp))
-        OutlinedButton(
-            onClick = onShareLogs,
+        Row(
             modifier = Modifier.fillMaxWidth(),
-            colors = ButtonDefaults.outlinedButtonColors(contentColor = TextSecondary),
-            shape = androidx.compose.foundation.shape.RoundedCornerShape(12.dp)
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            Icon(Icons.Default.BugReport, contentDescription = null, modifier = Modifier.size(18.dp))
-            Spacer(modifier = Modifier.width(8.dp))
-            Text("Отправить логи", fontSize = 14.sp)
-        }
-
-        Spacer(modifier = Modifier.height(8.dp))
-        OutlinedButton(
-            onClick = { confirmClearLogs = true },
-            modifier = Modifier.fillMaxWidth(),
-            colors = ButtonDefaults.outlinedButtonColors(contentColor = TextSecondary),
-            shape = androidx.compose.foundation.shape.RoundedCornerShape(12.dp)
-        ) {
-            Icon(Icons.Default.Delete, contentDescription = null, modifier = Modifier.size(18.dp))
-            Spacer(modifier = Modifier.width(8.dp))
-            Text("Очистить логи", fontSize = 14.sp)
-        }
-
-        Spacer(modifier = Modifier.height(8.dp))
-        OutlinedButton(
-            onClick = {
-                onUpdateApp(
-                    serverConfig.copy(
-                        host = host,
-                        port = port.toIntOrNull() ?: 8799,
-                        authToken = authToken,
-                        useTunnel = useTunnel,
-                        tunnelUrl = trimmedTunnelUrl
+            OutlinedButton(
+                onClick = onShareLogs,
+                modifier = Modifier.weight(1f).height(40.dp),
+                contentPadding = PaddingValues(horizontal = 4.dp),
+                colors = ButtonDefaults.outlinedButtonColors(contentColor = TextSecondary),
+                shape = RoundedCornerShape(11.dp)
+            ) {
+                Icon(Icons.Default.BugReport, contentDescription = null, modifier = Modifier.size(16.dp))
+                Spacer(modifier = Modifier.width(5.dp))
+                Text("Логи", fontSize = 12.sp, maxLines = 1)
+            }
+            OutlinedButton(
+                onClick = { confirmClearLogs = true },
+                modifier = Modifier.weight(1f).height(40.dp),
+                contentPadding = PaddingValues(horizontal = 4.dp),
+                colors = ButtonDefaults.outlinedButtonColors(contentColor = TextSecondary),
+                shape = RoundedCornerShape(11.dp)
+            ) {
+                Icon(Icons.Default.Delete, contentDescription = null, modifier = Modifier.size(16.dp))
+                Spacer(modifier = Modifier.width(5.dp))
+                Text("Очистить", fontSize = 12.sp, maxLines = 1)
+            }
+            OutlinedButton(
+                onClick = {
+                    onUpdateApp(
+                        serverConfig.copy(
+                            host = host,
+                            port = port.toIntOrNull() ?: 8799,
+                            authToken = authToken,
+                            useTunnel = useTunnel,
+                            tunnelUrl = trimmedTunnelUrl
+                        )
                     )
-                )
-            },
-            modifier = Modifier.fillMaxWidth(),
-            colors = ButtonDefaults.outlinedButtonColors(contentColor = AccentBlue),
-            shape = androidx.compose.foundation.shape.RoundedCornerShape(12.dp)
-        ) {
-            Icon(Icons.Default.SystemUpdate, contentDescription = null, modifier = Modifier.size(18.dp))
-            Spacer(modifier = Modifier.width(8.dp))
-            Text("Обновить из GitHub", fontSize = 14.sp)
+                },
+                modifier = Modifier.weight(1f).height(40.dp),
+                contentPadding = PaddingValues(horizontal = 4.dp),
+                colors = ButtonDefaults.outlinedButtonColors(contentColor = AccentBlue),
+                shape = RoundedCornerShape(11.dp)
+            ) {
+                Icon(Icons.Default.SystemUpdate, contentDescription = null, modifier = Modifier.size(16.dp))
+                Spacer(modifier = Modifier.width(5.dp))
+                Text("Обновить", fontSize = 12.sp, maxLines = 1)
+            }
         }
 
         if (confirmClearLogs) {
@@ -544,12 +547,12 @@ private fun ConnectionScreen(
             )
         }
 
-        Spacer(modifier = Modifier.height(16.dp))
-
         Text(
-            "Убедитесь, что расширение Remote Code on PC\nзапущено в VS Code на вашем ПК",
-            color = TextSecondary.copy(alpha = 0.6f),
-            fontSize = 12.sp,
+            "Расширение Remote Code должно быть запущено в VS Code",
+            color = TextSecondary.copy(alpha = 0.55f),
+            fontSize = 10.sp,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
             textAlign = TextAlign.Center
         )
     }

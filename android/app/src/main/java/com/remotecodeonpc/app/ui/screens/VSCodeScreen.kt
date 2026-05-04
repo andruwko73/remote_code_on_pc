@@ -128,6 +128,7 @@ fun VSCodeScreen(
                 onDeleteThread = onDeleteCodexThread,
                 onStopGeneration = onStopCodexGeneration,
                 onRespondToAction = onRespondToCodexAction,
+                onNavigateToSettings = onNavigateToSettings,
                 onOpenFile = onOpenFile
             )
             1 -> FilesScreen(

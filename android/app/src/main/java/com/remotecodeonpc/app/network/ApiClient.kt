@@ -79,7 +79,7 @@ interface RemoteCodeApi {
     suspend fun getCodexModels(): Response<CodexModelsResponse>
 
     @POST("/api/codex/models")
-    suspend fun selectCodexModel(@Body body: Map<String, String>): Response<CodexSelectModelResponse>
+    suspend fun selectCodexModel(@Body body: Map<String, @JvmSuppressWildcards Any>): Response<CodexSelectModelResponse>
 
     @GET("/api/codex/threads")
     suspend fun getCodexThreads(): Response<CodexThreadsResponse>
