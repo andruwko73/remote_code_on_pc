@@ -185,6 +185,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             _uiState.value = _uiState.value.copy(connectionError = "Введите публичный URL для внешней сети")
             return
         }
+        if (config.useTunnel && config.authToken.isBlank()) {
+            _uiState.value = _uiState.value.copy(
+                connectionError = "Для внешней сети нужен токен доступа. Создайте или скопируйте токен в VS Code: Remote Code -> Подключение и вставьте его в приложении."
+            )
+            return
+        }
         if (!config.useTunnel && config.host.isBlank()) {
             _uiState.value = _uiState.value.copy(connectionError = "Введите IP адрес ПК")
             return
@@ -1359,6 +1365,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private fun startTunnelImproved() {
+        if (_uiState.value.serverConfig.authToken.isBlank()) {
+            _uiState.value = _uiState.value.copy(
+                isTunnelStarting = false,
+                tunnelActive = false,
+                tunnelError = "Для внешней сети нужен токен доступа. Создайте токен в VS Code и вставьте его в приложении перед запуском внешнего адреса."
+            )
+            return
+        }
         _uiState.value = _uiState.value.copy(isTunnelStarting = true, tunnelError = null)
         viewModelScope.launch {
             try {
@@ -1468,6 +1482,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun toggleTunnelMode(useTunnel: Boolean) {
+        if (useTunnel && _uiState.value.serverConfig.authToken.isBlank()) {
+            _uiState.value = _uiState.value.copy(
+                tunnelError = "Для внешней сети нужен токен доступа. Сначала вставьте токен из VS Code."
+            )
+            return
+        }
         if (useTunnel && _uiState.value.tunnelUrl != null) {
             val updatedConfig = _uiState.value.serverConfig.copy(
                 useTunnel = true,

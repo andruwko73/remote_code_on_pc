@@ -1280,7 +1280,8 @@ export class RemoteServer {
     // ========== WEBSOCKET ==========
 
     private async handleWsConnection(ws: WebSocket, req: http.IncomingMessage): Promise<void> {
-        if (!this.checkAuth(req)) {
+        const publicAccess = this.requestUsesPublicAccess(req);
+        if (!this.checkAuth(req, publicAccess)) {
             ws.close(1008, 'Unauthorized');
             return;
         }

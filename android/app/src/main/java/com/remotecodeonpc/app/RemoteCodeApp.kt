@@ -248,8 +248,9 @@ private fun ConnectionScreen(
     val tunnelFormatOk = trimmedTunnelUrl.isBlank() ||
         trimmedTunnelUrl.startsWith("http://") ||
         trimmedTunnelUrl.startsWith("https://")
+    val externalTokenMissing = useTunnel && authToken.trim().isBlank()
     val canConnect = if (useTunnel) {
-        trimmedTunnelUrl.isNotBlank() && tunnelFormatOk && !isConnecting
+        trimmedTunnelUrl.isNotBlank() && tunnelFormatOk && !externalTokenMissing && !isConnecting
     } else {
         host.isNotBlank() && port.toIntOrNull() != null && !isConnecting
     }
@@ -419,14 +420,32 @@ private fun ConnectionScreen(
                 emitConfig(nextToken = it)
             },
             label = { Text("Токен", color = TextSecondary, fontSize = 12.sp) },
-            placeholder = { Text("необязательно", color = TextSecondary.copy(alpha = 0.5f)) },
+            placeholder = {
+                Text(
+                    if (useTunnel) "обязателен для внешней сети" else "необязательно",
+                    color = TextSecondary.copy(alpha = 0.5f)
+                )
+            },
             singleLine = true,
             leadingIcon = { Icon(Icons.Default.Lock, contentDescription = null, tint = AccentBlue) },
             modifier = Modifier.fillMaxWidth().height(58.dp),
             textStyle = LocalTextStyle.current.copy(fontSize = 14.sp),
+            isError = externalTokenMissing,
             colors = outlinedFieldColors(),
             shape = androidx.compose.foundation.shape.RoundedCornerShape(12.dp)
         )
+
+        if (externalTokenMissing) {
+            Text(
+                "Для внешней сети нужен токен доступа из VS Code. Без токена публичный URL не используется.",
+                color = ErrorRed,
+                fontSize = 11.sp,
+                lineHeight = 13.sp,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.fillMaxWidth()
+            )
+        }
 
         error?.let {
             Surface(
@@ -604,7 +623,8 @@ private fun SettingsScreenV2(
         compactTunnelUrl.startsWith("https://")
     val hasLocalTarget = compactHostText.isNotBlank() && compactPortText.toIntOrNull() != null
     val hasPublicTarget = compactTunnelUrl.isNotBlank() && tunnelFormatOk
-    val canSave = if (compactUseTunnel) hasPublicTarget else hasLocalTarget
+    val externalTokenMissing = compactUseTunnel && compactTokenText.trim().isBlank()
+    val canSave = if (compactUseTunnel) hasPublicTarget && !externalTokenMissing else hasLocalTarget
     val hasChanges = compactConfig != serverConfig
     val modeLabel = if (compactUseTunnel) "Внешняя сеть" else "Локальная сеть"
     val remoteStatus = status?.remoteCode
@@ -752,12 +772,13 @@ private fun SettingsScreenV2(
                     shape = RoundedCornerShape(11.dp)
                 )
                 Text(
-                    when (authLabel) {
-                        "нужен" -> "Скопируйте токен в VS Code: меню Remote Code -> Подключение."
-                        "не принят" -> "Токен не совпал с настройками расширения."
+                    when {
+                        externalTokenMissing -> "Для внешней сети нужен токен из VS Code: Remote Code -> Подключение."
+                        authLabel == "нужен" -> "Скопируйте токен в VS Code: меню Remote Code -> Подключение."
+                        authLabel == "не принят" -> "Токен не совпал с настройками расширения."
                         else -> "Локальный и внешний режим используют один токен."
                     },
-                    color = if (authLabel == "не принят" || authLabel == "нужен") ErrorRed else TextSecondary,
+                    color = if (externalTokenMissing || authLabel == "не принят" || authLabel == "нужен") ErrorRed else TextSecondary,
                     fontSize = 11.sp,
                     lineHeight = 13.sp,
                     maxLines = 2,
@@ -768,7 +789,7 @@ private fun SettingsScreenV2(
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Button(
                         onClick = if (externalSelected) onStopTunnel else onStartTunnel,
-                        enabled = !isTunnelStarting,
+                        enabled = !isTunnelStarting && (externalSelected || !externalTokenMissing),
                         modifier = Modifier.weight(1f).height(42.dp),
                         colors = ButtonDefaults.buttonColors(containerColor = if (externalSelected) DarkSurfaceVariant else AccentGreen),
                         shape = RoundedCornerShape(10.dp)
