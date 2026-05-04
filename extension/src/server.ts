@@ -2426,6 +2426,7 @@ export class RemoteServer {
         const providerLabel = this.getProviderLabel(this.getPublicProvider());
         const keeneticHost = this.getConfiguredKeeneticHost();
         const items: Array<vscode.QuickPickItem & { action: string }> = [
+            { label: this._authToken ? 'Скопировать токен доступа' : 'Создать токен доступа', description: tokenState, detail: 'Обязателен для внешней сети. Токен будет скопирован в буфер обмена.', action: this._authToken ? 'copyToken' : 'createToken' },
             { label: 'Скопировать локальный URL', description: localUrl, action: 'copyLocal' },
             { label: 'Сформировать Keenetic URL', description: publicUrl || keeneticHost || 'my.keenetic.net / name.keenetic.link', detail: publicUrl ? `Сохранено: ${publicUrl}` : 'Соберет адрес из KeenDNS-имени или попробует найти его через my.keenetic.net', action: 'autoPublic' },
             ...(publicUrl ? [
@@ -2436,7 +2437,6 @@ export class RemoteServer {
                 { label: 'Очистить публичный Keenetic URL', description: publicUrl, action: 'clearPublic' }
             ] : []),
             { label: 'Сменить роутер / KeenDNS', description: keeneticHost || 'name или name.keenetic.link', detail: 'По имени расширение само сформирует публичный URL с портом сервера.', action: 'setKeeneticHost' },
-            { label: this._authToken ? 'Скопировать токен доступа' : 'Создать токен доступа', description: tokenState, action: this._authToken ? 'copyToken' : 'createToken' },
             { label: 'Как подключиться извне', description: 'Keenetic/KeenDNS + токен', detail: 'Настройте KeenDNS/проброс порта 8799 на ПК, затем вставьте публичный URL в APK.', action: 'showHelp' },
             { label: 'Открыть настройки расширения', description: 'порт, host, token, public URL', action: 'openSettings' }
         ];
@@ -2528,15 +2528,10 @@ export class RemoteServer {
                 return;
             }
             case 'copyToken':
-                await vscode.env.clipboard.writeText(this._authToken);
-                await vscode.window.showInformationMessage('Remote Code: токен скопирован. Вставьте его в настройках APK.');
+                await this.createOrCopyAuthToken();
                 return;
             case 'createToken': {
-                const token = crypto.randomBytes(24).toString('hex');
-                await vscode.workspace.getConfiguration('remoteCodeOnPC').update('authToken', token, vscode.ConfigurationTarget.Global);
-                this._authToken = token;
-                await vscode.env.clipboard.writeText(token);
-                await vscode.window.showInformationMessage('Remote Code: токен создан и скопирован. Вставьте его в приложении на телефоне.');
+                await this.createOrCopyAuthToken();
                 return;
             }
             case 'stopTunnel':
@@ -2552,6 +2547,20 @@ export class RemoteServer {
                 await vscode.commands.executeCommand('workbench.action.openSettings', 'remoteCodeOnPC');
                 return;
         }
+    }
+
+    public async createOrCopyAuthToken(): Promise<string> {
+        if (!this._authToken) {
+            const token = crypto.randomBytes(24).toString('hex');
+            await vscode.workspace.getConfiguration('remoteCodeOnPC').update('authToken', token, vscode.ConfigurationTarget.Global);
+            this._authToken = token;
+            await vscode.env.clipboard.writeText(token);
+            await vscode.window.showInformationMessage('Remote Code: токен создан и скопирован. Вставьте его в поле "Токен" в приложении.');
+            return token;
+        }
+        await vscode.env.clipboard.writeText(this._authToken);
+        await vscode.window.showInformationMessage('Remote Code: токен скопирован. Вставьте его в поле "Токен" в приложении.');
+        return this._authToken;
     }
 
     private openPcChatPanel(): void {
@@ -2757,6 +2766,9 @@ export class RemoteServer {
                 return;
             case 'showConnectionSettings':
                 await this.showConnectionSettings();
+                return;
+            case 'createOrCopyToken':
+                await this.createOrCopyAuthToken();
                 return;
             case 'openSettings':
                 await vscode.commands.executeCommand('workbench.action.openSettings', 'remoteCodeOnPC');
@@ -3555,6 +3567,7 @@ export class RemoteServer {
             sparkle: this.webIcon('sparkle'),
             branch: this.webIcon('branch'),
             laptop: this.webIcon('laptop'),
+            lock: this.webIcon('lock'),
             copy: this.webIcon('copy'),
             up: this.webIcon('thumbUp'),
             down: this.webIcon('thumbDown'),
@@ -3912,6 +3925,7 @@ button.send.stop:hover{background:#fff}
     </div>
   </div>
   <div class="toolbar-spacer"></div>
+  <button class="icon-btn" type="button" data-action="createOrCopyToken" title="${this._authToken ? '&#1057;&#1082;&#1086;&#1087;&#1080;&#1088;&#1086;&#1074;&#1072;&#1090;&#1100; &#1090;&#1086;&#1082;&#1077;&#1085; &#1076;&#1086;&#1089;&#1090;&#1091;&#1087;&#1072;' : '&#1057;&#1086;&#1079;&#1076;&#1072;&#1090;&#1100; &#1090;&#1086;&#1082;&#1077;&#1085; &#1076;&#1086;&#1089;&#1090;&#1091;&#1087;&#1072;'}">${icon.lock}</button>
   <button class="icon-btn" type="button" id="topRun" title="${isBusy ? '&#1054;&#1089;&#1090;&#1072;&#1085;&#1086;&#1074;&#1080;&#1090;&#1100;' : '&#1054;&#1090;&#1087;&#1088;&#1072;&#1074;&#1080;&#1090;&#1100;'}">${isBusy ? icon.stop : icon.play}</button>
   <div class="connector-menu-wrap" id="connectorDrop">
     <button class="connector-btn" type="button" id="connectorBtn" title="VS Code">${icon.vscode}<span>VS Code</span><span class="chev">${icon.chevron}</span></button>
@@ -4793,7 +4807,7 @@ prompt.addEventListener('keydown', event => {
         return `<button type="button" class="change-row" data-path="${this.escapeHtml(change.path)}"><span class="change-path">${this.escapeHtml(change.path)}</span>${additions}${deletions}<span class="row-chev">${this.webIcon('chevronDown')}</span></button>`;
     }
 
-    private webIcon(name: 'archive' | 'branch' | 'chevronDown' | 'command' | 'copy' | 'edit' | 'expand' | 'extensions' | 'external' | 'file' | 'globe' | 'laptop' | 'more' | 'panel' | 'pin' | 'play' | 'plus' | 'scrollDown' | 'search' | 'send' | 'settings' | 'sparkle' | 'stop' | 'terminal' | 'thumbDown' | 'thumbUp' | 'trash' | 'undo' | 'x'): string {
+    private webIcon(name: 'archive' | 'branch' | 'chevronDown' | 'command' | 'copy' | 'edit' | 'expand' | 'extensions' | 'external' | 'file' | 'globe' | 'laptop' | 'lock' | 'more' | 'panel' | 'pin' | 'play' | 'plus' | 'scrollDown' | 'search' | 'send' | 'settings' | 'sparkle' | 'stop' | 'terminal' | 'thumbDown' | 'thumbUp' | 'trash' | 'undo' | 'x'): string {
         switch (name) {
             case 'archive':
                 return '<svg viewBox="0 0 16 16" aria-hidden="true"><rect x="2.5" y="3" width="11" height="3" rx="1"/><path d="M4 6v7h8V6"/><path d="M6.25 9h3.5"/></svg>';
@@ -4819,6 +4833,8 @@ prompt.addEventListener('keydown', event => {
                 return '<svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="5.75"/><path d="M2.5 8h11"/><path d="M8 2.25c1.55 1.6 2.25 3.5 2.25 5.75S9.55 12.15 8 13.75C6.45 12.15 5.75 10.25 5.75 8S6.45 3.85 8 2.25Z"/></svg>';
             case 'laptop':
                 return '<svg viewBox="0 0 16 16" aria-hidden="true"><rect x="3" y="3.5" width="10" height="7" rx="1.2"/><path d="M1.75 12.5h12.5"/></svg>';
+            case 'lock':
+                return '<svg viewBox="0 0 16 16" aria-hidden="true"><rect x="3.25" y="7" width="9.5" height="6.25" rx="1.25"/><path d="M5.25 7V5.25a2.75 2.75 0 0 1 5.5 0V7"/><path d="M8 9.25v1.75"/></svg>';
             case 'more':
                 return '<svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="3.5" cy="8" r=".9"/><circle cx="8" cy="8" r=".9"/><circle cx="12.5" cy="8" r=".9"/></svg>';
             case 'panel':

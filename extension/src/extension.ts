@@ -116,7 +116,18 @@ export function activate(context: vscode.ExtensionContext) {
         updateStatusBar();
     });
 
-    context.subscriptions.push(startCmd, stopCmd, tunnelCmd, statusCmd, openChatCmd, connectionCmd);
+    const tokenCmd = vscode.commands.registerCommand('remoteCodeOnPC.token', async () => {
+        if (!server) {
+            server = new RemoteServer(context);
+        }
+        if (!server.isRunning) {
+            await server.start();
+        }
+        await server.createOrCopyAuthToken();
+        updateStatusBar();
+    });
+
+    context.subscriptions.push(startCmd, stopCmd, tunnelCmd, statusCmd, openChatCmd, connectionCmd, tokenCmd);
 }
 
 function updateStatusBar() {

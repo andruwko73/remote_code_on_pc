@@ -2,7 +2,7 @@
   "name": "remote-code-on-pc",
   "displayName": "Remote Code on PC",
   "description": "HTTP/WebSocket сервер для удаленного управления VS Code с Android-приложения",
-  "version": "1.1.68",
+  "version": "1.1.69",
   "publisher": "remote-code-on-pc",
   "license": "MIT",
   "engines": {
@@ -16,7 +16,8 @@
     "onCommand:remoteCodeOnPC.start",
     "onCommand:remoteCodeOnPC.openChat",
     "onCommand:remoteCodeOnPC.tunnel",
-    "onCommand:remoteCodeOnPC.connection"
+    "onCommand:remoteCodeOnPC.connection",
+    "onCommand:remoteCodeOnPC.token"
   ],
   "main": "./out/extension.js",
   "contributes": {
@@ -44,6 +45,10 @@
       {
         "command": "remoteCodeOnPC.connection",
         "title": "Remote Code on PC: Подключение"
+      },
+      {
+        "command": "remoteCodeOnPC.token",
+        "title": "Remote Code on PC: Создать/скопировать токен доступа"
       }
     ],
     "configuration": {
