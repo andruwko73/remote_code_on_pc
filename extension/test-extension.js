@@ -244,6 +244,7 @@ assert(serverContent.includes('getDefaultCodexModels'), 'getDefaultCodexModels',
 // Проверка Android Codex
 const mainVm = fs.readFileSync(path.join(androidBase, 'app', 'src', 'main', 'java', 'com', 'remotecodeonpc', 'app', 'viewmodel', 'MainViewModel.kt'), 'utf-8');
 assert(mainVm.includes('syncCodexComposerPreferences') && mainVm.includes('codex:preferences-changed'), 'Android composer buttons sync with extension', 'composer sync missing in ViewModel');
+assert(mainVm.includes('dedupeCodexMessages') && mainVm.includes('mobile_user_') && mainVm.includes('isDuplicateCodexMessage'), 'Android chat history deduplicates optimistic/WebSocket/history messages', 'chat dedupe missing in ViewModel');
 assert(mainVm.includes('loadCodexStatus'), 'loadCodexStatus в MainViewModel', 'Не найден');
 assert(mainVm.includes('loadCodexModels'), 'loadCodexModels в MainViewModel', 'Не найден');
 assert(mainVm.includes('sendCodexMessage'), 'sendCodexMessage в MainViewModel', 'Не найден');

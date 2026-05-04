@@ -18,6 +18,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlin.math.abs
 
 data class AppUiState(
     // Connection
@@ -756,6 +757,61 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    private fun List<CodexChatMessage>.dedupeCodexMessages(): List<CodexChatMessage> {
+        val result = mutableListOf<CodexChatMessage>()
+        for (message in sortedBy { it.timestamp }) {
+            val duplicateIndex = result.indexOfLast { existing -> existing.isDuplicateCodexMessage(message) }
+            if (duplicateIndex >= 0) {
+                result[duplicateIndex] = preferCodexMessage(result[duplicateIndex], message)
+            } else {
+                result.add(message)
+            }
+        }
+        return result.sortedBy { it.timestamp }
+    }
+
+    private fun CodexChatMessage.isDuplicateCodexMessage(other: CodexChatMessage): Boolean {
+        if (id.isNotBlank() && other.id.isNotBlank() && id == other.id) return true
+        if (role != other.role) return false
+        if (normalizedCodexContent() != other.normalizedCodexContent()) return false
+        if (normalizedCodexContent().isBlank()) return false
+        if (attachmentKey() != other.attachmentKey()) return false
+        if (changeSummaryKey() != other.changeSummaryKey()) return false
+
+        val oneIsOptimistic = id.startsWith("mobile_user_") || other.id.startsWith("mobile_user_")
+        val oneIsStreaming = isStreaming || other.isStreaming ||
+            id.contains("stream", ignoreCase = true) ||
+            other.id.contains("stream", ignoreCase = true)
+        if (oneIsOptimistic || oneIsStreaming) return true
+
+        val distance = if (timestamp > 0L && other.timestamp > 0L) abs(timestamp - other.timestamp) else 0L
+        return distance <= 30_000L
+    }
+
+    private fun CodexChatMessage.normalizedCodexContent(): String =
+        content.trim().replace(Regex("\\s+"), " ")
+
+    private fun CodexChatMessage.attachmentKey(): String =
+        attachments.joinToString("|") { "${it.name}:${it.mimeType}:${it.size}" }
+
+    private fun CodexChatMessage.changeSummaryKey(): String =
+        changeSummary?.files
+            ?.joinToString("|") { "${it.path}:${it.additions}:${it.deletions}" }
+            ?: ""
+
+    private fun preferCodexMessage(first: CodexChatMessage, second: CodexChatMessage): CodexChatMessage {
+        return listOf(first, second).maxWith(
+            compareBy<CodexChatMessage>(
+                { if (it.id.startsWith("mobile_user_")) 0 else 1 },
+                { if (it.isStreaming) 0 else 1 },
+                { if (it.changeSummary != null) 1 else 0 },
+                { it.attachments.size },
+                { it.content.length },
+                { it.timestamp }
+            )
+        )
+    }
+
     private fun upsertCodexMessage(message: CodexChatMessage) {
         val current = _uiState.value.codexChatHistory.toMutableList()
         val index = current.indexOfFirst { it.id == message.id }
@@ -764,7 +820,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         } else {
             current.add(message)
         }
-        _uiState.value = _uiState.value.copy(codexChatHistory = current.sortedBy { it.timestamp })
+        _uiState.value = _uiState.value.copy(codexChatHistory = current.dedupeCodexMessages().takeLast(120))
     }
 
     private fun updateCodexStreamingMessage(messageId: String, content: String, timestamp: Long) {
@@ -787,7 +843,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 )
             )
         }
-        _uiState.value = _uiState.value.copy(codexChatHistory = current.sortedBy { it.timestamp })
+        _uiState.value = _uiState.value.copy(codexChatHistory = current.dedupeCodexMessages().takeLast(120))
     }
 
     private fun Map<*, *>.toCodexChatMessage(): CodexChatMessage {
@@ -945,7 +1001,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     }
                     _uiState.value = _uiState.value.copy(
                         codexChatHistory = (serverMessages + localPending)
-                            .sortedBy { it.timestamp }
+                            .dedupeCodexMessages()
                             .takeLast(120),
                         currentCodexThreadId = body?.threadId?.takeIf { it.isNotBlank() }
                             ?: selectedThreadId
@@ -1065,7 +1121,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _uiState.value = _uiState.value.copy(
             isCodexLoading = true,
             codexError = null,
-            codexChatHistory = (_uiState.value.codexChatHistory + optimisticMessage).takeLast(120)
+            codexChatHistory = (_uiState.value.codexChatHistory + optimisticMessage)
+                .dedupeCodexMessages()
+                .takeLast(120)
         )
         viewModelScope.launch {
             try {
