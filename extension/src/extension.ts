@@ -123,7 +123,7 @@ export function activate(context: vscode.ExtensionContext) {
         if (!server.isRunning) {
             await server.start();
         }
-        await server.createOrCopyAuthToken();
+        await server.showAuthTokenMenu();
         updateStatusBar();
     });
 

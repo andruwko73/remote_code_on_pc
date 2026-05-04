@@ -2425,8 +2425,12 @@ export class RemoteServer {
         const tokenState = this._authToken ? 'токен включен' : 'токен не задан';
         const providerLabel = this.getProviderLabel(this.getPublicProvider());
         const keeneticHost = this.getConfiguredKeeneticHost();
+        const tokenLabel = this._authToken ? 'Токен доступа' : 'Создать токен доступа';
+        const tokenDetail = this._authToken
+            ? 'Откроет меню: скопировать текущий токен или создать новый. При создании нового старый перестанет работать.'
+            : 'Создаст токен для внешней сети и скопирует его в буфер обмена.';
         const items: Array<vscode.QuickPickItem & { action: string }> = [
-            { label: this._authToken ? 'Скопировать токен доступа' : 'Создать токен доступа', description: tokenState, detail: 'Обязателен для внешней сети. Токен будет скопирован в буфер обмена.', action: this._authToken ? 'copyToken' : 'createToken' },
+            { label: tokenLabel, description: tokenState, detail: tokenDetail, action: 'tokenMenu' },
             { label: 'Скопировать локальный URL', description: localUrl, action: 'copyLocal' },
             { label: 'Сформировать Keenetic URL', description: publicUrl || keeneticHost || 'my.keenetic.net / name.keenetic.link', detail: publicUrl ? `Сохранено: ${publicUrl}` : 'Соберет адрес из KeenDNS-имени или попробует найти его через my.keenetic.net', action: 'autoPublic' },
             ...(publicUrl ? [
@@ -2527,11 +2531,11 @@ export class RemoteServer {
                 }
                 return;
             }
+            case 'tokenMenu':
             case 'copyToken':
-                await this.createOrCopyAuthToken();
-                return;
-            case 'createToken': {
-                await this.createOrCopyAuthToken();
+            case 'createToken':
+            case 'rotateToken': {
+                await this.showAuthTokenMenu();
                 return;
             }
             case 'stopTunnel':
@@ -2549,17 +2553,80 @@ export class RemoteServer {
         }
     }
 
-    public async createOrCopyAuthToken(): Promise<string> {
-        if (!this._authToken) {
+    public async showAuthTokenMenu(): Promise<string | undefined> {
+        const items: Array<vscode.QuickPickItem & { action: 'copy' | 'create' | 'rotate' | 'connection' }> = this._authToken
+            ? [
+                {
+                    label: 'Скопировать текущий токен',
+                    description: 'старый токен останется действующим',
+                    detail: 'Используйте это, если нужно снова вставить тот же токен в APK.',
+                    action: 'copy'
+                },
+                {
+                    label: 'Создать новый токен',
+                    description: 'старый токен перестанет работать',
+                    detail: 'После создания вставьте новый токен в поле "Токен" в приложении и сохраните/подключитесь заново.',
+                    action: 'rotate'
+                },
+                {
+                    label: 'Открыть меню подключения',
+                    description: 'URL, Keenetic, порт и настройки',
+                    action: 'connection'
+                }
+            ]
+            : [
+                {
+                    label: 'Создать токен доступа',
+                    description: 'обязателен для внешней сети',
+                    detail: 'Токен будет сохранен в настройках расширения и скопирован в буфер обмена.',
+                    action: 'create'
+                },
+                {
+                    label: 'Открыть меню подключения',
+                    description: 'URL, Keenetic, порт и настройки',
+                    action: 'connection'
+                }
+            ];
+        const picked = await vscode.window.showQuickPick(items, {
+            title: 'Remote Code: токен доступа',
+            placeHolder: this._authToken
+                ? 'Выберите: скопировать текущий токен или создать новый'
+                : 'Создайте токен и вставьте его в приложение'
+        });
+        if (!picked) return undefined;
+        if (picked.action === 'connection') {
+            await this.showConnectionSettings();
+            return undefined;
+        }
+        if (picked.action === 'rotate') {
+            const confirmed = await vscode.window.showWarningMessage(
+                'Создать новый токен доступа? Старый токен сразу перестанет работать, и его нужно будет заменить в приложении.',
+                { modal: true },
+                'Создать новый токен'
+            );
+            if (confirmed !== 'Создать новый токен') return undefined;
+            return this.createOrCopyAuthToken(true);
+        }
+        return this.createOrCopyAuthToken(picked.action === 'create');
+    }
+
+    public async createOrCopyAuthToken(forceNew = false): Promise<string> {
+        if (!this._authToken || forceNew) {
+            const replacing = !!this._authToken;
             const token = crypto.randomBytes(24).toString('hex');
             await vscode.workspace.getConfiguration('remoteCodeOnPC').update('authToken', token, vscode.ConfigurationTarget.Global);
             this._authToken = token;
             await vscode.env.clipboard.writeText(token);
-            await vscode.window.showInformationMessage('Remote Code: токен создан и скопирован. Вставьте его в поле "Токен" в приложении.');
+            this.refreshPcChatPanel();
+            await vscode.window.showInformationMessage(
+                replacing
+                    ? 'Remote Code: новый токен создан и скопирован. Старый токен больше не работает. Вставьте новый токен в приложении.'
+                    : 'Remote Code: токен создан и скопирован. Вставьте его в поле "Токен" в приложении.'
+            );
             return token;
         }
         await vscode.env.clipboard.writeText(this._authToken);
-        await vscode.window.showInformationMessage('Remote Code: токен скопирован. Вставьте его в поле "Токен" в приложении.');
+        await vscode.window.showInformationMessage('Remote Code: текущий токен скопирован. Для замены выберите "Создать новый токен".');
         return this._authToken;
     }
 
@@ -2768,7 +2835,7 @@ export class RemoteServer {
                 await this.showConnectionSettings();
                 return;
             case 'createOrCopyToken':
-                await this.createOrCopyAuthToken();
+                await this.showAuthTokenMenu();
                 return;
             case 'openSettings':
                 await vscode.commands.executeCommand('workbench.action.openSettings', 'remoteCodeOnPC');
@@ -3671,6 +3738,8 @@ svg{width:15px;height:15px;display:block;fill:none;stroke:currentColor;stroke-wi
 .icon-btn{width:26px;height:26px;border:0;border-radius:7px;background:transparent;color:#9ea0a4;display:inline-flex;align-items:center;justify-content:center;cursor:pointer;padding:0}
 .icon-btn svg{width:16px;height:16px;stroke-width:1.65}
 .icon-btn:hover{background:var(--codex-surface);color:var(--codex-bright)}
+.token-btn{width:auto;padding:0 8px;gap:5px}
+.token-btn span{font-size:12px;line-height:1;white-space:nowrap}
 .thread-menu-wrap{position:relative;min-width:0;display:flex;align-items:center;gap:7px}
 .thread-menu-btn{border:0;background:transparent;color:var(--codex-bright);display:flex;align-items:center;gap:6px;min-width:0;max-width:680px;cursor:pointer;border-radius:8px;padding:5px 6px}
 .thread-menu-btn:hover,.thread-menu-wrap.open .thread-menu-btn{background:var(--codex-surface)}
@@ -3890,7 +3959,7 @@ button.send.stop:hover{background:#fff}
 @media (min-width: 1120px){:root{--progress-offset:250px}.composer-wrap{margin-left:246px;margin-right:252px}.messages{padding-left:clamp(20px,3vw,64px);padding-right:clamp(20px,3vw,64px)}}
 @media (min-width: 1500px){:root{--chat-max:900px;--composer-max:940px}.progress-panel{width:246px}}
 @media (max-width: 1119px){.wide-sidebar{display:none}.content-shell{display:flex;overflow:hidden}.messages{height:auto;overflow:auto}.progress-panel{display:none}.scroll-bottom{display:none}}
-@media (max-width: 680px){.top{padding:0 10px}.messages{padding-left:14px;padding-right:14px;padding-bottom:132px}.composer-wrap{padding-left:8px;padding-right:8px}.controls{flex-wrap:wrap}button.send{margin-left:auto}.subcontrols{gap:8px;flex-wrap:wrap}.dropdown.profile{flex-basis:132px}.msg.user .message-text,.msg.user .attachments-list,.msg.user .message-file-cards{max-width:88%}}
+@media (max-width: 680px){.top{padding:0 10px}.token-btn{width:26px;padding:0}.token-btn span{display:none}.messages{padding-left:14px;padding-right:14px;padding-bottom:132px}.composer-wrap{padding-left:8px;padding-right:8px}.controls{flex-wrap:wrap}button.send{margin-left:auto}.subcontrols{gap:8px;flex-wrap:wrap}.dropdown.profile{flex-basis:132px}.msg.user .message-text,.msg.user .attachments-list,.msg.user .message-file-cards{max-width:88%}}
 </style>
 </head>
 <body>
@@ -3925,7 +3994,7 @@ button.send.stop:hover{background:#fff}
     </div>
   </div>
   <div class="toolbar-spacer"></div>
-  <button class="icon-btn" type="button" data-action="createOrCopyToken" title="${this._authToken ? '&#1057;&#1082;&#1086;&#1087;&#1080;&#1088;&#1086;&#1074;&#1072;&#1090;&#1100; &#1090;&#1086;&#1082;&#1077;&#1085; &#1076;&#1086;&#1089;&#1090;&#1091;&#1087;&#1072;' : '&#1057;&#1086;&#1079;&#1076;&#1072;&#1090;&#1100; &#1090;&#1086;&#1082;&#1077;&#1085; &#1076;&#1086;&#1089;&#1090;&#1091;&#1087;&#1072;'}">${icon.lock}</button>
+  <button class="icon-btn token-btn" type="button" data-action="createOrCopyToken" title="${this._authToken ? '&#1052;&#1077;&#1085;&#1102; &#1090;&#1086;&#1082;&#1077;&#1085;&#1072;: &#1089;&#1082;&#1086;&#1087;&#1080;&#1088;&#1086;&#1074;&#1072;&#1090;&#1100; &#1080;&#1083;&#1080; &#1089;&#1086;&#1079;&#1076;&#1072;&#1090;&#1100; &#1085;&#1086;&#1074;&#1099;&#1081;' : '&#1057;&#1086;&#1079;&#1076;&#1072;&#1090;&#1100; &#1090;&#1086;&#1082;&#1077;&#1085; &#1076;&#1086;&#1089;&#1090;&#1091;&#1087;&#1072;'}">${icon.lock}<span>&#1058;&#1086;&#1082;&#1077;&#1085;</span></button>
   <button class="icon-btn" type="button" id="topRun" title="${isBusy ? '&#1054;&#1089;&#1090;&#1072;&#1085;&#1086;&#1074;&#1080;&#1090;&#1100;' : '&#1054;&#1090;&#1087;&#1088;&#1072;&#1074;&#1080;&#1090;&#1100;'}">${isBusy ? icon.stop : icon.play}</button>
   <div class="connector-menu-wrap" id="connectorDrop">
     <button class="connector-btn" type="button" id="connectorBtn" title="VS Code">${icon.vscode}<span>VS Code</span><span class="chev">${icon.chevron}</span></button>

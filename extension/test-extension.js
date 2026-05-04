@@ -163,7 +163,7 @@ assert(extContent.includes('remoteCodeOnPC.stop'), 'stop команда', 'Не 
 assert(extContent.includes('remoteCodeOnPC.tunnel'), 'tunnel команда', 'Не найдена');
 assert(extContent.includes('remoteCodeOnPC.status'), 'status команда', 'Не найдена');
 assert(extContent.includes('remoteCodeOnPC.openChat'), 'openChat команда', 'Не найдена');
-assert(extContent.includes('remoteCodeOnPC.token') && extContent.includes('createOrCopyAuthToken'), 'token команда', 'Не найдена');
+assert(extContent.includes('remoteCodeOnPC.token') && extContent.includes('showAuthTokenMenu'), 'token команда', 'Не найдена');
 assert(extContent.includes('server.openRemoteCodeChat'), 'собственный Remote Code чат', 'Не найден');
 assert(extContent.includes('updateStatusBar'), 'updateStatusBar функция', 'Не найдена');
 
@@ -175,7 +175,8 @@ assert(serverContent.includes('publicAuthRequiredStatus'), 'Минимальны
 assert(serverContent.includes('sanitizeLogText'), 'Маскирование логов расширения', 'sanitizeLogText не найден');
 assert(serverContent.includes('if (!this._authToken) return !requireConfiguredToken'), 'Внешний доступ требует настроенный токен', 'checkAuth не требует токен для public access');
 assert(serverContent.includes('const publicAccess = this.requestUsesPublicAccess(req);') && serverContent.includes('!this.checkAuth(req, publicAccess)'), 'WebSocket public access requires token', 'public WebSocket must use the same token gate as HTTP');
-assert(serverContent.includes('data-action="createOrCopyToken"') && serverContent.includes("case 'createOrCopyToken'"), 'Visible token button works', 'token button missing in webview');
+assert(serverContent.includes('data-action="createOrCopyToken"') && serverContent.includes("case 'createOrCopyToken'") && serverContent.includes('showAuthTokenMenu'), 'Visible token button works', 'token button missing in webview');
+assert(serverContent.includes('Создать новый токен') && serverContent.includes('forceNew') && serverContent.includes('token-btn'), 'Token can be regenerated explicitly', 'token regeneration/menu label missing');
 assert(serverContent.includes('liveDraftThreadIds'), 'Пустые чаты не закрепляются навсегда', 'liveDraftThreadIds не найден');
 assert(serverContent.includes("private currentRemoteThreadId: string = '';"), 'Нет скрытого default-чата при старте', 'currentRemoteThreadId не должен стартовать с remote-code-default');
 assert(serverContent.includes('if (!targetThreadId)') && serverContent.includes('targetThreadId = this.createRemoteCodeThread()'), 'Сообщение без thread создаёт реальный чат', 'fallback thread должен создаваться явно');
