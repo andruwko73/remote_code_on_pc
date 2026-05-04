@@ -1214,6 +1214,10 @@ private fun cleanMobileMessageContent(content: String): String {
             index++
             continue
         }
+        if (isTechnicalMobileLine(trimmed)) {
+            index++
+            continue
+        }
         if (trimmed.matches(Regex("""Изменено\s+\d+\s+файл.*""", RegexOption.IGNORE_CASE))) {
             index++
             while (index < lines.size && isChangeFileLine(lines[index])) index++
@@ -1265,6 +1269,24 @@ private fun isGitDirectiveLine(line: String): Boolean {
         "create-branch",
         "create-pr"
     )
+}
+
+private fun isTechnicalMobileLine(line: String): Boolean {
+    val normalized = line
+        .replace("&lt;", "<", ignoreCase = true)
+        .replace("&gt;", ">", ignoreCase = true)
+        .replace("&amp;", "&", ignoreCase = true)
+        .replace("`", "")
+        .trim()
+    if (normalized.isBlank() || normalized.matches(Regex("""^[.\-_*•]+$"""))) return true
+    return normalized.matches(Regex("""^</?(image|video|audio|file|environment_context|attachments?|user|system)(\s|>|$).*""", RegexOption.IGNORE_CASE))
+        || normalized.matches(Regex("""^<[^>]+>$"""))
+        || normalized.matches(Regex("""^!\[[^\]]*]\([^)]+\)$"""))
+        || normalized.matches(Regex("""^#{0,2}\s*Files mentioned by the user.*""", RegexOption.IGNORE_CASE))
+        || normalized.matches(Regex("""^##\s+.+\.(png|jpe?g|webp|gif|txt|md|log|json):.*""", RegexOption.IGNORE_CASE))
+        || normalized.matches(Regex("""^My request for (Codex|Code):?$""", RegexOption.IGNORE_CASE))
+        || normalized.matches(Regex("""^[A-Za-z]:[\\/].*"""))
+        || normalized.matches(Regex("""^(path|file|image|photo|screenshot)\s*[:=]\s*.*""", RegexOption.IGNORE_CASE))
 }
 
 private fun pluralRu(count: Int, one: String, few: String, many: String): String {

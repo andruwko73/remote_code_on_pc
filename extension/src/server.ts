@@ -133,7 +133,7 @@ export class RemoteServer {
     private codexHistory: CodexChatMessage[] = [];
     private codexActionEvents: RemoteCodeActionEvent[] = [];
     private remoteCodeThreads: RemoteCodeThreadSummary[] = [];
-    private currentRemoteThreadId: string = 'remote-code-default';
+    private currentRemoteThreadId: string = '';
     private liveDraftThreadIds: Set<string> = new Set();
     private pcChatPanel?: vscode.WebviewPanel;
     private pcChatRefreshTimer?: ReturnType<typeof setTimeout>;
@@ -2360,7 +2360,10 @@ export class RemoteServer {
         includeContext?: boolean,
         localAttachments: LocalAttachment[] = []
     ): Promise<string> {
-        const targetThreadId = threadId.trim() || this.currentRemoteThreadId || 'remote-code-default';
+        let targetThreadId = threadId.trim() || this.currentRemoteThreadId;
+        if (!targetThreadId) {
+            targetThreadId = this.createRemoteCodeThread();
+        }
         this.currentRemoteThreadId = targetThreadId;
         const effort = this.normalizeReasoningEffort(reasoningEffort || this.selectedReasoningEffort);
         this.selectedReasoningEffort = effort;
@@ -2926,6 +2929,10 @@ export class RemoteServer {
     }
 
     private async confirmAndClearCurrentThread(): Promise<void> {
+        if (!this.currentRemoteThreadId) {
+            await vscode.window.setStatusBarMessage('Remote Code: нет выбранного чата для очистки', 1600);
+            return;
+        }
         const current = this.getRemoteCodeThreads().find(thread => thread.id === this.currentRemoteThreadId);
         const result = await vscode.window.showWarningMessage(
             `Очистить сообщения и действия в чате "${current?.title || this.getCurrentThreadTitle()}"?`,
@@ -3902,7 +3909,7 @@ button.send.stop:hover{background:#fff}
     </div>
   </div>
   <div class="toolbar-spacer"></div>
-  <button class="icon-btn" type="button" id="topRun" title="&#1054;&#1090;&#1087;&#1088;&#1072;&#1074;&#1080;&#1090;&#1100;">${icon.play}</button>
+  <button class="icon-btn" type="button" id="topRun" title="${isBusy ? '&#1054;&#1089;&#1090;&#1072;&#1085;&#1086;&#1074;&#1080;&#1090;&#1100;' : '&#1054;&#1090;&#1087;&#1088;&#1072;&#1074;&#1080;&#1090;&#1100;'}">${isBusy ? icon.stop : icon.play}</button>
   <div class="connector-menu-wrap" id="connectorDrop">
     <button class="connector-btn" type="button" id="connectorBtn" title="VS Code">${icon.vscode}<span>VS Code</span><span class="chev">${icon.chevron}</span></button>
     <div class="toolbar-menu">
@@ -4156,7 +4163,13 @@ document.querySelectorAll('[data-dismiss-action-id]').forEach(button => {
     vscode.postMessage({ type: 'action', action: 'dismissActionEvent', actionId });
   });
 });
-document.getElementById('topRun').addEventListener('click', () => form.requestSubmit());
+document.getElementById('topRun').addEventListener('click', () => {
+  if (isBusy) {
+    vscode.postMessage({ type: 'action', action: 'stopGeneration' });
+    return;
+  }
+  form.requestSubmit();
+});
 document.getElementById('send').addEventListener('click', event => {
   if (!isBusy) return;
   event.preventDefault();
@@ -4505,11 +4518,28 @@ prompt.addEventListener('keydown', event => {
     }
 
     private isTechnicalProgressLine(line: string): boolean {
-        return /^<\/?(?:image|video|audio|file|environment_context|attachments?)(?:\s|>|$)/i.test(line)
-            || /^<[^>]+>$/.test(line)
-            || /^!\[[^\]]*]\([^)]+\)$/.test(line)
-            || /^##\s+.+\.(?:png|jpe?g|webp|gif|txt|md|log|json):/i.test(line)
-            || /^Files mentioned by the user/i.test(line);
+        const normalized = this.decodeBasicHtmlEntities(line)
+            .replace(/`+/g, '')
+            .trim();
+        if (!normalized || /^[.\-_*•]+$/.test(normalized)) return true;
+        return /^<\/?(?:image|video|audio|file|environment_context|attachments?|user|system)(?:\s|>|$)/i.test(normalized)
+            || /^<[^>]+>$/.test(normalized)
+            || /^!\[[^\]]*]\([^)]+\)$/.test(normalized)
+            || /^##\s+.+\.(?:png|jpe?g|webp|gif|txt|md|log|json):/i.test(normalized)
+            || /^#?\s*Files mentioned by the user/i.test(normalized)
+            || /^My request for (?:Codex|Code):?$/i.test(normalized)
+            || /^<environment_context>/i.test(normalized)
+            || /^<\/environment_context>/i.test(normalized)
+            || /^(?:path|file|image|photo|screenshot)\s*[:=]\s*/i.test(normalized);
+    }
+
+    private decodeBasicHtmlEntities(value: string): string {
+        return value
+            .replace(/&lt;/gi, '<')
+            .replace(/&gt;/gi, '>')
+            .replace(/&amp;/gi, '&')
+            .replace(/&quot;/gi, '"')
+            .replace(/&#39;/g, "'");
     }
 
     private getGitPanelStatus(): { changes: number; githubCli: boolean } {
