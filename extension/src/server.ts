@@ -569,6 +569,184 @@ export class RemoteServer {
         ].join('\n');
     }
 
+    private normalizeRouterBase(raw: string): string {
+        const value = raw.trim();
+        if (!value) return 'http://my.keenetic.net/';
+        const withScheme = /^[a-z][a-z0-9+.-]*:\/\//i.test(value) ? value : `http://${value}`;
+        try {
+            const parsed = new URL(withScheme);
+            parsed.pathname = parsed.pathname || '/';
+            parsed.search = '';
+            parsed.hash = '';
+            return parsed.toString();
+        } catch {
+            return 'http://my.keenetic.net/';
+        }
+    }
+
+    private buildRouterApiUrl(routerBase: string, apiPath: string): string {
+        return new URL(apiPath.replace(/^\/+/, ''), this.normalizeRouterBase(routerBase)).toString();
+    }
+
+    private parseHttpAuthChallenge(header: string): Record<string, string> {
+        const challenge = header.replace(/^Digest\s+/i, '');
+        const result: Record<string, string> = {};
+        const regex = /(\w+)=("([^"]*)"|([^,\s]+))/g;
+        let match: RegExpExecArray | null;
+        while ((match = regex.exec(challenge))) {
+            result[match[1]] = match[3] ?? match[4] ?? '';
+        }
+        return result;
+    }
+
+    private buildDigestAuthHeader(method: string, targetUrl: string, username: string, password: string, challengeHeader: string): string {
+        const challenge = this.parseHttpAuthChallenge(challengeHeader);
+        const parsed = new URL(targetUrl);
+        const uri = `${parsed.pathname}${parsed.search}`;
+        const realm = challenge.realm || '';
+        const nonce = challenge.nonce || '';
+        const qopValue = (challenge.qop || '').split(',').map(s => s.trim()).find(s => s === 'auth') || '';
+        const algorithm = challenge.algorithm || 'MD5';
+        const cnonce = crypto.randomBytes(8).toString('hex');
+        const nc = '00000001';
+        const md5 = (value: string) => crypto.createHash('md5').update(value).digest('hex');
+        const ha1 = md5(`${username}:${realm}:${password}`);
+        const ha2 = md5(`${method.toUpperCase()}:${uri}`);
+        const response = qopValue
+            ? md5(`${ha1}:${nonce}:${nc}:${cnonce}:${qopValue}:${ha2}`)
+            : md5(`${ha1}:${nonce}:${ha2}`);
+        const parts = [
+            `username="${username.replace(/"/g, '\\"')}"`,
+            `realm="${realm.replace(/"/g, '\\"')}"`,
+            `nonce="${nonce.replace(/"/g, '\\"')}"`,
+            `uri="${uri.replace(/"/g, '\\"')}"`,
+            `response="${response}"`,
+            `algorithm=${algorithm}`
+        ];
+        if (challenge.opaque) parts.push(`opaque="${challenge.opaque.replace(/"/g, '\\"')}"`);
+        if (qopValue) {
+            parts.push(`qop=${qopValue}`);
+            parts.push(`nc=${nc}`);
+            parts.push(`cnonce="${cnonce}"`);
+        }
+        return `Digest ${parts.join(', ')}`;
+    }
+
+    private headerToString(value: string | string[] | undefined): string {
+        if (Array.isArray(value)) return value.join(', ');
+        return value || '';
+    }
+
+    private async createKeeneticSessionCookie(targetUrl: string, username: string, password: string): Promise<string> {
+        const parsed = new URL(targetUrl);
+        const authUrl = new URL('/auth', `${parsed.protocol}//${parsed.host}`).toString();
+        const first = await this.requestText(authUrl, { timeoutMs: 7000 });
+        const challengeHeader = this.headerToString(first.headers['www-authenticate']);
+        const challengeParts = this.parseHttpAuthChallenge(challengeHeader);
+        const challenge = this.headerToString(first.headers['x-ndm-challenge']) || challengeParts.challenge;
+        const realm = this.headerToString(first.headers['x-ndm-realm']) || challengeParts.realm;
+        const setCookie = this.headerToString(first.headers['set-cookie']);
+        const cookie = setCookie.split(',')[0]?.split(';')[0]?.trim();
+        if (!challenge || !realm || !cookie) {
+            throw new Error('Keenetic не вернул challenge/session cookie для авторизации.');
+        }
+        const md5Password = crypto.createHash('md5').update(`${username}:${realm}:${password}`).digest('hex');
+        const authPassword = crypto.createHash('sha256').update(`${challenge}${md5Password}`).digest('hex');
+        const payload = JSON.stringify({ login: username, password: authPassword });
+        const second = await this.requestText(authUrl, {
+            method: 'POST',
+            timeoutMs: 7000,
+            headers: {
+                'Content-Type': 'application/json',
+                'Content-Length': String(Buffer.byteLength(payload, 'utf8')),
+                'Cookie': cookie
+            },
+            body: payload
+        });
+        if (second.statusCode < 200 || second.statusCode >= 300) {
+            throw new Error(`Keenetic отклонил логин или пароль: HTTP ${second.statusCode}`);
+        }
+        const nextCookie = this.headerToString(second.headers['set-cookie']).split(',')[0]?.split(';')[0]?.trim();
+        return nextCookie || cookie;
+    }
+
+    private async requestTextWithRouterAuth(targetUrl: string, options: {
+        method?: string;
+        headers?: Record<string, string>;
+        body?: string;
+        timeoutMs?: number;
+    }, username: string, password: string): Promise<{ statusCode: number; body: string; headers: http.IncomingHttpHeaders }> {
+        const method = options.method || 'GET';
+        const first = await this.requestText(targetUrl, { ...options, method });
+        if (first.statusCode !== 401) return first;
+        const challengeHeader = this.headerToString(first.headers['www-authenticate']);
+        const headers = { ...(options.headers || {}) };
+        if (/x-ndw2-interactive/i.test(challengeHeader)) {
+            headers['Cookie'] = await this.createKeeneticSessionCookie(targetUrl, username, password);
+        } else if (/Digest/i.test(challengeHeader)) {
+            headers['Authorization'] = this.buildDigestAuthHeader(method, targetUrl, username, password, challengeHeader);
+        } else {
+            headers['Authorization'] = `Basic ${Buffer.from(`${username}:${password}`, 'utf8').toString('base64')}`;
+        }
+        return this.requestText(targetUrl, { ...options, method, headers });
+    }
+
+    private async postKeeneticRci(routerBase: string, apiPath: string, body: any, username: string, password: string): Promise<{ statusCode: number; body: string }> {
+        const targetUrl = this.buildRouterApiUrl(routerBase, apiPath);
+        const payload = JSON.stringify(body);
+        const response = await this.requestTextWithRouterAuth(targetUrl, {
+            method: 'POST',
+            timeoutMs: 9000,
+            headers: {
+                'Content-Type': 'application/json',
+                'Content-Length': String(Buffer.byteLength(payload, 'utf8'))
+            },
+            body: payload
+        }, username, password);
+        return { statusCode: response.statusCode, body: response.body };
+    }
+
+    private async configureKeeneticPortForward(routerBase: string, username: string, password: string, wanInterface: string): Promise<string> {
+        if (!this._authToken) {
+            throw new Error('Для внешней сети сначала создайте токен доступа.');
+        }
+        if (!this._localIp || this._localIp === '127.0.0.1') {
+            this.detectLocalIp();
+        }
+        if (!this._localIp || this._localIp === '127.0.0.1') {
+            throw new Error('Не удалось определить LAN IP этого ПК.');
+        }
+        const iface = (wanInterface || 'ISP').trim() || 'ISP';
+        const rule = {
+            index: this._port,
+            description: 'Remote Code on PC',
+            protocol: 'tcp',
+            interface: iface,
+            port: this._port,
+            'to-host': this._localIp,
+            'to-port': this._port,
+            enabled: true
+        };
+        let lastError = '';
+        for (const payload of [rule, [rule]]) {
+            try {
+                const response = await this.postKeeneticRci(routerBase, '/rci/ip/nat', payload, username, password);
+                if (response.statusCode >= 200 && response.statusCode < 300) {
+                    try {
+                        await this.postKeeneticRci(routerBase, '/rci/system/configuration/save', {}, username, password);
+                    } catch {
+                        // Some firmware saves RCI NAT changes immediately; surface the rule success below.
+                    }
+                    return `TCP ${this._port} -> ${this._localIp}:${this._port}`;
+                }
+                lastError = `HTTP ${response.statusCode}: ${response.body.slice(0, 240)}`;
+            } catch (err: any) {
+                lastError = err?.message || String(err);
+            }
+        }
+        throw new Error(`Keenetic RCI не применил правило: ${lastError || 'unknown error'}`);
+    }
+
     private async resolveKeeneticPublicUrl(persist: boolean): Promise<{ url: string; source: string } | null> {
         const configuredUrl = this.getConfiguredPublicUrl();
         if (configuredUrl) return { url: configuredUrl, source: 'saved' };
@@ -2658,6 +2836,7 @@ export class RemoteServer {
             { label: 'Скопировать локальный URL', description: localUrl, action: 'copyLocal' },
             { label: 'Сформировать Keenetic URL', description: publicUrl || keeneticHost || 'my.keenetic.net / name.keenetic.link', detail: publicUrl ? `Сохранено: ${publicUrl}` : 'Соберет адрес из KeenDNS-имени или попробует найти его через my.keenetic.net', action: 'autoPublic' },
             { label: 'Открыть порт на роутере (UPnP)', description: `TCP ${this._port} -> ${this._localIp || 'IP ПК'}:${this._port}`, detail: 'Попросит Keenetic/роутер автоматически создать проброс порта. Для внешней сети токен должен быть включен.', action: 'openUpnpPort' },
+            { label: 'Настроить Keenetic автоматически', description: `TCP ${this._port} -> ${this._localIp || 'IP ПК'}:${this._port}`, detail: 'Попросит логин/пароль роутера, создаст правило проброса через RCI и не сохранит пароль.', action: 'configureKeeneticRouter' },
             { label: 'Скопировать инструкцию Keenetic', description: `TCP ${this._port} -> ${this._localIp || 'IP ПК'}:${this._port}`, detail: 'Скопирует поля для ручного проброса порта и CLI-шаблон. Расширение не меняет настройки роутера без вашего входа.', action: 'copyKeeneticCommands' },
             { label: 'Открыть Keenetic', description: 'my.keenetic.net', detail: 'Откроет локальный веб-интерфейс роутера в браузере.', action: 'openRouterPage' },
             ...(publicUrl ? [
@@ -2722,6 +2901,68 @@ export class RemoteServer {
             case 'copyKeeneticCommands': {
                 await vscode.env.clipboard.writeText(this.buildKeeneticForwardingInstructions());
                 await vscode.window.showInformationMessage('Remote Code: инструкция Keenetic скопирована. Откройте веб-интерфейс роутера и добавьте правило TCP-проброса.');
+                return;
+            }
+            case 'configureKeeneticRouter': {
+                if (!this._authToken) {
+                    const action = await vscode.window.showWarningMessage(
+                        'Remote Code: для внешнего доступа сначала нужен токен. Создать или скопировать токен сейчас?',
+                        'Токен доступа',
+                        'Отмена'
+                    );
+                    if (action === 'Токен доступа') await this.showAuthTokenMenu();
+                    return;
+                }
+                const routerBase = await vscode.window.showInputBox({
+                    title: 'Remote Code: адрес Keenetic',
+                    prompt: 'Введите локальный адрес веб-интерфейса роутера. Пароль не сохраняется.',
+                    placeHolder: 'http://my.keenetic.net/',
+                    value: 'http://my.keenetic.net/',
+                    ignoreFocusOut: true
+                });
+                if (routerBase === undefined) return;
+                const username = await vscode.window.showInputBox({
+                    title: 'Remote Code: логин Keenetic',
+                    prompt: 'Логин администратора роутера',
+                    value: 'admin',
+                    ignoreFocusOut: true
+                });
+                if (username === undefined) return;
+                const password = await vscode.window.showInputBox({
+                    title: 'Remote Code: пароль Keenetic',
+                    prompt: 'Пароль администратора роутера. Он используется только для этой операции и не сохраняется.',
+                    password: true,
+                    ignoreFocusOut: true
+                });
+                if (password === undefined) return;
+                const wanInterface = await vscode.window.showInputBox({
+                    title: 'Remote Code: внешний интерфейс Keenetic',
+                    prompt: 'Обычно это ISP. Если у вас другое имя WAN-интерфейса, укажите его.',
+                    value: 'ISP',
+                    ignoreFocusOut: true
+                });
+                if (wanInterface === undefined) return;
+                const lanIp = this._localIp || 'IP ПК';
+                const confirm = await vscode.window.showWarningMessage(
+                    `Remote Code создаст на Keenetic правило TCP ${this._port} -> ${lanIp}:${this._port}. Продолжить?`,
+                    { modal: true },
+                    'Настроить',
+                    'Отмена'
+                );
+                if (confirm !== 'Настроить') return;
+                try {
+                    const mapping = await vscode.window.withProgress({
+                        location: vscode.ProgressLocation.Notification,
+                        title: 'Remote Code: настройка Keenetic',
+                        cancellable: false
+                    }, async progress => {
+                        progress.report({ message: 'создаю правило проброса порта...' });
+                        return this.configureKeeneticPortForward(routerBase, username.trim() || 'admin', password, wanInterface);
+                    });
+                    await vscode.window.showInformationMessage(`Remote Code: Keenetic настроен (${mapping}). Теперь проверьте внешний URL с телефона.`);
+                } catch (err: any) {
+                    await vscode.window.showErrorMessage(`Remote Code: не удалось настроить Keenetic: ${err?.message || String(err)}`);
+                }
                 return;
             }
             case 'openRouterPage':
