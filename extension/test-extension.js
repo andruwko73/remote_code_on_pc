@@ -152,6 +152,7 @@ assert(serverContent.includes('stopTunnel'), 'stopTunnel метод', 'Не на
 assert(serverContent.includes('_tunnelUrl'), '_tunnelUrl поле', 'Не найдено');
 assert(serverContent.includes('ngrok'), 'Поддержка ngrok', 'Не найдена');
 assert(serverContent.includes('discoverUpnpLocations') && serverContent.includes('AddPortMapping') && serverContent.includes('openRouterPortViaUpnp'), 'UPnP port forwarding helper', 'UPnP auto port mapping missing');
+assert(serverContent.includes('buildKeeneticForwardingInstructions') && serverContent.includes("case 'copyKeeneticCommands'") && serverContent.includes("case 'openRouterPage'") && serverContent.includes('my.keenetic.net'), 'Keenetic manual forwarding helper', 'manual Keenetic fallback actions missing');
 
 // ===== Тест 7: Проверка extension.ts =====
 console.log('\n🧩 Тест 7: Проверка extension.ts');

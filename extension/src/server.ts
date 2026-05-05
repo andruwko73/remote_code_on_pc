@@ -534,6 +534,41 @@ export class RemoteServer {
         };
     }
 
+    private buildKeeneticForwardingInstructions(): string {
+        if (!this._localIp || this._localIp === '127.0.0.1') {
+            this.detectLocalIp();
+        }
+        const lanIp = this._localIp && this._localIp !== '127.0.0.1' ? this._localIp : '<IP-ПК>';
+        const publicUrl = this.getPublicUrl() || this.buildKeeneticPublicUrl(this.getConfiguredKeeneticHost()) || '<публичный KeenDNS URL>';
+        return [
+            'Remote Code on PC: ручная настройка внешнего доступа Keenetic',
+            '',
+            'Что должно получиться:',
+            `- Публичный URL в приложении: ${publicUrl}`,
+            `- Правило проброса: TCP ${this._port} -> ${lanIp}:${this._port}`,
+            '- Токен доступа должен быть создан в VS Code и вставлен в APK.',
+            '',
+            'В веб-интерфейсе Keenetic:',
+            '1. Откройте http://my.keenetic.net/ или IP роутера.',
+            '2. Перейдите: Сетевые правила -> Переадресация.',
+            '3. Добавьте правило:',
+            '   - Описание: Remote Code on PC',
+            '   - Протокол: TCP',
+            `   - Внешний порт: ${this._port}`,
+            `   - Внутренний IP: ${lanIp}`,
+            `   - Внутренний порт: ${this._port}`,
+            '4. Сохраните правило и убедитесь, что KeenDNS работает в режиме Direct/прямого доступа.',
+            '',
+            'Шаблон Keenetic CLI, если вы настраиваете через командную строку роутера:',
+            '# Если внешний интерфейс называется не ISP, замените ISP на имя вашего WAN-интерфейса.',
+            'configure',
+            `ip static tcp ISP ${this._port} ${lanIp} ${this._port}`,
+            'system configuration save',
+            '',
+            'После настройки проверьте с телефона внешний URL и токен.'
+        ].join('\n');
+    }
+
     private async resolveKeeneticPublicUrl(persist: boolean): Promise<{ url: string; source: string } | null> {
         const configuredUrl = this.getConfiguredPublicUrl();
         if (configuredUrl) return { url: configuredUrl, source: 'saved' };
@@ -2623,6 +2658,8 @@ export class RemoteServer {
             { label: 'Скопировать локальный URL', description: localUrl, action: 'copyLocal' },
             { label: 'Сформировать Keenetic URL', description: publicUrl || keeneticHost || 'my.keenetic.net / name.keenetic.link', detail: publicUrl ? `Сохранено: ${publicUrl}` : 'Соберет адрес из KeenDNS-имени или попробует найти его через my.keenetic.net', action: 'autoPublic' },
             { label: 'Открыть порт на роутере (UPnP)', description: `TCP ${this._port} -> ${this._localIp || 'IP ПК'}:${this._port}`, detail: 'Попросит Keenetic/роутер автоматически создать проброс порта. Для внешней сети токен должен быть включен.', action: 'openUpnpPort' },
+            { label: 'Скопировать инструкцию Keenetic', description: `TCP ${this._port} -> ${this._localIp || 'IP ПК'}:${this._port}`, detail: 'Скопирует поля для ручного проброса порта и CLI-шаблон. Расширение не меняет настройки роутера без вашего входа.', action: 'copyKeeneticCommands' },
+            { label: 'Открыть Keenetic', description: 'my.keenetic.net', detail: 'Откроет локальный веб-интерфейс роутера в браузере.', action: 'openRouterPage' },
             ...(publicUrl ? [
                 { label: 'Скопировать публичный Keenetic URL', description: publicUrl, detail: `Провайдер: ${providerLabel}`, action: 'copyPublic' }
             ] : []),
@@ -2678,10 +2715,18 @@ export class RemoteServer {
                     const result = await this.openRouterPortViaUpnp();
                     await vscode.window.showInformationMessage(`Remote Code: проброс через UPnP создан (${result.message}). Если у провайдера белый IP и KeenDNS в режиме Direct, внешний URL должен заработать.`);
                 } catch (err: any) {
-                    await vscode.window.showWarningMessage(`Remote Code: UPnP не открыл порт: ${err?.message || String(err)}`);
+                    await vscode.window.showWarningMessage(`Remote Code: UPnP не открыл порт: ${err?.message || String(err)}. В этом же меню можно скопировать инструкцию Keenetic для ручного проброса.`);
                 }
                 return;
             }
+            case 'copyKeeneticCommands': {
+                await vscode.env.clipboard.writeText(this.buildKeeneticForwardingInstructions());
+                await vscode.window.showInformationMessage('Remote Code: инструкция Keenetic скопирована. Откройте веб-интерфейс роутера и добавьте правило TCP-проброса.');
+                return;
+            }
+            case 'openRouterPage':
+                await vscode.env.openExternal(vscode.Uri.parse('http://my.keenetic.net/'));
+                return;
             case 'setPublic': {
                 const value = await vscode.window.showInputBox({
                     title: 'Remote Code: публичный Keenetic URL',
