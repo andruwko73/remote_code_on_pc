@@ -155,6 +155,7 @@ assert(serverContent.includes('discoverUpnpLocations') && serverContent.includes
 assert(serverContent.includes('buildKeeneticForwardingInstructions') && serverContent.includes("case 'copyKeeneticCommands'") && serverContent.includes("case 'openRouterPage'") && serverContent.includes('my.keenetic.net'), 'Keenetic manual forwarding helper', 'manual Keenetic fallback actions missing');
 assert(serverContent.includes('configureKeeneticPortForward') && serverContent.includes("case 'configureKeeneticRouter'") && serverContent.includes('/rci/ip/nat') && serverContent.includes('buildDigestAuthHeader') && serverContent.includes('createKeeneticSessionCookie') && serverContent.includes('x-ndw2-interactive'), 'Keenetic automatic router configuration', 'automatic Keenetic RCI setup missing');
 assert(serverContent.includes('data-action="configureKeeneticRouter"') && serverContent.includes('data-action="copyKeeneticCommands"') && serverContent.includes('data-action="openRouterPage"') && serverContent.includes('Настроить Keenetic'), 'Keenetic buttons are visible in webview', 'Keenetic actions should be directly visible in extension UI');
+assert(serverContent.includes('isUnsupportedKeeneticServiceHost') && serverContent.includes('isUnsupportedKeeneticServiceUrl') && serverContent.includes('promptForStableKeeneticPublicUrl'), 'Keenetic service hosts are not used as phone public URL', 'unsupported router service URL guard missing');
 
 // ===== Тест 7: Проверка extension.ts =====
 console.log('\n🧩 Тест 7: Проверка extension.ts');
@@ -228,12 +229,14 @@ const remoteCodeApp = fs.readFileSync(path.join(androidBase, 'app', 'src', 'main
 const codexScreen = fs.readFileSync(path.join(androidBase, 'app', 'src', 'main', 'java', 'com', 'remotecodeonpc', 'app', 'ui', 'screens', 'CodexScreen.kt'), 'utf-8');
 const apiClient = fs.readFileSync(path.join(androidBase, 'app', 'src', 'main', 'java', 'com', 'remotecodeonpc', 'app', 'network', 'ApiClient.kt'), 'utf-8');
 const connectionUrl = fs.readFileSync(path.join(androidBase, 'app', 'src', 'main', 'java', 'com', 'remotecodeonpc', 'app', 'network', 'ConnectionUrl.kt'), 'utf-8');
+const mainVm = fs.readFileSync(path.join(androidBase, 'app', 'src', 'main', 'java', 'com', 'remotecodeonpc', 'app', 'viewmodel', 'MainViewModel.kt'), 'utf-8');
 assert(!remoteCodeApp.includes('.verticalScroll(rememberScrollState())'), 'Android connection screen avoids forced startup scroll', 'startup screen still has verticalScroll');
 assert(remoteCodeApp.includes('Arrangement.spacedBy(7.dp, Alignment.CenterVertically)'), 'Android connection screen is compact', 'compact connection layout missing');
 assert(remoteCodeApp.includes('Text("Логи"') && remoteCodeApp.includes('Text("Очистить"') && remoteCodeApp.includes('Text("Обновить"'), 'Android startup action buttons are present', 'startup action row missing');
 assert(remoteCodeApp.includes('PasswordVisualTransformation') && remoteCodeApp.includes('showToken') && remoteCodeApp.includes('showCompactToken'), 'Android token fields are masked by default', 'token field must not show secrets by default');
-assert(connectionUrl.includes('withKeeneticPort') && connectionUrl.includes('netcraze') && connectionUrl.includes('.keenetic.'), 'Android Keenetic URL gets Remote Code port', 'Keenetic URLs without explicit port should use the app port');
+assert(connectionUrl.includes('withKeeneticPort') && connectionUrl.includes('.keenetic.') && !connectionUrl.includes('netcraze'), 'Android Keenetic URL gets Remote Code port without accepting service hosts', 'Keenetic URLs without explicit port should use the app port and service hosts should not be auto-normalized');
 assert(connectionUrl.includes('trimmed.startsWith("//")') && connectionUrl.includes('"http:$trimmed"'), 'Android normalizes protocol-relative public URLs', 'protocol-relative public URL should become http://host');
+assert(mainVm.includes('isUnsupportedExternalUrl') && mainVm.includes('Расширение вернуло служебный адрес'), 'Android rejects unsupported service public URLs', 'Android should reject service URLs before connecting');
 assert(codexScreen.includes('item(key = "bottom-anchor")'), 'Android chat scrolls to a true bottom anchor', 'bottom anchor missing');
 assert(codexScreen.includes('showCurrentThreadMenu') && codexScreen.includes('pendingDeleteThread') && codexScreen.includes('onNavigateToSettings()'), 'Android current-chat menu buttons work', 'current chat menu wiring missing');
 assert(codexScreen.includes('attachmentPicker.launch') && codexScreen.includes('startVoiceInput'), 'Android composer file and voice buttons work', 'composer media/voice wiring missing');
@@ -255,7 +258,6 @@ assert(serverContent.includes('getCodexDesktopPath'), 'getCodexDesktopPath', 'Н
 assert(serverContent.includes('getDefaultCodexModels'), 'getDefaultCodexModels', 'Не найден');
 
 // Проверка Android Codex
-const mainVm = fs.readFileSync(path.join(androidBase, 'app', 'src', 'main', 'java', 'com', 'remotecodeonpc', 'app', 'viewmodel', 'MainViewModel.kt'), 'utf-8');
 assert(mainVm.includes('syncCodexComposerPreferences') && mainVm.includes('codex:preferences-changed'), 'Android composer buttons sync with extension', 'composer sync missing in ViewModel');
 assert(mainVm.includes('dedupeCodexMessages') && mainVm.includes('mobile_user_') && mainVm.includes('isDuplicateCodexMessage'), 'Android chat history deduplicates optimistic/WebSocket/history messages', 'chat dedupe missing in ViewModel');
 assert(mainVm.includes('unexpected end of stream') && mainVm.includes('KeenDNS Direct'), 'Android external connection errors explain Keenetic port forwarding', 'external connection hint missing in ViewModel');

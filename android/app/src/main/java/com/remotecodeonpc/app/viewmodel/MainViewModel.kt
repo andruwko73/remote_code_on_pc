@@ -186,6 +186,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             _uiState.value = _uiState.value.copy(connectionError = "Введите публичный URL для внешней сети")
             return
         }
+        if (config.useTunnel && isUnsupportedExternalUrl(config.tunnelUrl)) {
+            _uiState.value = _uiState.value.copy(
+                connectionError = "Этот публичный URL не подходит для подключения телефона. Укажите KeenDNS/DDNS адрес вида http://name.keenetic.link:8799."
+            )
+            return
+        }
         if (config.useTunnel && config.authToken.isBlank()) {
             _uiState.value = _uiState.value.copy(
                 connectionError = "Для внешней сети нужен токен доступа. Создайте или скопируйте токен в VS Code: Remote Code -> Подключение и вставьте его в приложении."
@@ -293,6 +299,23 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private fun isRetryableTunnelStatus(code: Int): Boolean = code == 502 || code == 503 || code == 530
 
+    private fun isUnsupportedExternalUrl(raw: String): Boolean {
+        return try {
+            val trimmed = raw.trim()
+            if (trimmed.isBlank()) return false
+            val withScheme = when {
+                trimmed.startsWith("http://", ignoreCase = true) ||
+                    trimmed.startsWith("https://", ignoreCase = true) -> trimmed
+                trimmed.startsWith("//") -> "http:$trimmed"
+                else -> "http://$trimmed"
+            }
+            val host = java.net.URI(withScheme).host?.lowercase().orEmpty()
+            host == "netcraze.io" || host.endsWith(".netcraze.io")
+        } catch (_: Exception) {
+            false
+        }
+    }
+
     private fun formatConnectionError(config: ServerConfig, raw: String, code: Int? = null): String {
         if (!config.useTunnel) return "Connection error: $raw"
         val lower = raw.lowercase()
@@ -308,7 +331,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             code == 503 || code == 502 || "503" in lower || "bad gateway" in lower ->
                 "Публичный адрес отвечает, но сервер Remote Code недоступен. Проверьте проброс порта 8799 на роутере Keenetic и включенное расширение VS Code."
             "unable to resolve host" in lower || "no address associated" in lower || "failed to resolve" in lower ->
-                "Публичный URL не резолвится DNS. Проверьте KeenDNS/Keenetic адрес или вставьте полный URL вида https://name.keenetic.link:8799."
+                "Публичный URL не резолвится DNS. Проверьте KeenDNS/DDNS адрес или вставьте полный URL вида http://name.keenetic.link:8799."
             else -> "Ошибка внешнего подключения: $raw"
         }
     }
@@ -1380,6 +1403,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 val body = response.body()
                 val url = body?.url
                 if (response.isSuccessful && body?.success == true && !url.isNullOrBlank()) {
+                    if (isUnsupportedExternalUrl(url)) {
+                        _uiState.value = _uiState.value.copy(
+                            isTunnelStarting = false,
+                            tunnelActive = false,
+                            tunnelError = "Расширение вернуло служебный адрес, который не подходит для телефона. В VS Code укажите KeenDNS/DDNS URL вида http://name.keenetic.link:8799.",
+                            connectionError = "Расширение вернуло служебный адрес, который не подходит для телефона. В VS Code укажите KeenDNS/DDNS URL вида http://name.keenetic.link:8799."
+                        )
+                        return@launch
+                    }
                     val updatedConfig = _uiState.value.serverConfig.copy(
                         useTunnel = true,
                         tunnelUrl = url

@@ -35,9 +35,7 @@ object ConnectionUrl {
             val uri = java.net.URI(raw)
             val host = uri.host?.lowercase() ?: return raw
             val hasExplicitPort = uri.port > 0
-            val looksLikeKeenetic = host.contains(".keenetic.") ||
-                host.endsWith(".netcraze.io") ||
-                host.contains(".netcraze.")
+            val looksLikeKeenetic = host.contains(".keenetic.")
             if (hasExplicitPort || !looksLikeKeenetic) return raw
             val path = uri.rawPath?.takeIf { it.isNotBlank() } ?: ""
             val query = uri.rawQuery?.let { "?$it" } ?: ""

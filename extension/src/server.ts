@@ -199,7 +199,11 @@ export class RemoteServer {
     private normalizePublicUrl(raw: string | undefined | null): string {
         const trimmed = (raw || '').trim();
         if (!trimmed) return '';
-        const withScheme = /^https?:\/\//i.test(trimmed) ? trimmed : `http://${trimmed}`;
+        const withScheme = /^https?:\/\//i.test(trimmed)
+            ? trimmed
+            : trimmed.startsWith('//')
+                ? `http:${trimmed}`
+                : `http://${trimmed}`;
         try {
             const parsed = new URL(withScheme);
             const protocol = parsed.protocol === 'https:' ? 'https:' : 'http:';
@@ -211,18 +215,31 @@ export class RemoteServer {
 
     private getConfiguredPublicUrl(): string {
         const config = vscode.workspace.getConfiguration('remoteCodeOnPC');
-        return this.normalizePublicUrl(config.get<string>('publicUrl', ''));
+        const publicUrl = this.normalizePublicUrl(config.get<string>('publicUrl', ''));
+        return this.isUnsupportedKeeneticServiceUrl(publicUrl) ? '' : publicUrl;
     }
 
     private async setConfiguredPublicUrl(raw: string): Promise<string> {
         const publicUrl = this.normalizePublicUrl(raw);
-        await vscode.workspace.getConfiguration('remoteCodeOnPC').update('publicUrl', publicUrl, vscode.ConfigurationTarget.Global);
-        return publicUrl;
+        const safePublicUrl = this.isUnsupportedKeeneticServiceUrl(publicUrl) ? '' : publicUrl;
+        await vscode.workspace.getConfiguration('remoteCodeOnPC').update('publicUrl', safePublicUrl, vscode.ConfigurationTarget.Global);
+        return safePublicUrl;
     }
 
     private getConfiguredKeeneticHost(): string {
         const config = vscode.workspace.getConfiguration('remoteCodeOnPC');
-        return (config.get<string>('keeneticHost', '') || '').trim();
+        const host = (config.get<string>('keeneticHost', '') || '').trim();
+        const hostname = this.extractHost(host) || host.replace(/:\d{1,5}$/, '').toLowerCase();
+        return this.isUnsupportedKeeneticServiceHost(hostname) ? '' : host;
+    }
+
+    private isUnsupportedKeeneticServiceHost(host: string | undefined | null): boolean {
+        const normalized = (host || '').trim().toLowerCase().replace(/\.$/, '');
+        return normalized === 'netcraze.io' || normalized.endsWith('.netcraze.io');
+    }
+
+    private isUnsupportedKeeneticServiceUrl(raw: string | undefined | null): boolean {
+        return this.isUnsupportedKeeneticServiceHost(this.extractHost(raw));
     }
 
     private getKeeneticZone(): string {
@@ -245,14 +262,13 @@ export class RemoteServer {
             'keenetic.name',
             'keenetic.pro',
             'keenetic.io',
-            'keenetic.net',
-            'netcraze.io'
+            'keenetic.net'
         ].filter(Boolean)));
     }
 
     private looksLikeKeeneticHost(host: string): boolean {
         const normalized = host.trim().toLowerCase().replace(/\.$/, '');
-        if (!normalized || normalized === 'my.keenetic.net') return false;
+        if (!normalized || normalized === 'my.keenetic.net' || this.isUnsupportedKeeneticServiceHost(normalized)) return false;
         return normalized.includes('.keenetic.') ||
             this.getKeeneticZones().some(zone => normalized === zone || normalized.endsWith(`.${zone}`));
     }
@@ -273,6 +289,7 @@ export class RemoteServer {
             .replace(/^\.+|\.+$/g, '')
             .toLowerCase();
         if (!host) return '';
+        if (this.isUnsupportedKeeneticServiceHost(host)) return '';
         if (!host.includes('.')) {
             host = `${host}.${this.getKeeneticZone()}`;
         }
@@ -772,11 +789,12 @@ export class RemoteServer {
     }
 
     private getPublicUrl(): string | null {
-        return this._tunnelUrl || this.getConfiguredPublicUrl() || null;
+        const liveUrl = this._tunnelUrl && !this.isUnsupportedKeeneticServiceUrl(this._tunnelUrl) ? this._tunnelUrl : '';
+        return liveUrl || this.getConfiguredPublicUrl() || null;
     }
 
     private getPublicProvider(): PublicAccessProvider | null {
-        if (this._tunnelUrl) return this._tunnelProvider || 'cloudflared';
+        if (this._tunnelUrl && !this.isUnsupportedKeeneticServiceUrl(this._tunnelUrl)) return this._tunnelProvider || 'cloudflared';
         return this.getConfiguredPublicUrl() ? 'keenetic' : null;
     }
 
@@ -2867,25 +2885,14 @@ export class RemoteServer {
             case 'autoPublic': {
                 let resolved = await this.resolveKeeneticPublicUrl(true);
                 if (!resolved) {
-                    const value = await vscode.window.showInputBox({
-                        title: 'Remote Code: имя KeenDNS',
-                        prompt: 'Не удалось автоматически найти KeenDNS. Введите имя роутера: короткое name или полное name.keenetic.link',
-                        placeHolder: 'name.keenetic.link',
-                        value: keeneticHost
-                    });
-                    if (value === undefined) return;
-                    const host = await this.setConfiguredKeeneticHost(value);
-                    const nextUrl = this.buildKeeneticPublicUrl(host);
-                    if (nextUrl) {
-                        await this.setConfiguredPublicUrl(nextUrl);
-                        resolved = { url: nextUrl, source: 'input' };
-                    }
+                    const nextUrl = await this.promptForStableKeeneticPublicUrl(keeneticHost);
+                    if (nextUrl) resolved = { url: nextUrl, source: 'input' };
                 }
                 if (resolved?.url) {
                     await vscode.env.clipboard.writeText(resolved.url);
                     await vscode.window.showInformationMessage(`Remote Code: Keenetic URL сформирован и скопирован: ${resolved.url}`);
                 } else {
-                    await vscode.window.showWarningMessage('Remote Code: не удалось сформировать Keenetic URL. Укажите имя KeenDNS в настройках расширения.');
+                    await vscode.window.showWarningMessage('Remote Code: не удалось сформировать Keenetic URL. Укажите стабильный KeenDNS/DDNS адрес вида http://name.keenetic.link:8799.');
                 }
                 return;
             }
@@ -2927,6 +2934,9 @@ export class RemoteServer {
                     }
                     await vscode.env.clipboard.writeText(nextUrl);
                     await vscode.window.showInformationMessage(`Remote Code: Keenetic URL сохранен и скопирован: ${nextUrl}`);
+                } else if (this.isUnsupportedKeeneticServiceUrl(value)) {
+                    await this.setConfiguredKeeneticHost('');
+                    await vscode.window.showWarningMessage('Remote Code: служебный адрес *.netcraze.io не подходит для подключения телефона. Укажите KeenDNS/DDNS URL вида http://name.keenetic.link:8799.');
                 } else {
                     await this.setConfiguredKeeneticHost('');
                     await vscode.window.showInformationMessage('Remote Code: публичный URL очищен.');
@@ -2952,6 +2962,8 @@ export class RemoteServer {
                 if (nextUrl) {
                     await vscode.env.clipboard.writeText(nextUrl);
                     await vscode.window.showInformationMessage(`Remote Code: KeenDNS сохранен, URL сформирован и скопирован: ${nextUrl}`);
+                } else if (this.isUnsupportedKeeneticServiceUrl(value)) {
+                    await vscode.window.showWarningMessage('Remote Code: служебный адрес *.netcraze.io не подходит для подключения телефона. Укажите KeenDNS/DDNS URL вида http://name.keenetic.link:8799.');
                 } else {
                     await vscode.window.showInformationMessage('Remote Code: имя KeenDNS очищено.');
                 }
@@ -2986,6 +2998,37 @@ export class RemoteServer {
 
     private async openKeeneticRouterPage(): Promise<void> {
         await vscode.env.openExternal(vscode.Uri.parse('http://my.keenetic.net/'));
+    }
+
+    private async promptForStableKeeneticPublicUrl(currentValue = ''): Promise<string | null> {
+        const value = await vscode.window.showInputBox({
+            title: 'Remote Code: публичный URL для телефона',
+            prompt: 'Введите стабильный KeenDNS/DDNS адрес, который ведет на TCP 8799 этого ПК. Служебные адреса *.netcraze.io не используются как публичный URL приложения.',
+            placeHolder: 'http://name.keenetic.link:8799',
+            value: currentValue,
+            ignoreFocusOut: true
+        });
+        if (value === undefined) return null;
+        const nextUrl = this.buildKeeneticPublicUrl(value);
+        if (!nextUrl || this.isUnsupportedKeeneticServiceUrl(nextUrl)) {
+            await this.setConfiguredPublicUrl('');
+            await this.setConfiguredKeeneticHost('');
+            await vscode.window.showWarningMessage('Remote Code: этот адрес не подходит для подключения телефона. Вставьте KeenDNS/Keenetic URL вида http://name.keenetic.link:8799.');
+            return null;
+        }
+        await this.setConfiguredKeeneticHost(value);
+        await this.setConfiguredPublicUrl(nextUrl);
+        await vscode.env.clipboard.writeText(nextUrl);
+        return nextUrl;
+    }
+
+    private async ensureStableKeeneticPublicUrlFromUi(): Promise<string | null> {
+        const publicUrl = this.getPublicUrl();
+        if (publicUrl && !this.isUnsupportedKeeneticServiceUrl(publicUrl)) {
+            await vscode.env.clipboard.writeText(publicUrl);
+            return publicUrl;
+        }
+        return this.promptForStableKeeneticPublicUrl(this.getConfiguredKeeneticHost());
     }
 
     private async configureKeeneticRouterFromUi(): Promise<void> {
@@ -3044,7 +3087,12 @@ export class RemoteServer {
                 progress.report({ message: 'создаю правило проброса порта...' });
                 return this.configureKeeneticPortForward(routerBase, username.trim() || 'admin', password, wanInterface);
             });
-            await vscode.window.showInformationMessage(`Remote Code: Keenetic настроен (${mapping}). Теперь проверьте внешний URL с телефона.`);
+            const publicUrl = await this.ensureStableKeeneticPublicUrlFromUi();
+            if (publicUrl) {
+                await vscode.window.showInformationMessage(`Remote Code: Keenetic настроен (${mapping}). Публичный URL сохранен и скопирован. Проверьте подключение с телефона.`);
+            } else {
+                await vscode.window.showWarningMessage(`Remote Code: Keenetic настроен (${mapping}), но публичный URL не сохранен. Укажите KeenDNS/DDNS адрес вида http://name.keenetic.link:8799 в меню подключения.`);
+            }
         } catch (err: any) {
             await vscode.window.showErrorMessage(`Remote Code: не удалось настроить Keenetic: ${err?.message || String(err)}`);
         }
@@ -5878,7 +5926,7 @@ prompt.addEventListener('keydown', event => {
         this.jsonResponse(res, 409, {
             success: false,
             provider: 'keenetic',
-            error: 'Keenetic URL не удалось сформировать автоматически. В VS Code откройте Remote Code: Подключение -> Задать имя KeenDNS или вставьте готовый публичный URL вручную.',
+            error: 'Keenetic URL не удалось сформировать автоматически. В VS Code откройте Remote Code: Подключение -> Сформировать Keenetic URL и вставьте стабильный KeenDNS/DDNS адрес вида http://name.keenetic.link:8799. Служебные адреса *.netcraze.io для телефона не используются.',
             manualUrlSupported: true,
             autoUrlSupported: true
         });
