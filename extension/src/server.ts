@@ -2899,74 +2899,15 @@ export class RemoteServer {
                 return;
             }
             case 'copyKeeneticCommands': {
-                await vscode.env.clipboard.writeText(this.buildKeeneticForwardingInstructions());
-                await vscode.window.showInformationMessage('Remote Code: инструкция Keenetic скопирована. Откройте веб-интерфейс роутера и добавьте правило TCP-проброса.');
+                await this.copyKeeneticForwardingInstructions();
                 return;
             }
             case 'configureKeeneticRouter': {
-                if (!this._authToken) {
-                    const action = await vscode.window.showWarningMessage(
-                        'Remote Code: для внешнего доступа сначала нужен токен. Создать или скопировать токен сейчас?',
-                        'Токен доступа',
-                        'Отмена'
-                    );
-                    if (action === 'Токен доступа') await this.showAuthTokenMenu();
-                    return;
-                }
-                const routerBase = await vscode.window.showInputBox({
-                    title: 'Remote Code: адрес Keenetic',
-                    prompt: 'Введите локальный адрес веб-интерфейса роутера. Пароль не сохраняется.',
-                    placeHolder: 'http://my.keenetic.net/',
-                    value: 'http://my.keenetic.net/',
-                    ignoreFocusOut: true
-                });
-                if (routerBase === undefined) return;
-                const username = await vscode.window.showInputBox({
-                    title: 'Remote Code: логин Keenetic',
-                    prompt: 'Логин администратора роутера',
-                    value: 'admin',
-                    ignoreFocusOut: true
-                });
-                if (username === undefined) return;
-                const password = await vscode.window.showInputBox({
-                    title: 'Remote Code: пароль Keenetic',
-                    prompt: 'Пароль администратора роутера. Он используется только для этой операции и не сохраняется.',
-                    password: true,
-                    ignoreFocusOut: true
-                });
-                if (password === undefined) return;
-                const wanInterface = await vscode.window.showInputBox({
-                    title: 'Remote Code: внешний интерфейс Keenetic',
-                    prompt: 'Обычно это ISP. Если у вас другое имя WAN-интерфейса, укажите его.',
-                    value: 'ISP',
-                    ignoreFocusOut: true
-                });
-                if (wanInterface === undefined) return;
-                const lanIp = this._localIp || 'IP ПК';
-                const confirm = await vscode.window.showWarningMessage(
-                    `Remote Code создаст на Keenetic правило TCP ${this._port} -> ${lanIp}:${this._port}. Продолжить?`,
-                    { modal: true },
-                    'Настроить',
-                    'Отмена'
-                );
-                if (confirm !== 'Настроить') return;
-                try {
-                    const mapping = await vscode.window.withProgress({
-                        location: vscode.ProgressLocation.Notification,
-                        title: 'Remote Code: настройка Keenetic',
-                        cancellable: false
-                    }, async progress => {
-                        progress.report({ message: 'создаю правило проброса порта...' });
-                        return this.configureKeeneticPortForward(routerBase, username.trim() || 'admin', password, wanInterface);
-                    });
-                    await vscode.window.showInformationMessage(`Remote Code: Keenetic настроен (${mapping}). Теперь проверьте внешний URL с телефона.`);
-                } catch (err: any) {
-                    await vscode.window.showErrorMessage(`Remote Code: не удалось настроить Keenetic: ${err?.message || String(err)}`);
-                }
+                await this.configureKeeneticRouterFromUi();
                 return;
             }
             case 'openRouterPage':
-                await vscode.env.openExternal(vscode.Uri.parse('http://my.keenetic.net/'));
+                await this.openKeeneticRouterPage();
                 return;
             case 'setPublic': {
                 const value = await vscode.window.showInputBox({
@@ -3035,6 +2976,77 @@ export class RemoteServer {
             case 'openSettings':
                 await vscode.commands.executeCommand('workbench.action.openSettings', 'remoteCodeOnPC');
                 return;
+        }
+    }
+
+    private async copyKeeneticForwardingInstructions(): Promise<void> {
+        await vscode.env.clipboard.writeText(this.buildKeeneticForwardingInstructions());
+        await vscode.window.showInformationMessage('Remote Code: инструкция Keenetic скопирована. Откройте веб-интерфейс роутера и добавьте правило TCP-проброса.');
+    }
+
+    private async openKeeneticRouterPage(): Promise<void> {
+        await vscode.env.openExternal(vscode.Uri.parse('http://my.keenetic.net/'));
+    }
+
+    private async configureKeeneticRouterFromUi(): Promise<void> {
+        if (!this._authToken) {
+            const action = await vscode.window.showWarningMessage(
+                'Remote Code: для внешнего доступа сначала нужен токен. Создать или скопировать токен сейчас?',
+                'Токен доступа',
+                'Отмена'
+            );
+            if (action === 'Токен доступа') await this.showAuthTokenMenu();
+            return;
+        }
+        const routerBase = await vscode.window.showInputBox({
+            title: 'Remote Code: адрес Keenetic',
+            prompt: 'Введите локальный адрес веб-интерфейса роутера. Пароль не сохраняется.',
+            placeHolder: 'http://my.keenetic.net/',
+            value: 'http://my.keenetic.net/',
+            ignoreFocusOut: true
+        });
+        if (routerBase === undefined) return;
+        const username = await vscode.window.showInputBox({
+            title: 'Remote Code: логин Keenetic',
+            prompt: 'Логин администратора роутера',
+            value: 'admin',
+            ignoreFocusOut: true
+        });
+        if (username === undefined) return;
+        const password = await vscode.window.showInputBox({
+            title: 'Remote Code: пароль Keenetic',
+            prompt: 'Пароль администратора роутера. Он используется только для этой операции и не сохраняется.',
+            password: true,
+            ignoreFocusOut: true
+        });
+        if (password === undefined) return;
+        const wanInterface = await vscode.window.showInputBox({
+            title: 'Remote Code: внешний интерфейс Keenetic',
+            prompt: 'Обычно это ISP. Если у вас другое имя WAN-интерфейса, укажите его.',
+            value: 'ISP',
+            ignoreFocusOut: true
+        });
+        if (wanInterface === undefined) return;
+        const lanIp = this._localIp || 'IP ПК';
+        const confirm = await vscode.window.showWarningMessage(
+            `Remote Code создаст на Keenetic правило TCP ${this._port} -> ${lanIp}:${this._port}. Продолжить?`,
+            { modal: true },
+            'Настроить',
+            'Отмена'
+        );
+        if (confirm !== 'Настроить') return;
+        try {
+            const mapping = await vscode.window.withProgress({
+                location: vscode.ProgressLocation.Notification,
+                title: 'Remote Code: настройка Keenetic',
+                cancellable: false
+            }, async progress => {
+                progress.report({ message: 'создаю правило проброса порта...' });
+                return this.configureKeeneticPortForward(routerBase, username.trim() || 'admin', password, wanInterface);
+            });
+            await vscode.window.showInformationMessage(`Remote Code: Keenetic настроен (${mapping}). Теперь проверьте внешний URL с телефона.`);
+        } catch (err: any) {
+            await vscode.window.showErrorMessage(`Remote Code: не удалось настроить Keenetic: ${err?.message || String(err)}`);
         }
     }
 
@@ -3318,6 +3330,15 @@ export class RemoteServer {
                 return;
             case 'showConnectionSettings':
                 await this.showConnectionSettings();
+                return;
+            case 'configureKeeneticRouter':
+                await this.configureKeeneticRouterFromUi();
+                return;
+            case 'copyKeeneticCommands':
+                await this.copyKeeneticForwardingInstructions();
+                return;
+            case 'openRouterPage':
+                await this.openKeeneticRouterPage();
                 return;
             case 'createOrCopyToken':
                 await this.showAuthTokenMenu();
@@ -4119,6 +4140,7 @@ export class RemoteServer {
             sparkle: this.webIcon('sparkle'),
             branch: this.webIcon('branch'),
             laptop: this.webIcon('laptop'),
+            globe: this.webIcon('globe'),
             lock: this.webIcon('lock'),
             copy: this.webIcon('copy'),
             up: this.webIcon('thumbUp'),
@@ -4160,6 +4182,8 @@ export class RemoteServer {
             <div class="sidebar-section-title chat-title-row"><span>Чаты</span><button class="sidebar-mini-btn" type="button" data-action="newChat" title="Новый чат">${icon.plus}</button></div>
             <div class="sidebar-threads">${sidebarThreadRows || '<div class="sidebar-empty">Нет чатов</div>'}</div>
             <div class="sidebar-bottom">
+                <button class="sidebar-action" type="button" data-action="showConnectionSettings">${icon.globe}<span>Подключение</span></button>
+                <button class="sidebar-action" type="button" data-action="configureKeeneticRouter">${icon.globe}<span>Настроить Keenetic</span></button>
                 <button class="sidebar-action" type="button" data-action="openSettings">${icon.settings}<span>Настройки</span></button>
             </div>
         </aside>`;
@@ -4474,6 +4498,10 @@ button.send.stop:hover{background:#fff}
       <div class="menu-separator"></div>
       <button class="item" type="button" data-action="clearChat">&#1054;&#1095;&#1080;&#1089;&#1090;&#1080;&#1090;&#1100; &#1095;&#1072;&#1090;</button>
       <button class="item" type="button" data-action="deleteCurrentThread">&#1059;&#1076;&#1072;&#1083;&#1080;&#1090;&#1100; &#1095;&#1072;&#1090;</button>
+      <div class="menu-separator"></div>
+      <button class="item icon-item" type="button" data-action="configureKeeneticRouter">${icon.globe}<span>Настроить Keenetic</span></button>
+      <button class="item icon-item" type="button" data-action="copyKeeneticCommands">${icon.copy}<span>Скопировать инструкцию Keenetic</span></button>
+      <button class="item icon-item" type="button" data-action="openRouterPage">${icon.globe}<span>Открыть Keenetic</span></button>
       <button class="item" type="button" data-action="showConnectionSettings">&#1055;&#1086;&#1076;&#1082;&#1083;&#1102;&#1095;&#1077;&#1085;&#1080;&#1077;</button>
       <button class="item" type="button" data-action="openSettings">&#1053;&#1072;&#1089;&#1090;&#1088;&#1086;&#1081;&#1082;&#1080;</button>
     </div>

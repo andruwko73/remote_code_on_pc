@@ -154,6 +154,7 @@ assert(serverContent.includes('ngrok'), 'Поддержка ngrok', 'Не най
 assert(serverContent.includes('discoverUpnpLocations') && serverContent.includes('AddPortMapping') && serverContent.includes('openRouterPortViaUpnp'), 'UPnP port forwarding helper', 'UPnP auto port mapping missing');
 assert(serverContent.includes('buildKeeneticForwardingInstructions') && serverContent.includes("case 'copyKeeneticCommands'") && serverContent.includes("case 'openRouterPage'") && serverContent.includes('my.keenetic.net'), 'Keenetic manual forwarding helper', 'manual Keenetic fallback actions missing');
 assert(serverContent.includes('configureKeeneticPortForward') && serverContent.includes("case 'configureKeeneticRouter'") && serverContent.includes('/rci/ip/nat') && serverContent.includes('buildDigestAuthHeader') && serverContent.includes('createKeeneticSessionCookie') && serverContent.includes('x-ndw2-interactive'), 'Keenetic automatic router configuration', 'automatic Keenetic RCI setup missing');
+assert(serverContent.includes('data-action="configureKeeneticRouter"') && serverContent.includes('data-action="copyKeeneticCommands"') && serverContent.includes('data-action="openRouterPage"') && serverContent.includes('Настроить Keenetic'), 'Keenetic buttons are visible in webview', 'Keenetic actions should be directly visible in extension UI');
 
 // ===== Тест 7: Проверка extension.ts =====
 console.log('\n🧩 Тест 7: Проверка extension.ts');
