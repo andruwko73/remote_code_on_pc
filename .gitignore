@@ -42,3 +42,14 @@ extension/launch_log.txt
 extension/analyze_jsonl.js
 extension/check_chat_data*.py
 extension/check_vscode_db.py
+
+# ========== Local runtime/cache artifacts ==========
+data/browser_profile/
+data/runtime/
+data/cache/
+browser_profile/
+runtime/
+cache/
+dist_backup_*/
+build/
+dist/
