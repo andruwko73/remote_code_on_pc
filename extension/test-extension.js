@@ -151,6 +151,7 @@ assert(serverContent.includes('startTunnel'), 'startTunnel метод', 'Не н
 assert(serverContent.includes('stopTunnel'), 'stopTunnel метод', 'Не найден');
 assert(serverContent.includes('_tunnelUrl'), '_tunnelUrl поле', 'Не найдено');
 assert(serverContent.includes('ngrok'), 'Поддержка ngrok', 'Не найдена');
+assert(serverContent.includes('discoverUpnpLocations') && serverContent.includes('AddPortMapping') && serverContent.includes('openRouterPortViaUpnp'), 'UPnP port forwarding helper', 'UPnP auto port mapping missing');
 
 // ===== Тест 7: Проверка extension.ts =====
 console.log('\n🧩 Тест 7: Проверка extension.ts');

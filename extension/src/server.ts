@@ -5,6 +5,7 @@ import * as path from 'path';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as crypto from 'crypto';
+import * as dgram from 'dgram';
 import * as vscode from 'vscode';
 import { WebSocketServer, WebSocket } from 'ws';
 import { spawn, spawnSync, execSync } from 'child_process';
@@ -111,6 +112,12 @@ interface TunnelLauncher {
 }
 
 type PublicAccessProvider = 'keenetic' | 'ngrok' | 'cloudflared';
+
+interface UpnpGatewayService {
+    location: string;
+    controlUrl: string;
+    serviceType: string;
+}
 
 export class RemoteServer {
     private httpServer?: http.Server;
@@ -319,6 +326,43 @@ export class RemoteServer {
         });
     }
 
+    private async requestText(targetUrl: string, options: {
+        method?: string;
+        headers?: Record<string, string>;
+        body?: string;
+        timeoutMs?: number;
+    } = {}): Promise<{ statusCode: number; body: string; headers: http.IncomingHttpHeaders }> {
+        return new Promise((resolve, reject) => {
+            try {
+                const parsed = new URL(targetUrl);
+                const client = parsed.protocol === 'https:' ? https : http;
+                const req = client.request(parsed, {
+                    method: options.method || 'GET',
+                    timeout: options.timeoutMs || 4500,
+                    headers: options.headers || {}
+                }, response => {
+                    const chunks: Buffer[] = [];
+                    response.on('data', chunk => chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)));
+                    response.on('end', () => {
+                        resolve({
+                            statusCode: response.statusCode || 0,
+                            body: Buffer.concat(chunks).toString('utf8'),
+                            headers: response.headers
+                        });
+                    });
+                });
+                req.on('timeout', () => {
+                    req.destroy(new Error(`timeout ${options.timeoutMs || 4500}ms`));
+                });
+                req.on('error', reject);
+                if (options.body) req.write(options.body);
+                req.end();
+            } catch (err) {
+                reject(err);
+            }
+        });
+    }
+
     private async detectKeeneticHostFromRouter(): Promise<string | null> {
         const candidates = ['http://my.keenetic.net/', 'http://192.168.1.1/', 'http://192.168.0.1/'];
         for (const candidate of candidates) {
@@ -343,6 +387,151 @@ export class RemoteServer {
             }
         }
         return null;
+    }
+
+    private extractXmlTag(xml: string, tag: string): string {
+        const escaped = tag.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        const match = xml.match(new RegExp(`<[^:>]*:?${escaped}[^>]*>([\\s\\S]*?)<\\/[^:>]*:?${escaped}>`, 'i'));
+        return match ? match[1].trim() : '';
+    }
+
+    private resolveUpnpControlUrl(location: string, controlUrl: string): string {
+        return new URL(controlUrl.trim(), location).toString();
+    }
+
+    private async discoverUpnpLocations(timeoutMs = 3500): Promise<string[]> {
+        return new Promise(resolve => {
+            const socket = dgram.createSocket('udp4');
+            const locations = new Set<string>();
+            const finish = () => {
+                try { socket.close(); } catch { /* ignore */ }
+                resolve(Array.from(locations));
+            };
+            const searches = [
+                'urn:schemas-upnp-org:device:InternetGatewayDevice:1',
+                'urn:schemas-upnp-org:service:WANIPConnection:1',
+                'urn:schemas-upnp-org:service:WANPPPConnection:1'
+            ];
+            socket.on('message', msg => {
+                const text = msg.toString('utf8');
+                const match = text.match(/^location:\s*(.+)$/im);
+                if (match?.[1]) locations.add(match[1].trim());
+            });
+            socket.on('error', finish);
+            socket.bind(() => {
+                for (const st of searches) {
+                    const payload = [
+                        'M-SEARCH * HTTP/1.1',
+                        'HOST: 239.255.255.250:1900',
+                        'MAN: "ssdp:discover"',
+                        'MX: 2',
+                        `ST: ${st}`,
+                        '',
+                        ''
+                    ].join('\r\n');
+                    const buffer = Buffer.from(payload, 'utf8');
+                    socket.send(buffer, 0, buffer.length, 1900, '239.255.255.250');
+                }
+                setTimeout(finish, timeoutMs);
+            });
+        });
+    }
+
+    private async findUpnpGatewayService(): Promise<UpnpGatewayService | null> {
+        const locations = await this.discoverUpnpLocations();
+        const serviceTypes = [
+            'urn:schemas-upnp-org:service:WANIPConnection:2',
+            'urn:schemas-upnp-org:service:WANIPConnection:1',
+            'urn:schemas-upnp-org:service:WANPPPConnection:1'
+        ];
+        for (const location of locations) {
+            try {
+                const response = await this.requestText(location, { timeoutMs: 4500 });
+                if (response.statusCode < 200 || response.statusCode >= 300) continue;
+                for (const serviceType of serviceTypes) {
+                    const serviceRegex = new RegExp(`<service>[\\s\\S]*?<serviceType>\\s*${serviceType.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*<\\/serviceType>[\\s\\S]*?<controlURL>\\s*([^<]+)\\s*<\\/controlURL>[\\s\\S]*?<\\/service>`, 'i');
+                    const match = response.body.match(serviceRegex);
+                    if (match?.[1]) {
+                        return {
+                            location,
+                            serviceType,
+                            controlUrl: this.resolveUpnpControlUrl(location, match[1])
+                        };
+                    }
+                }
+            } catch {
+                // Try the next discovered gateway.
+            }
+        }
+        return null;
+    }
+
+    private buildUpnpEnvelope(serviceType: string, action: string, args: Record<string, string | number>): string {
+        const body = Object.entries(args)
+            .map(([key, value]) => `<${key}>${String(value)}</${key}>`)
+            .join('');
+        return [
+            '<?xml version="1.0"?>',
+            '<s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">',
+            `<s:Body><u:${action} xmlns:u="${serviceType}">${body}</u:${action}></s:Body>`,
+            '</s:Envelope>'
+        ].join('');
+    }
+
+    private async callUpnpAction(service: UpnpGatewayService, action: string, args: Record<string, string | number>): Promise<string> {
+        const body = this.buildUpnpEnvelope(service.serviceType, action, args);
+        const response = await this.requestText(service.controlUrl, {
+            method: 'POST',
+            timeoutMs: 7000,
+            headers: {
+                'Content-Type': 'text/xml; charset="utf-8"',
+                'SOAPAction': `"${service.serviceType}#${action}"`,
+                'Content-Length': String(Buffer.byteLength(body, 'utf8'))
+            },
+            body
+        });
+        if (response.statusCode < 200 || response.statusCode >= 300) {
+            const fault = this.extractXmlTag(response.body, 'errorDescription') || response.body.slice(0, 200);
+            throw new Error(`UPnP ${action} failed: HTTP ${response.statusCode} ${fault}`);
+        }
+        return response.body;
+    }
+
+    private async openRouterPortViaUpnp(): Promise<{ externalIp?: string; message: string }> {
+        if (!this._authToken) {
+            throw new Error('Для внешней сети сначала создайте токен доступа.');
+        }
+        if (!this._localIp || this._localIp === '127.0.0.1') {
+            this.detectLocalIp();
+        }
+        if (!this._localIp || this._localIp === '127.0.0.1') {
+            throw new Error('Не удалось определить LAN IP этого ПК.');
+        }
+        const service = await this.findUpnpGatewayService();
+        if (!service) {
+            throw new Error('UPnP IGD на роутере не найден. В Keenetic включите компонент UPnP или настройте проброс порта вручную.');
+        }
+        await this.callUpnpAction(service, 'AddPortMapping', {
+            NewRemoteHost: '',
+            NewExternalPort: this._port,
+            NewProtocol: 'TCP',
+            NewInternalPort: this._port,
+            NewInternalClient: this._localIp,
+            NewEnabled: 1,
+            NewPortMappingDescription: 'Remote Code on PC',
+            NewLeaseDuration: 0
+        });
+        let externalIp = '';
+        try {
+            const body = await this.callUpnpAction(service, 'GetExternalIPAddress', {});
+            externalIp = this.extractXmlTag(body, 'NewExternalIPAddress');
+        } catch {
+            // Mapping is enough; external IP is diagnostic only.
+        }
+        return {
+            externalIp: externalIp || undefined,
+            message: `TCP ${this._port} -> ${this._localIp}:${this._port}`
+        };
     }
 
     private async resolveKeeneticPublicUrl(persist: boolean): Promise<{ url: string; source: string } | null> {
@@ -2433,6 +2622,7 @@ export class RemoteServer {
             { label: tokenLabel, description: tokenState, detail: tokenDetail, action: 'tokenMenu' },
             { label: 'Скопировать локальный URL', description: localUrl, action: 'copyLocal' },
             { label: 'Сформировать Keenetic URL', description: publicUrl || keeneticHost || 'my.keenetic.net / name.keenetic.link', detail: publicUrl ? `Сохранено: ${publicUrl}` : 'Соберет адрес из KeenDNS-имени или попробует найти его через my.keenetic.net', action: 'autoPublic' },
+            { label: 'Открыть порт на роутере (UPnP)', description: `TCP ${this._port} -> ${this._localIp || 'IP ПК'}:${this._port}`, detail: 'Попросит Keenetic/роутер автоматически создать проброс порта. Для внешней сети токен должен быть включен.', action: 'openUpnpPort' },
             ...(publicUrl ? [
                 { label: 'Скопировать публичный Keenetic URL', description: publicUrl, detail: `Провайдер: ${providerLabel}`, action: 'copyPublic' }
             ] : []),
@@ -2480,6 +2670,15 @@ export class RemoteServer {
                     await vscode.window.showInformationMessage(`Remote Code: Keenetic URL сформирован и скопирован: ${resolved.url}`);
                 } else {
                     await vscode.window.showWarningMessage('Remote Code: не удалось сформировать Keenetic URL. Укажите имя KeenDNS в настройках расширения.');
+                }
+                return;
+            }
+            case 'openUpnpPort': {
+                try {
+                    const result = await this.openRouterPortViaUpnp();
+                    await vscode.window.showInformationMessage(`Remote Code: проброс через UPnP создан (${result.message}). Если у провайдера белый IP и KeenDNS в режиме Direct, внешний URL должен заработать.`);
+                } catch (err: any) {
+                    await vscode.window.showWarningMessage(`Remote Code: UPnP не открыл порт: ${err?.message || String(err)}`);
                 }
                 return;
             }
