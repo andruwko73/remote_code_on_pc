@@ -396,7 +396,7 @@ class MainActivity : ComponentActivity() {
         }
         val archiveVersion = packageVersionCode(archiveInfo)
         if (archiveVersion <= BuildConfig.VERSION_CODE) {
-            throw IllegalStateException("APK has version not newer than installed")
+            throw IllegalStateException("APK не новее установленной версии")
         }
 
         val installedInfo = readInstalledPackageInfo()

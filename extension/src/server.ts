@@ -1013,6 +1013,8 @@ export class RemoteServer {
                     return this.handleFileTree(req, res);
                 case pathname === '/api/workspace/read-file':
                     return this.handleReadFile(req, res);
+                case pathname === '/api/app/apk/status':
+                    return this.handleAppApkStatus(req, res);
                 case pathname === '/api/app/apk':
                     return this.handleAppApk(req, res);
 
@@ -2013,7 +2015,7 @@ export class RemoteServer {
     }
 
     private isPublicAssetEndpoint(pathname: string): boolean {
-        return pathname === '/api/app/apk';
+        return pathname === '/api/app/apk' || pathname === '/api/app/apk/status';
     }
 
     private getExtensionVersion(): string {
@@ -2162,26 +2164,51 @@ export class RemoteServer {
             .replace(/https?:\/\/[^\s"'<>]+(?:trycloudflare\.com|netcraze\.io|keenetic\.(?:link|name|pro|io|net))[^\s"'<>]*/gi, '[public-url]');
     }
 
-    private async handleAppApk(_req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
-        const apkPath = [
+    private findAppApkPath(): string | undefined {
+        return [
             path.resolve(__dirname, '..', 'apk', 'app-debug.apk'),
             path.resolve(__dirname, '..', '..', 'apk', 'app-debug.apk'),
             path.resolve(__dirname, '..', '..', '..', 'apk', 'app-debug.apk')
         ].find(candidate => fs.existsSync(candidate));
-        if (!apkPath) {
+    }
+
+    private getAppApkMetadata(): { apkPath: string; sizeBytes: number; sha256: string } | undefined {
+        const apkPath = this.findAppApkPath();
+        if (!apkPath) return undefined;
+        const stat = fs.statSync(apkPath);
+        const sha256 = crypto.createHash('sha256').update(fs.readFileSync(apkPath)).digest('hex');
+        return { apkPath, sizeBytes: stat.size, sha256 };
+    }
+
+    private async handleAppApkStatus(_req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
+        const metadata = this.getAppApkMetadata();
+        if (!metadata) {
+            this.jsonResponse(res, 404, { available: false, error: 'APK not found' });
+            return;
+        }
+        this.jsonResponse(res, 200, {
+            available: true,
+            filename: 'remote-code-on-pc.apk',
+            sizeBytes: metadata.sizeBytes,
+            sha256: metadata.sha256,
+            serverVersion: this.getExtensionVersion()
+        });
+    }
+
+    private async handleAppApk(_req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
+        const metadata = this.getAppApkMetadata();
+        if (!metadata) {
             this.jsonResponse(res, 404, { error: 'APK not found' });
             return;
         }
-
-        const stat = fs.statSync(apkPath);
-        const sha256 = crypto.createHash('sha256').update(fs.readFileSync(apkPath)).digest('hex');
+        const { apkPath, sizeBytes, sha256 } = metadata;
         res.writeHead(200, {
             'Content-Type': 'application/vnd.android.package-archive',
-            'Content-Length': stat.size,
+            'Content-Length': sizeBytes,
             'Content-Disposition': 'attachment; filename="remote-code-on-pc.apk"',
             'Cache-Control': 'no-store',
             'X-Remote-Code-Apk-Sha256': sha256,
-            'X-Remote-Code-Apk-Size': String(stat.size)
+            'X-Remote-Code-Apk-Size': String(sizeBytes)
         });
         fs.createReadStream(apkPath).pipe(res);
     }
