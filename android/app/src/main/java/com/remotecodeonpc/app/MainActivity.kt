@@ -69,6 +69,7 @@ class MainActivity : ComponentActivity() {
     private val crashPrefsName = "remote_code_crash_recovery"
     private val appPrefsName = "remote_code_prefs"
     private val apkMimeType = "application/vnd.android.package-archive"
+    private val updateInstallRequestCode = 12078
     private var isUpdateInProgress = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -504,31 +505,33 @@ class MainActivity : ComponentActivity() {
             return
         }
         val uri = FileProvider.getUriForFile(this, "$packageName.fileprovider", apkFile)
-        val intent = Intent(Intent.ACTION_INSTALL_PACKAGE).apply {
-            data = uri
+        val intent = Intent(Intent.ACTION_VIEW).apply {
+            setDataAndType(uri, apkMimeType)
             putExtra(Intent.EXTRA_NOT_UNKNOWN_SOURCE, true)
+            putExtra(Intent.EXTRA_RETURN_RESULT, true)
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
         }
         try {
             grantApkUriReadPermissions(uri, intent)
-            startActivity(intent)
+            startActivityForResult(intent, updateInstallRequestCode)
             onStatus(null)
             onReadyDialogFinished()
         } catch (e: Exception) {
-            CrashLogger.w("MainActivity", "Package installer did not accept install intent: ${e.message}")
-            val viewIntent = Intent(Intent.ACTION_VIEW).apply {
-                setDataAndType(uri, apkMimeType)
+            CrashLogger.w("MainActivity", "Package installer did not accept view intent: ${e.message}")
+            val installIntent = Intent(Intent.ACTION_INSTALL_PACKAGE).apply {
+                data = uri
                 putExtra(Intent.EXTRA_NOT_UNKNOWN_SOURCE, true)
+                putExtra(Intent.EXTRA_RETURN_RESULT, true)
                 addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
             }
             try {
-                grantApkUriReadPermissions(uri, viewIntent)
-                startActivity(viewIntent)
+                grantApkUriReadPermissions(uri, installIntent)
+                startActivityForResult(installIntent, updateInstallRequestCode)
                 onStatus(null)
                 onReadyDialogFinished()
                 return
-            } catch (viewError: Exception) {
-                CrashLogger.w("MainActivity", "Package installer did not accept view intent: ${viewError.message}")
+            } catch (installError: Exception) {
+                CrashLogger.w("MainActivity", "Package installer did not accept install intent: ${installError.message}")
             }
             val shareIntent = Intent(Intent.ACTION_SEND).apply {
                 type = apkMimeType
