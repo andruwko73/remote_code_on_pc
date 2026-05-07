@@ -140,7 +140,7 @@ fun CodexScreen(
                     contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp)
                 ) {
                     Text(
-                        "\u0424\u0410\u0419\u041B\u042B",
+                        "\u041F\u0420\u041E\u0415\u041A\u0422\u042B",
                         color = if (selectedTab == 1) TextBright else TextSecondary,
                         fontSize = 13.sp
                     )
@@ -703,6 +703,14 @@ private fun threadDisplayTitle(thread: CodexThread): String {
 }
 
 private fun threadDisplaySubtitle(thread: CodexThread): String {
+    val project = thread.workspaceName
+        ?.trim()
+        ?.takeIf { it.isNotBlank() }
+        ?: thread.workspacePath
+            ?.replace("\\", "/")
+            ?.trimEnd('/')
+            ?.substringAfterLast('/')
+            ?.takeIf { it.isNotBlank() }
     val source = when {
         thread.id.startsWith("codex-file:", ignoreCase = true) -> "Codex Desktop"
         thread.id.startsWith("remote-code-", ignoreCase = true) -> "Remote Code"
@@ -712,7 +720,7 @@ private fun threadDisplaySubtitle(thread: CodexThread): String {
         .find(thread.title)
         ?.destructured
         ?.let { (year, month, day, hour, minute) -> "$day.$month.$year $hour:$minute" }
-    return listOfNotNull(source, rolloutDate).joinToString(" · ")
+    return listOfNotNull(project, source, rolloutDate).joinToString(" · ")
 }
 
 private fun isMobileActionResultMessage(content: String): Boolean {
@@ -939,6 +947,7 @@ private fun MobileActionLine(event: CodexActionEvent) {
 }
 
 private fun actionStatusText(event: CodexActionEvent): String {
+    if (event.type == "model_progress") return event.title.ifBlank { "Прогресс модели" }
     return when (event.status) {
         "running", "approved" -> "Выполняется"
         "pending" -> if (event.actionable) "Ожидает подтверждения" else "Ожидает"

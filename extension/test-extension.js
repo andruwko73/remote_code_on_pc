@@ -179,12 +179,18 @@ assert(serverContent.includes('requestUsesPublicAccess'), 'Определени�
 assert(serverContent.includes('publicAuthRequiredStatus'), 'Минимальный статус без токена', 'publicAuthRequiredStatus не найден');
 assert(serverContent.includes('sanitizeLogText'), 'Маскирование логов расширения', 'sanitizeLogText не найден');
 assert(serverContent.includes('if (!this._authToken) return !requireConfiguredToken'), 'Внешний доступ требует настроенный токен', 'checkAuth не требует токен для public access');
-assert(serverContent.includes('const publicAccess = this.requestUsesPublicAccess(req);') && serverContent.includes('!this.checkAuth(req, publicAccess)'), 'WebSocket public access requires token', 'public WebSocket must use the same token gate as HTTP');
+assert(
+    serverContent.includes('const authRequired = this.isAuthRequiredForRequest(req, \'/ws\', publicAccess);') &&
+    serverContent.includes('if (authRequired && !this.checkAuth(req, true))'),
+    'WebSocket public access requires token',
+    'public WebSocket must use the same token gate as HTTP'
+);
 assert(serverContent.includes('data-action="createOrCopyToken"') && serverContent.includes("case 'createOrCopyToken'") && serverContent.includes('showAuthTokenMenu'), 'Visible token button works', 'token button missing in webview');
 assert(serverContent.includes('Создать новый токен') && serverContent.includes('forceNew') && serverContent.includes('token-btn'), 'Token can be regenerated explicitly', 'token regeneration/menu label missing');
 assert(serverContent.includes('liveDraftThreadIds'), 'Пустые чаты не закрепляются навсегда', 'liveDraftThreadIds не найден');
 assert(serverContent.includes("private currentRemoteThreadId: string = '';"), 'Нет скрытого default-чата при старте', 'currentRemoteThreadId не должен стартовать с remote-code-default');
 assert(serverContent.includes('if (!targetThreadId)') && serverContent.includes('targetThreadId = this.createRemoteCodeThread()'), 'Сообщение без thread создаёт реальный чат', 'fallback thread должен создаваться явно');
+assert(serverContent.includes('isCorruptedThreadTitle') && serverContent.includes('pickThreadTitle(existing?.title, thread.title'), 'Повреждённые заголовки чатов чинятся из Codex index', 'corrupted saved thread titles should not override Codex thread titles');
 assert(serverContent.includes('decodeBasicHtmlEntities') && serverContent.includes('isTechnicalProgressLine'), 'Прогресс не показывает технические строки вложений', 'Фильтрация технических progress-строк не найдена');
 
 const webviewActions = [...serverContent.matchAll(/data-action=\"([^\"]+)\"/g)].map(match => match[1]);
@@ -230,11 +236,15 @@ const codexScreen = fs.readFileSync(path.join(androidBase, 'app', 'src', 'main',
 const apiClient = fs.readFileSync(path.join(androidBase, 'app', 'src', 'main', 'java', 'com', 'remotecodeonpc', 'app', 'network', 'ApiClient.kt'), 'utf-8');
 const connectionUrl = fs.readFileSync(path.join(androidBase, 'app', 'src', 'main', 'java', 'com', 'remotecodeonpc', 'app', 'network', 'ConnectionUrl.kt'), 'utf-8');
 const mainVm = fs.readFileSync(path.join(androidBase, 'app', 'src', 'main', 'java', 'com', 'remotecodeonpc', 'app', 'viewmodel', 'MainViewModel.kt'), 'utf-8');
+const modelsFile = fs.readFileSync(path.join(androidBase, 'app', 'src', 'main', 'java', 'com', 'remotecodeonpc', 'app', 'Models.kt'), 'utf-8');
+const mainActivity = fs.readFileSync(path.join(androidBase, 'app', 'src', 'main', 'java', 'com', 'remotecodeonpc', 'app', 'MainActivity.kt'), 'utf-8');
 assert(!remoteCodeApp.includes('.verticalScroll(rememberScrollState())'), 'Android connection screen avoids forced startup scroll', 'startup screen still has verticalScroll');
 assert(remoteCodeApp.includes('Arrangement.spacedBy(7.dp, Alignment.CenterVertically)'), 'Android connection screen is compact', 'compact connection layout missing');
 assert(remoteCodeApp.includes('Text("Логи"') && remoteCodeApp.includes('Text("Очистить"') && remoteCodeApp.includes('Text("Обновить"'), 'Android startup action buttons are present', 'startup action row missing');
 assert(remoteCodeApp.includes('PasswordVisualTransformation') && remoteCodeApp.includes('showToken') && remoteCodeApp.includes('showCompactToken'), 'Android token fields are masked by default', 'token field must not show secrets by default');
-assert(connectionUrl.includes('withKeeneticPort') && connectionUrl.includes('.keenetic.') && !connectionUrl.includes('netcraze'), 'Android Keenetic URL gets Remote Code port without accepting service hosts', 'Keenetic URLs without explicit port should use the app port and service hosts should not be auto-normalized');
+assert(!connectionUrl.includes('withKeeneticPort') && !remoteCodeApp.includes('Text("Порт"') && !remoteCodeApp.includes('порт'), 'Android hides manual port from connection UI', 'external URLs should not get an implicit app port and Android should not mention a manual port in the main UI');
+assert(mainActivity.includes('ConnectionUrl.httpBase(config).trimEnd') && mainActivity.indexOf('ConnectionUrl.httpBase(config).trimEnd') < mainActivity.indexOf('publicUpdateUrl?ts'), 'Android updater tries connected extension before GitHub', 'update button should prefer the current extension APK endpoint before public fallback');
+assert(codexScreen.includes('\\u041F\\u0420\\u041E\\u0415\\u041A\\u0422\\u042B') && modelsFile.includes('workspaceName'), 'Android exposes projects in Codex chat list', 'project tab/thread workspace metadata should be visible to Android');
 assert(connectionUrl.includes('trimmed.startsWith("//")') && connectionUrl.includes('"http:$trimmed"'), 'Android normalizes protocol-relative public URLs', 'protocol-relative public URL should become http://host');
 assert(mainVm.includes('isUnsupportedExternalUrl') && mainVm.includes('Расширение вернуло служебный адрес'), 'Android rejects unsupported service public URLs', 'Android should reject service URLs before connecting');
 assert(codexScreen.includes('item(key = "bottom-anchor")'), 'Android chat scrolls to a true bottom anchor', 'bottom anchor missing');
@@ -260,7 +270,7 @@ assert(serverContent.includes('getDefaultCodexModels'), 'getDefaultCodexModels',
 // Проверка Android Codex
 assert(mainVm.includes('syncCodexComposerPreferences') && mainVm.includes('codex:preferences-changed'), 'Android composer buttons sync with extension', 'composer sync missing in ViewModel');
 assert(mainVm.includes('dedupeCodexMessages') && mainVm.includes('mobile_user_') && mainVm.includes('isDuplicateCodexMessage'), 'Android chat history deduplicates optimistic/WebSocket/history messages', 'chat dedupe missing in ViewModel');
-assert(mainVm.includes('unexpected end of stream') && mainVm.includes('KeenDNS Direct'), 'Android external connection errors explain Keenetic port forwarding', 'external connection hint missing in ViewModel');
+assert(mainVm.includes('unexpected end of stream') && mainVm.includes('KeenDNS/HTTPS-прокси') && mainVm.includes('готовый HTTPS Keenetic/DDNS'), 'Android external connection errors explain Keenetic routing', 'external connection hint missing in ViewModel');
 assert(mainVm.includes('Для внешней сети нужен токен доступа') && mainVm.includes('config.useTunnel && config.authToken.isBlank()'), 'Android blocks external mode without token', 'external mode must require token before connecting');
 assert(mainVm.includes('loadCodexStatus'), 'loadCodexStatus в MainViewModel', 'Не найден');
 assert(mainVm.includes('loadCodexModels'), 'loadCodexModels в MainViewModel', 'Не найден');

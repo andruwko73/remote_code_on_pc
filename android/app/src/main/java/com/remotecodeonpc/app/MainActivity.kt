@@ -48,6 +48,7 @@ import com.remotecodeonpc.app.ui.theme.ErrorRed
 import com.remotecodeonpc.app.ui.theme.RemoteCodeTheme
 import com.remotecodeonpc.app.ui.theme.TextBright
 import com.remotecodeonpc.app.ui.theme.TextSecondary
+import com.remotecodeonpc.app.network.ConnectionUrl
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.io.File
@@ -224,7 +225,7 @@ class MainActivity : ComponentActivity() {
 
     private fun downloadAndInstallUpdate(config: ServerConfig) {
         if (isUpdateInProgress) {
-            Toast.makeText(this, "Update is already downloading...", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, "Обновление уже загружается...", Toast.LENGTH_SHORT).show()
             return
         }
 
@@ -232,7 +233,7 @@ class MainActivity : ComponentActivity() {
             pendingUpdateConfig = config
             pendingUpdateApk = null
             waitingForInstallPermission = true
-            Toast.makeText(this, "Allow installs from this app, then return here", Toast.LENGTH_LONG).show()
+            Toast.makeText(this, "Разрешите установку из приложения и вернитесь сюда", Toast.LENGTH_LONG).show()
             startActivity(Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES).apply {
                 data = Uri.parse("package:$packageName")
             })
@@ -241,13 +242,13 @@ class MainActivity : ComponentActivity() {
 
         val updateUrls = buildUpdateUrls(config)
         if (updateUrls.isEmpty()) {
-            Toast.makeText(this, "Enter PC IP first", Toast.LENGTH_LONG).show()
+            Toast.makeText(this, "Сначала укажите адрес подключения", Toast.LENGTH_LONG).show()
             return
         }
 
         isUpdateInProgress = true
         pendingUpdateConfig = config
-        Toast.makeText(this, "Downloading update...", Toast.LENGTH_SHORT).show()
+        Toast.makeText(this, "Загружаю обновление...", Toast.LENGTH_SHORT).show()
         Thread {
             try {
                 val client = OkHttpClient.Builder()
@@ -282,7 +283,7 @@ class MainActivity : ComponentActivity() {
                                 output.flush()
                             }
                             if (apkFile.length() < 1024 * 1024) {
-                                throw IllegalStateException("Downloaded file is too small")
+                                throw IllegalStateException("Файл обновления слишком маленький")
                             }
                             pendingUpdateApk = apkFile
                             runOnUiThread {
@@ -296,12 +297,12 @@ class MainActivity : ComponentActivity() {
                         CrashLogger.w("MainActivity", "Update source failed: $updateUrl -> ${e.message}")
                     }
                 }
-                throw lastError ?: IllegalStateException("No update source succeeded")
+                throw lastError ?: IllegalStateException("Не удалось скачать обновление ни из одного источника")
             } catch (e: Exception) {
                 CrashLogger.e("MainActivity", "Update failed", e)
                 runOnUiThread {
                     isUpdateInProgress = false
-                    Toast.makeText(this, "Update failed: ${e.message}", Toast.LENGTH_LONG).show()
+                    Toast.makeText(this, "Обновление не удалось: ${e.message}", Toast.LENGTH_LONG).show()
                 }
             }
         }.start()
@@ -309,13 +310,17 @@ class MainActivity : ComponentActivity() {
 
     private fun buildUpdateUrls(config: ServerConfig): List<String> {
         val ts = System.currentTimeMillis()
-        val urls = mutableListOf("$publicUpdateUrl?ts=$ts")
+        val urls = mutableListOf<String>()
         if (config.useTunnel && config.tunnelUrl.isNotBlank()) {
-            urls += "${config.tunnelUrl.trimEnd('/')}/api/app/apk?ts=$ts"
+            urls += "${ConnectionUrl.httpBase(config).trimEnd('/')}/api/app/apk?ts=$ts"
+        }
+        if (config.tunnelUrl.isNotBlank()) {
+            urls += "${ConnectionUrl.httpBase(config.copy(useTunnel = true)).trimEnd('/')}/api/app/apk?ts=$ts"
         }
         if (config.host.isNotBlank()) {
-            urls += "http://${config.host}:${config.port}/api/app/apk?ts=$ts"
+            urls += "${ConnectionUrl.httpBase(config.copy(useTunnel = false)).trimEnd('/')}/api/app/apk?ts=$ts"
         }
+        urls += "$publicUpdateUrl?ts=$ts"
         return urls.distinct()
     }
 
@@ -324,7 +329,7 @@ class MainActivity : ComponentActivity() {
             pendingUpdateApk = apkFile
             waitingForInstallPermission = true
             isUpdateInProgress = false
-            Toast.makeText(this, "Allow installs from this app, then return here", Toast.LENGTH_LONG).show()
+            Toast.makeText(this, "Разрешите установку из приложения и вернитесь сюда", Toast.LENGTH_LONG).show()
             startActivity(Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES).apply {
                 data = Uri.parse("package:$packageName")
             })

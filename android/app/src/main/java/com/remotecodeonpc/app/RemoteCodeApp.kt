@@ -241,7 +241,6 @@ private fun ConnectionScreen(
     onUpdateApp: (ServerConfig) -> Unit = {}
 ) {
     var host by remember(serverConfig.host) { mutableStateOf(serverConfig.host) }
-    var port by remember(serverConfig.port) { mutableStateOf(serverConfig.port.toString()) }
     var authToken by remember(serverConfig.authToken) { mutableStateOf(serverConfig.authToken) }
     var showToken by remember { mutableStateOf(false) }
     var useTunnel by remember(serverConfig.useTunnel) { mutableStateOf(serverConfig.useTunnel) }
@@ -255,12 +254,11 @@ private fun ConnectionScreen(
     val canConnect = if (useTunnel) {
         trimmedTunnelUrl.isNotBlank() && tunnelFormatOk && !externalTokenMissing && !isConnecting
     } else {
-        host.isNotBlank() && port.toIntOrNull() != null && !isConnecting
+        host.isNotBlank() && !isConnecting
     }
 
     fun emitConfig(
         nextHost: String = host,
-        nextPort: String = port,
         nextToken: String = authToken,
         nextUseTunnel: Boolean = useTunnel,
         nextTunnelUrl: String = tunnelUrl
@@ -269,7 +267,6 @@ private fun ConnectionScreen(
         onUpdateConfig(
             serverConfig.copy(
                 host = nextHost.trim(),
-                port = nextPort.toIntOrNull() ?: serverConfig.port,
                 authToken = nextToken.trim(),
                 useTunnel = nextUseTunnel,
                 tunnelUrl = cleanTunnelUrl
@@ -350,7 +347,7 @@ private fun ConnectionScreen(
                     if (useTunnel) {
                         "Введите публичный Keenetic/KeenDNS URL из меню подключения расширения или из настроек роутера."
                     } else {
-                        "Телефон и ПК должны быть в одной сети Wi-Fi/LAN. Используйте IP ПК и порт расширения."
+                        "Телефон и ПК должны быть в одной сети Wi-Fi/LAN. Используйте IP ПК из расширения."
                     },
                     color = TextSecondary,
                     fontSize = 11.sp,
@@ -370,7 +367,7 @@ private fun ConnectionScreen(
                     emitConfig(nextTunnelUrl = it)
                 },
                 label = { Text("Публичный URL", color = TextSecondary) },
-                placeholder = { Text("http://name.keenetic.link:8799", color = TextSecondary.copy(alpha = 0.5f)) },
+                placeholder = { Text("https://remote.example.com", color = TextSecondary.copy(alpha = 0.5f)) },
                 singleLine = true,
                 leadingIcon = { Icon(Icons.Default.Public, contentDescription = null, tint = AccentGreen) },
                 modifier = Modifier.fillMaxWidth().height(58.dp),
@@ -380,40 +377,21 @@ private fun ConnectionScreen(
                 shape = RoundedCornerShape(12.dp)
             )
         } else {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                OutlinedTextField(
-                    value = host,
-                    onValueChange = {
-                        host = it
-                        emitConfig(nextHost = it)
-                    },
-                    label = { Text("IP ПК", color = TextSecondary, fontSize = 12.sp) },
-                    placeholder = { Text("192.168.1.100", color = TextSecondary.copy(alpha = 0.5f)) },
-                    singleLine = true,
-                    leadingIcon = { Icon(Icons.Default.Wifi, contentDescription = null, tint = AccentBlue) },
-                    modifier = Modifier.weight(1f).height(58.dp),
-                    textStyle = LocalTextStyle.current.copy(fontSize = 14.sp),
-                    colors = outlinedFieldColors(),
-                    shape = RoundedCornerShape(12.dp)
-                )
-                OutlinedTextField(
-                    value = port,
-                    onValueChange = {
-                        port = it.filter(Char::isDigit).take(5)
-                        emitConfig(nextPort = port)
-                    },
-                    label = { Text("Порт", color = TextSecondary, fontSize = 12.sp) },
-                    placeholder = { Text("8799", color = TextSecondary.copy(alpha = 0.5f)) },
-                    singleLine = true,
-                    modifier = Modifier.width(116.dp).height(58.dp),
-                    textStyle = LocalTextStyle.current.copy(fontSize = 14.sp),
-                    colors = outlinedFieldColors(),
-                    shape = RoundedCornerShape(12.dp)
-                )
-            }
+            OutlinedTextField(
+                value = host,
+                onValueChange = {
+                    host = it
+                    emitConfig(nextHost = it)
+                },
+                label = { Text("IP ПК", color = TextSecondary, fontSize = 12.sp) },
+                placeholder = { Text("192.168.1.100", color = TextSecondary.copy(alpha = 0.5f)) },
+                singleLine = true,
+                leadingIcon = { Icon(Icons.Default.Wifi, contentDescription = null, tint = AccentBlue) },
+                modifier = Modifier.fillMaxWidth().height(58.dp),
+                textStyle = LocalTextStyle.current.copy(fontSize = 14.sp),
+                colors = outlinedFieldColors(),
+                shape = RoundedCornerShape(12.dp)
+            )
         }
 
         OutlinedTextField(
@@ -538,7 +516,6 @@ private fun ConnectionScreen(
                     onUpdateApp(
                         serverConfig.copy(
                             host = host,
-                            port = port.toIntOrNull() ?: 8799,
                             authToken = authToken,
                             useTunnel = useTunnel,
                             tunnelUrl = trimmedTunnelUrl
@@ -615,7 +592,6 @@ private fun SettingsScreenV2(
     onUpdateApp: (ServerConfig) -> Unit
 ) {
     var compactHostText by remember(serverConfig.host) { mutableStateOf(serverConfig.host) }
-    var compactPortText by remember(serverConfig.port) { mutableStateOf(serverConfig.port.toString()) }
     var compactTokenText by remember(serverConfig.authToken) { mutableStateOf(serverConfig.authToken) }
     var showCompactToken by remember { mutableStateOf(false) }
     var compactUseTunnel by remember(serverConfig.useTunnel) { mutableStateOf(serverConfig.useTunnel) }
@@ -625,10 +601,8 @@ private fun SettingsScreenV2(
     }
 
     val compactTunnelUrl = compactTunnelText.trim().trimEnd('/')
-    val compactPort = compactPortText.toIntOrNull()?.coerceIn(1, 65535) ?: serverConfig.port
     val compactConfig = serverConfig.copy(
         host = compactHostText.trim(),
-        port = compactPort,
         authToken = compactTokenText.trim(),
         useTunnel = compactUseTunnel,
         tunnelUrl = compactTunnelUrl
@@ -636,7 +610,7 @@ private fun SettingsScreenV2(
     val tunnelFormatOk = compactTunnelUrl.isBlank() ||
         compactTunnelUrl.startsWith("http://") ||
         compactTunnelUrl.startsWith("https://")
-    val hasLocalTarget = compactHostText.isNotBlank() && compactPortText.toIntOrNull() != null
+    val hasLocalTarget = compactHostText.isNotBlank()
     val hasPublicTarget = compactTunnelUrl.isNotBlank() && tunnelFormatOk
     val externalTokenMissing = compactUseTunnel && compactTokenText.trim().isBlank()
     val canSave = if (compactUseTunnel) hasPublicTarget && !externalTokenMissing else hasLocalTarget
@@ -722,30 +696,17 @@ private fun SettingsScreenV2(
                     )
                 }
 
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedTextField(
-                        value = compactHostText,
-                        onValueChange = { compactHostText = it },
-                        label = { Text("IP ПК", color = TextSecondary, fontSize = 12.sp) },
-                        singleLine = true,
-                        textStyle = LocalTextStyle.current.copy(color = TextPrimary, fontSize = 15.sp),
-                        leadingIcon = { Icon(Icons.Default.Computer, contentDescription = null, tint = AccentBlue, modifier = Modifier.size(18.dp)) },
-                        modifier = Modifier.fillMaxWidth().height(compactFieldHeight),
-                        colors = outlinedFieldColors(),
-                        shape = RoundedCornerShape(11.dp)
-                    )
-                    OutlinedTextField(
-                        value = compactPortText,
-                        onValueChange = { compactPortText = it.filter(Char::isDigit).take(5) },
-                        label = { Text("Порт", color = TextSecondary, fontSize = 12.sp) },
-                        singleLine = true,
-                        textStyle = LocalTextStyle.current.copy(color = TextPrimary, fontSize = 15.sp),
-                        isError = compactPortText.toIntOrNull() == null,
-                        modifier = Modifier.fillMaxWidth().height(compactFieldHeight),
-                        colors = outlinedFieldColors(),
-                        shape = RoundedCornerShape(11.dp)
-                    )
-                }
+                OutlinedTextField(
+                    value = compactHostText,
+                    onValueChange = { compactHostText = it },
+                    label = { Text("IP ПК", color = TextSecondary, fontSize = 12.sp) },
+                    singleLine = true,
+                    textStyle = LocalTextStyle.current.copy(color = TextPrimary, fontSize = 15.sp),
+                    leadingIcon = { Icon(Icons.Default.Computer, contentDescription = null, tint = AccentBlue, modifier = Modifier.size(18.dp)) },
+                    modifier = Modifier.fillMaxWidth().height(compactFieldHeight),
+                    colors = outlinedFieldColors(),
+                    shape = RoundedCornerShape(11.dp)
+                )
 
                 if (compactUseTunnel || tunnelActive || compactTunnelText.isNotBlank()) {
                     OutlinedTextField(

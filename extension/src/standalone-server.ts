@@ -98,7 +98,7 @@ export class StandaloneRemoteServer {
 
     constructor(workspaceRoot: string = process.cwd()) {
         this.port = Number(process.env.REMOTE_CODE_PORT || process.env.PORT || 8799);
-        this.host = process.env.REMOTE_CODE_HOST || '0.0.0.0';
+        this.host = process.env.REMOTE_CODE_HOST || '127.0.0.1';
         this.authToken = process.env.REMOTE_CODE_AUTH_TOKEN || '';
         this.workspaceRoot = path.resolve(process.env.REMOTE_CODE_WORKSPACE || workspaceRoot);
         this.localIp = this.getLocalIp();
@@ -167,20 +167,21 @@ export class StandaloneRemoteServer {
     }
 
     private async handleHttp(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
-        this.setCors(res);
+        this.setCors(res, req);
         if (req.method === 'OPTIONS') {
             res.writeHead(204);
             res.end();
             return;
         }
 
-        if (!this.isHttpAuthorized(req)) {
-            this.sendJson(res, 401, { error: 'Unauthorized' });
-            return;
-        }
-
         const requestUrl = new URL(req.url || '/', `http://${req.headers.host || 'localhost'}`);
         const pathname = requestUrl.pathname;
+
+        if (!this.isHttpAuthorized(req, pathname)) {
+            const statusCode = !this.authToken && this.isAuthRequired(pathname) ? 403 : 401;
+            this.sendJson(res, statusCode, { error: statusCode === 403 ? 'Auth token is required before exposing standalone server.' : 'Unauthorized' });
+            return;
+        }
 
         if (req.method === 'GET' && pathname === '/api/status') {
             this.sendJson(res, 200, this.getStatus());
@@ -267,8 +268,11 @@ export class StandaloneRemoteServer {
             return;
         }
         if (req.method === 'POST' && pathname === '/api/terminal/exec') {
-            const body = await this.readBody(req);
-            this.sendJson(res, 200, this.execTerminal(String(body.command || '')));
+            this.sendJson(res, 403, {
+                success: false,
+                pendingApproval: false,
+                error: 'Terminal execution is disabled in standalone mode. Use the VS Code extension approval flow.'
+            });
             return;
         }
         if (req.method === 'GET' && pathname === '/api/codex/status') {
@@ -414,7 +418,17 @@ export class StandaloneRemoteServer {
     private readFile(inputPath: string): JsonValue {
         const target = this.resolvePath(inputPath);
         const stat = fs.statSync(target);
-        const content = fs.readFileSync(target, 'utf8');
+        if (!stat.isFile()) {
+            throw new Error('Path is not a file');
+        }
+        if (stat.size > 1024 * 1024) {
+            throw new Error('File is too large to read over the API');
+        }
+        const bytes = fs.readFileSync(target);
+        if (this.looksBinary(bytes)) {
+            throw new Error('Binary files are not supported by the text read API');
+        }
+        const content = bytes.toString('utf8');
         return {
             path: target,
             content,
@@ -422,29 +436,6 @@ export class StandaloneRemoteServer {
             size: stat.size,
             language: this.languageFromExtension(path.extname(target))
         };
-    }
-
-    private execTerminal(command: string): JsonValue {
-        if (!command.trim()) {
-            return { success: false, output: '', error: 'Empty command' };
-        }
-
-        try {
-            const output = execSync(command, {
-                cwd: this.workspaceRoot,
-                encoding: 'utf8',
-                timeout: 30000,
-                maxBuffer: 1024 * 1024
-            });
-            return { success: true, output, command };
-        } catch (error: any) {
-            return {
-                success: false,
-                output: error.stdout?.toString() || '',
-                error: error.stderr?.toString() || error.message || String(error),
-                command
-            };
-        }
     }
 
     private getCodexStatus(): JsonValue {
@@ -1830,10 +1821,28 @@ export class StandaloneRemoteServer {
     }
 
     private resolvePath(inputPath: string): string {
-        if (!inputPath) {
-            return this.workspaceRoot;
+        const target = inputPath
+            ? (path.isAbsolute(inputPath) ? path.resolve(inputPath) : path.resolve(this.workspaceRoot, inputPath))
+            : this.workspaceRoot;
+        if (!this.isInsideWorkspace(target)) {
+            throw new Error('Path is outside workspace');
         }
-        return path.resolve(inputPath);
+        return target;
+    }
+
+    private isInsideWorkspace(targetPath: string): boolean {
+        const target = path.resolve(targetPath).toLowerCase();
+        const root = path.resolve(this.workspaceRoot).toLowerCase();
+        return target === root || target.startsWith(root + path.sep);
+    }
+
+    private looksBinary(buffer: Buffer): boolean {
+        const length = Math.min(buffer.length, 4096);
+        if (length === 0) return false;
+        for (let i = 0; i < length; i++) {
+            if (buffer[i] === 0) return true;
+        }
+        return false;
     }
 
     private languageFromExtension(extension: string): string {
@@ -1897,7 +1906,6 @@ export class StandaloneRemoteServer {
     }
 
     private sendJson(res: http.ServerResponse, statusCode: number, payload: JsonValue): void {
-        this.setCors(res);
         const json = JSON.stringify(payload);
         res.writeHead(statusCode, {
             'Content-Type': 'application/json; charset=utf-8',
@@ -1914,7 +1922,6 @@ export class StandaloneRemoteServer {
         }
 
         const stat = fs.statSync(apkPath);
-        this.setCors(res);
         res.writeHead(200, {
             'Content-Type': 'application/vnd.android.package-archive',
             'Content-Length': stat.size,
@@ -1924,26 +1931,54 @@ export class StandaloneRemoteServer {
         fs.createReadStream(apkPath).pipe(res);
     }
 
-    private setCors(res: http.ServerResponse): void {
-        res.setHeader('Access-Control-Allow-Origin', '*');
+    private setCors(res: http.ServerResponse, req: http.IncomingMessage): void {
+        const origin = req.headers.origin;
+        res.setHeader('Vary', 'Origin');
+        if (typeof origin === 'string' && this.isAllowedCorsOrigin(origin, req)) {
+            res.setHeader('Access-Control-Allow-Origin', origin);
+        }
         res.setHeader('Access-Control-Allow-Methods', 'GET,POST,OPTIONS');
         res.setHeader('Access-Control-Allow-Headers', 'Content-Type,Authorization');
     }
 
-    private isHttpAuthorized(req: http.IncomingMessage): boolean {
-        if (!this.authToken) {
-            return true;
-        }
+    private isHttpAuthorized(req: http.IncomingMessage, pathname: string): boolean {
+        if (!this.isAuthRequired(pathname)) return true;
+        if (!this.authToken) return false;
         return req.headers.authorization === `Bearer ${this.authToken}`;
     }
 
     private isWsAuthorized(req: http.IncomingMessage): boolean {
-        if (!this.authToken) {
-            return true;
-        }
+        if (!this.authToken) return this.isLocalOnlyBind();
         const requestUrl = new URL(req.url || '/', `http://${req.headers.host || 'localhost'}`);
         return requestUrl.searchParams.get('token') === this.authToken ||
             req.headers.authorization === `Bearer ${this.authToken}`;
+    }
+
+    private isAuthRequired(pathname: string): boolean {
+        if (pathname === '/api/status') return false;
+        return Boolean(this.authToken) || !this.isLocalOnlyBind();
+    }
+
+    private isLocalOnlyBind(): boolean {
+        const host = this.host.trim().toLowerCase();
+        return !host || host === '127.0.0.1' || host === 'localhost' || host === '::1';
+    }
+
+    private isAllowedCorsOrigin(origin: string, req: http.IncomingMessage): boolean {
+        try {
+            const parsed = new URL(origin);
+            const originHost = parsed.hostname.toLowerCase();
+            const requestHost = String(req.headers.host || '').split(':')[0].toLowerCase();
+            return originHost === requestHost ||
+                originHost === 'localhost' ||
+                originHost === '127.0.0.1' ||
+                originHost === '::1' ||
+                /^10\./.test(originHost) ||
+                /^192\.168\./.test(originHost) ||
+                /^172\.(1[6-9]|2\d|3[01])\./.test(originHost);
+        } catch {
+            return false;
+        }
     }
 
     private sendSocket(socket: WebSocket, type: string, data: JsonValue): void {

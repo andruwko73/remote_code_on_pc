@@ -9,7 +9,7 @@ object ConnectionUrl {
         } else {
             "http://${config.host}:${config.port}"
         }
-        return normalizeHttpBase(raw, config)
+        return normalizeHttpBase(raw)
     }
 
     fun wsBase(config: ServerConfig): String {
@@ -18,7 +18,7 @@ object ConnectionUrl {
             .replaceFirst(Regex("^https://", RegexOption.IGNORE_CASE), "wss://")
     }
 
-    private fun normalizeHttpBase(raw: String, config: ServerConfig): String {
+    private fun normalizeHttpBase(raw: String): String {
         val trimmed = raw.trim().trimEnd('/')
         if (trimmed.isBlank()) return trimmed
         val withScheme = when {
@@ -27,22 +27,6 @@ object ConnectionUrl {
             trimmed.startsWith("//") -> "http:$trimmed"
             else -> "http://$trimmed"
         }
-        return if (config.useTunnel) withKeeneticPort(withScheme, config.port) else withScheme
-    }
-
-    private fun withKeeneticPort(raw: String, port: Int): String {
-        return try {
-            val uri = java.net.URI(raw)
-            val host = uri.host?.lowercase() ?: return raw
-            val hasExplicitPort = uri.port > 0
-            val looksLikeKeenetic = host.contains(".keenetic.")
-            if (hasExplicitPort || !looksLikeKeenetic) return raw
-            val path = uri.rawPath?.takeIf { it.isNotBlank() } ?: ""
-            val query = uri.rawQuery?.let { "?$it" } ?: ""
-            val fragment = uri.rawFragment?.let { "#$it" } ?: ""
-            "${uri.scheme ?: "http"}://${uri.host}:$port$path$query$fragment"
-        } catch (_: Exception) {
-            raw
-        }
+        return withScheme
     }
 }

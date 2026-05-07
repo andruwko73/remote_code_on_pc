@@ -101,7 +101,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             val savedToken = prefs.getString("authToken", "") ?: ""
             val savedUseTunnel = prefs.getBoolean("useTunnel", false)
             val savedTunnelUrl = prefs.getString("tunnelUrl", "") ?: ""
-            if (savedHost.isNotBlank()) {
+            if (savedHost.isNotBlank() || savedTunnelUrl.isNotBlank() || savedToken.isNotBlank()) {
                 _uiState.value = _uiState.value.copy(
                     serverConfig = ServerConfig(
                         host = savedHost,
@@ -188,7 +188,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
         if (config.useTunnel && isUnsupportedExternalUrl(config.tunnelUrl)) {
             _uiState.value = _uiState.value.copy(
-                connectionError = "Этот публичный URL не подходит для подключения телефона. Укажите KeenDNS/DDNS адрес вида http://name.keenetic.link:8799."
+                connectionError = "Этот публичный URL не подходит для подключения телефона. Укажите готовый HTTPS Keenetic/DDNS адрес из расширения."
             )
             return
         }
@@ -319,19 +319,16 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private fun formatConnectionError(config: ServerConfig, raw: String, code: Int? = null): String {
         if (!config.useTunnel) return "Connection error: $raw"
         val lower = raw.lowercase()
-        val externalPort = runCatching {
-            java.net.URI(ConnectionUrl.httpBase(config)).port.takeIf { it > 0 }
-        }.getOrNull() ?: config.port
         return when {
             "unexpected end of stream" in lower || "failed to connect" in lower ||
                 "connection reset" in lower || "timeout" in lower || "timed out" in lower ->
-                "Публичный URL не дал HTTP-ответ на TCP-порту $externalPort. Это не ошибка токена: проверьте прямой доступ/KeenDNS Direct и проброс TCP $externalPort -> IP ПК:${config.port}; затем повторите подключение."
+                "Публичный URL не дал HTTP-ответ. Это не ошибка токена: проверьте KeenDNS/HTTPS-прокси или проброс TCP на IP ПК; затем повторите подключение."
             code == 530 || "http 530" in lower || "status code 530" in lower || "ошибка 530" in lower || "error 530" in lower ->
-                "Публичный Keenetic URL доступен, но не доходит до ПК. Проверьте KeenDNS, проброс TCP-порта 8799 на IP ПК и что расширение запущено."
+                "Публичный Keenetic URL доступен, но не доходит до ПК. Проверьте KeenDNS/HTTPS-прокси, IP ПК и что расширение запущено."
             code == 503 || code == 502 || "503" in lower || "bad gateway" in lower ->
-                "Публичный адрес отвечает, но сервер Remote Code недоступен. Проверьте проброс порта 8799 на роутере Keenetic и включенное расширение VS Code."
+                "Публичный адрес отвечает, но сервер Remote Code недоступен. Проверьте правило Keenetic и включенное расширение VS Code."
             "unable to resolve host" in lower || "no address associated" in lower || "failed to resolve" in lower ->
-                "Публичный URL не резолвится DNS. Проверьте KeenDNS/DDNS адрес или вставьте полный URL вида http://name.keenetic.link:8799."
+                "Публичный URL не резолвится DNS. Проверьте KeenDNS/DDNS адрес или вставьте полный HTTPS URL из расширения."
             else -> "Ошибка внешнего подключения: $raw"
         }
     }
@@ -347,9 +344,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             }
 
             override fun onDisconnected() {
-                // WebSocket РјРѕР¶РµС‚ РїРµСЂРµРїРѕРґРєР»СЋС‡Р°С‚СЊСЃСЏ вЂ” РЅРµ СЃР±СЂР°СЃС‹РІР°РµРј isConnected
+                // WebSocket may reconnect; do not reset isConnected.
                 _uiState.value = _uiState.value.copy(isWebSocketConnected = false)
-                // РћСЃС‚Р°РЅР°РІР»РёРІР°РµРј health-check РЅР° РІСЂРµРјСЏ СЂРµРєРѕРЅРЅРµРєС‚Р°
+                // Stop health checks while reconnecting.
                 healthCheckJob?.cancel()
                 healthCheckJob = null
             }
@@ -387,7 +384,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         _uiState.value = _uiState.value.copy(
                             status = _uiState.value.status?.copy(
                                 workspace = _uiState.value.status?.workspace?.copy(
-                                    activeFile = activeFile ?: "вЂ”"
+                                    activeFile = activeFile ?: "-"
                                 )
                             )
                         )
@@ -396,13 +393,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         viewModelScope.launch { loadFolders() }
                     }
                     "chat:sessions-update" -> {
-                        // VS Code С‡Р°С‚С‹ РёР·РјРµРЅРёР»РёСЃСЊ РЅР° РџРљ вЂ” РѕР±РЅРѕРІР»СЏРµРј СЃРїРёСЃРѕРє Рё РёСЃС‚РѕСЂРёСЋ
+                        // VS Code chats changed on the PC; refresh the list and history.
                         viewModelScope.launch {
                             loadConversations()
                         }
                     }
                     "codex:sent" -> {
-                        // Codex Р·Р°РїСЂРѕСЃ РѕС‚РїСЂР°РІР»РµРЅ вЂ” РјРѕР¶РµРј РѕР±РЅРѕРІРёС‚СЊ СЃС‚Р°С‚СѓСЃ
+                        // A Codex request was sent; refresh status.
                         val threadId = data["threadId"] as? String
                         _uiState.value = _uiState.value.copy(isCodexLoading = true)
                         viewModelScope.launch {
@@ -522,7 +519,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             }
 
             override fun onError(error: String) {
-                // WebSocket РѕС€РёР±РєР° вЂ” Р»РѕРіРёСЂСѓРµРј
+                // Log WebSocket errors.
                 android.util.Log.d("WSClient", "WS error: $error")
             }
 
@@ -535,7 +532,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun disconnect() {
-        val savedConfig = _uiState.value.serverConfig // СЃРѕС…СЂР°РЅСЏРµРј РєРѕРЅС„РёРі
+        val savedConfig = _uiState.value.serverConfig
         healthCheckJob?.cancel()
         healthCheckJob = null
         wsClient?.disconnect()
@@ -568,7 +565,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private fun onHealthCheckFailed() {
-        if (!_uiState.value.isConnected) return // СѓР¶Рµ РЅР° СЌРєСЂР°РЅРµ РєРѕРЅРЅРµРєС‚Р°
+        if (!_uiState.value.isConnected) return
         healthCheckFailures++
         CrashLogger.w("ViewModel", "Health-check failure $healthCheckFailures; keeping current screen")
         _uiState.value = _uiState.value.copy(isWebSocketConnected = false)
@@ -727,12 +724,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     loadChatHistory()
                 } else {
                     _uiState.value = _uiState.value.copy(
-                        chatError = "РћС€РёР±РєР° ${response.code()}"
+                        chatError = "Ошибка ${response.code()}"
                     )
                 }
             } catch (e: Exception) {
                 _uiState.value = _uiState.value.copy(
-                    chatError = "РћС€РёР±РєР°: ${e.message}"
+                    chatError = "Ошибка: ${e.message}"
                 )
             } finally {
                 _uiState.value = _uiState.value.copy(isChatLoading = false)
@@ -979,23 +976,29 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 val response = api.execTerminal(mapOf("command" to command))
                 if (response.isSuccessful) {
                     val body = response.body()
-                    val output = body?.get("output") as? String ?: "вњ… РљРѕРјР°РЅРґР° РѕС‚РїСЂР°РІР»РµРЅР°: $command"
+                    val output = body?.get("output") as? String ?: "Команда отправлена: $command"
+                    val pendingApproval = body?.get("pendingApproval") as? Boolean ?: false
+                    val displayOutput = if (pendingApproval) {
+                        "Команда ожидает подтверждения в чате Codex."
+                    } else {
+                        output
+                    }
                     val currentOutput = _uiState.value.terminalOutput
                     _uiState.value = _uiState.value.copy(
-                        terminalOutput = currentOutput + "\n> $command\n$output\n",
+                        terminalOutput = currentOutput + "\n> $command\n$displayOutput\n",
                         isTerminalRunning = false
                     )
                 } else {
                     val currentOutput = _uiState.value.terminalOutput
                     _uiState.value = _uiState.value.copy(
-                        terminalOutput = currentOutput + "\n> $command\nвќЊ РћС€РёР±РєР° ${response.code()}\n",
+                        terminalOutput = currentOutput + "\n> $command\nОшибка ${response.code()}\n",
                         isTerminalRunning = false
                     )
                 }
             } catch (e: Exception) {
                 val currentOutput = _uiState.value.terminalOutput
                 _uiState.value = _uiState.value.copy(
-                    terminalOutput = currentOutput + "\n> $command\nвќЊ РћС€РёР±РєР°: ${e.message}\n",
+                    terminalOutput = currentOutput + "\n> $command\nОшибка: ${e.message}\n",
                     isTerminalRunning = false
                 )
             }
@@ -1366,7 +1369,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                             null
                         }
                     )
-                    // Р•СЃР»Рё С‚СѓРЅРЅРµР»СЊ Р°РєС‚РёРІРµРЅ вЂ” РѕР±РЅРѕРІР»СЏРµРј РєРѕРЅС„РёРі РґР»СЏ Android
+                    // If the tunnel is active, refresh the Android config.
                     if (body?.tunnelActive == true && url != null) {
                         val updatedConfig = _uiState.value.serverConfig.copy(
                             tunnelUrl = url,
@@ -1407,8 +1410,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         _uiState.value = _uiState.value.copy(
                             isTunnelStarting = false,
                             tunnelActive = false,
-                            tunnelError = "Расширение вернуло служебный адрес, который не подходит для телефона. В VS Code укажите KeenDNS/DDNS URL вида http://name.keenetic.link:8799.",
-                            connectionError = "Расширение вернуло служебный адрес, который не подходит для телефона. В VS Code укажите KeenDNS/DDNS URL вида http://name.keenetic.link:8799."
+                            tunnelError = "Расширение вернуло служебный адрес, который не подходит для телефона. В VS Code укажите готовый HTTPS Keenetic/DDNS URL.",
+                            connectionError = "Расширение вернуло служебный адрес, который не подходит для телефона. В VS Code укажите готовый HTTPS Keenetic/DDNS URL."
                         )
                         return@launch
                     }
@@ -1503,7 +1506,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     )
                 )
                 saveConfig(_uiState.value.serverConfig)
-                // РџРµСЂРµРїРѕРґРєР»СЋС‡Р°РµРј WebSocket РѕР±СЂР°С‚РЅРѕ РЅР° LAN
+                // Reconnect WebSocket back to LAN mode.
                 ApiClient.reset()
                 connectWebSocket()
             } catch (e: Exception) {
@@ -1526,7 +1529,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             )
             _uiState.value = _uiState.value.copy(serverConfig = updatedConfig)
             saveConfig(updatedConfig)
-            // РЎР±СЂРѕСЃРёРј API, С‡С‚РѕР±С‹ РїРµСЂРµСЃРѕР·РґР°С‚СЊ СЃ РЅРѕРІС‹Рј URL
+            // Reset API so it is recreated with the new URL.
             ApiClient.reset()
             connectWebSocket()
         } else if (!useTunnel) {
@@ -1545,7 +1548,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun navigateTo(screen: String) {
         _uiState.value = _uiState.value.copy(currentScreen = screen)
-        // Р—Р°РіСЂСѓР¶Р°РµРј РґР°РЅРЅС‹Рµ РїСЂРё РїРµСЂРµС…РѕРґРµ
+        // Load data for the destination screen.
         when (screen) {
             "vscode" -> {
                 loadFolders()
@@ -1557,7 +1560,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             "files" -> loadFolders()
             "diagnostics" -> loadDiagnostics()
             "codex" -> { loadCodexStatus(); loadCodexModels(); loadCodexThreads(loadCurrent = true) }
-            "terminal" -> { /* РЅРёС‡РµРіРѕ РЅРµ Р·Р°РіСЂСѓР¶Р°РµРј - С‚РµСЂРјРёРЅР°Р» Р»С‘РіРєРёР№ */ }
+            "terminal" -> { /* Nothing to load; terminal is lightweight. */ }
             "settings" -> loadTunnelStatus()
         }
     }

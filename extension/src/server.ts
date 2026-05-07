@@ -38,6 +38,8 @@ interface CodexChatMessage {
     threadId?: string;
     attachments?: LocalAttachment[];
     changeSummary?: GitChangeSummary;
+    workspaceName?: string;
+    workspacePath?: string;
 }
 
 interface RemoteCodeThreadSummary {
@@ -45,6 +47,8 @@ interface RemoteCodeThreadSummary {
     title: string;
     timestamp: number;
     source?: 'remote' | 'codex';
+    workspaceName?: string;
+    workspacePath?: string;
 }
 
 interface MobileAttachment {
@@ -170,8 +174,8 @@ export class RemoteServer {
         this._context = context;
         const config = vscode.workspace.getConfiguration('remoteCodeOnPC');
         this._port = config.get<number>('port', 8799);
-        this._host = config.get<string>('host', '0.0.0.0');
-        this._authToken = config.get<string>('authToken', '');
+        this._host = this.getRemoteCodeStringSetting('host', '127.0.0.1');
+        this._authToken = this.getRemoteCodeStringSetting('authToken', '');
     }
 
     get port() { return this._port; }
@@ -196,6 +200,40 @@ export class RemoteServer {
         this.stopTunnel();
     }
 
+    private getRemoteCodeStringSetting(key: string, fallback = ''): string {
+        const configValue = (vscode.workspace.getConfiguration('remoteCodeOnPC').get<string>(key, '') || '').trim();
+        if (configValue) return configValue;
+        return this.readUserSettingsString(`remoteCodeOnPC.${key}`) || fallback;
+    }
+
+    private readUserSettingsString(key: string): string {
+        const candidateFiles = new Set<string>();
+        try {
+            const storagePath = this._context.globalStorageUri.fsPath;
+            candidateFiles.add(path.join(path.dirname(storagePath), 'settings.json'));
+            candidateFiles.add(path.join(path.dirname(path.dirname(storagePath)), 'settings.json'));
+        } catch {
+            // Fall back to APPDATA below.
+        }
+        if (process.env.APPDATA) {
+            candidateFiles.add(path.join(process.env.APPDATA, 'Code', 'User', 'settings.json'));
+        }
+        const escapedKey = key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        const pattern = new RegExp(`"${escapedKey}"\\s*:\\s*"((?:\\\\.|[^"\\\\])*)"`);
+        for (const filePath of candidateFiles) {
+            try {
+                if (!fs.existsSync(filePath)) continue;
+                const match = fs.readFileSync(filePath, 'utf8').match(pattern);
+                if (!match) continue;
+                const parsed = JSON.parse(`"${match[1]}"`);
+                return typeof parsed === 'string' ? parsed.trim() : '';
+            } catch {
+                // Settings can be JSONC or temporarily malformed while VS Code writes them.
+            }
+        }
+        return '';
+    }
+
     private normalizePublicUrl(raw: string | undefined | null): string {
         const trimmed = (raw || '').trim();
         if (!trimmed) return '';
@@ -214,8 +252,7 @@ export class RemoteServer {
     }
 
     private getConfiguredPublicUrl(): string {
-        const config = vscode.workspace.getConfiguration('remoteCodeOnPC');
-        const publicUrl = this.normalizePublicUrl(config.get<string>('publicUrl', ''));
+        const publicUrl = this.normalizePublicUrl(this.getRemoteCodeStringSetting('publicUrl', ''));
         return this.isUnsupportedKeeneticServiceUrl(publicUrl) ? '' : publicUrl;
     }
 
@@ -227,8 +264,7 @@ export class RemoteServer {
     }
 
     private getConfiguredKeeneticHost(): string {
-        const config = vscode.workspace.getConfiguration('remoteCodeOnPC');
-        const host = (config.get<string>('keeneticHost', '') || '').trim();
+        const host = this.getRemoteCodeStringSetting('keeneticHost', '');
         const hostname = this.extractHost(host) || host.replace(/:\d{1,5}$/, '').toLowerCase();
         return this.isUnsupportedKeeneticServiceHost(hostname) ? '' : host;
     }
@@ -243,16 +279,14 @@ export class RemoteServer {
     }
 
     private getKeeneticZone(): string {
-        const config = vscode.workspace.getConfiguration('remoteCodeOnPC');
-        return (config.get<string>('keeneticZone', 'keenetic.link') || 'keenetic.link')
+        return (this.getRemoteCodeStringSetting('keeneticZone', 'keenetic.link') || 'keenetic.link')
             .trim()
             .replace(/^\.+|\.+$/g, '')
             .toLowerCase();
     }
 
     private getKeeneticScheme(): 'http' | 'https' {
-        const config = vscode.workspace.getConfiguration('remoteCodeOnPC');
-        return config.get<string>('keeneticScheme', 'http') === 'https' ? 'https' : 'http';
+        return this.getRemoteCodeStringSetting('keeneticScheme', 'http') === 'https' ? 'https' : 'http';
     }
 
     private getKeeneticZones(): string[] {
@@ -919,10 +953,7 @@ export class RemoteServer {
 
     private async handleRequest(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
         this.logHttpRequest(`${req.socket.remoteAddress}:${req.socket.remotePort} ${req.method} ${req.url} ua=${req.headers['user-agent'] || ''}`);
-        // CORS
-        res.setHeader('Access-Control-Allow-Origin', '*');
-        res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-        res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+        this.setCorsHeaders(req, res);
 
         if (req.method === 'OPTIONS') {
             res.writeHead(204, {
@@ -939,7 +970,14 @@ export class RemoteServer {
         // Public status endpoints let the Android app distinguish "PC not found"
         // from "PC found, token required" without exposing protected data.
         const publicAccess = this.requestUsesPublicAccess(req);
-        if ((this._authToken || publicAccess) && !this.isPublicStatusEndpoint(pathname) && !this.checkAuth(req, publicAccess)) {
+        const authRequired = this.isAuthRequiredForRequest(req, pathname, publicAccess);
+        if (authRequired && !this._authToken && !this.isPublicStatusEndpoint(pathname)) {
+            this.jsonResponse(res, 403, {
+                error: 'Access token is required before LAN or public access is enabled.'
+            });
+            return;
+        }
+        if (authRequired && !this.checkAuth(req, true)) {
             this.jsonResponse(res, 401, { error: 'Unauthorized' });
             return;
         }
@@ -1034,10 +1072,11 @@ export class RemoteServer {
         const workspaceFolders = vscode.workspace.workspaceFolders || [];
         const activeEditor = vscode.window.activeTextEditor;
         const publicAccess = this.requestUsesPublicAccess(req);
-        const authOk = this.checkAuth(req, publicAccess);
+        const authRequired = this.isAuthRequiredForRequest(req, '/api/status', publicAccess);
+        const authOk = this.checkAuth(req, authRequired);
         const publicUrl = this.getPublicUrl();
         const publicProvider = this.getPublicProvider();
-        if ((this._authToken || publicAccess) && !authOk) {
+        if (authRequired && !authOk) {
             this.jsonResponse(res, 200, this.publicAuthRequiredStatus(publicUrl, publicProvider));
             return;
         }
@@ -1062,7 +1101,7 @@ export class RemoteServer {
                 keeneticZone: this.getKeeneticZone(),
                 keeneticScheme: this.getKeeneticScheme(),
                 autoUrlSupported: true,
-                authRequired: !!this._authToken,
+                authRequired,
                 authOk,
                 tokenConfigured: !!this._authToken
             },
@@ -1121,14 +1160,20 @@ export class RemoteServer {
     // GET /api/workspace/tree?path=...
     private async handleFileTree(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
         const params = url.parse(req.url || '', true).query;
-        const dirPath = params.path as string || vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+        const requestedPath = typeof params.path === 'string' ? params.path : '';
+        const dirPath = this.resolveWorkspaceApiPath(requestedPath, true);
 
         if (!dirPath) {
-            this.jsonResponse(res, 400, { error: 'No path and no workspace open' });
+            this.jsonResponse(res, 400, { error: 'Path must stay inside an opened workspace folder.' });
             return;
         }
 
         try {
+            const stat = fs.statSync(dirPath);
+            if (!stat.isDirectory()) {
+                this.jsonResponse(res, 400, { error: 'Path is not a directory' });
+                return;
+            }
             const tree = await this.scanDirectory(dirPath, 0, 3); // max depth 3
             this.jsonResponse(res, 200, tree);
         } catch (err: any) {
@@ -1139,21 +1184,41 @@ export class RemoteServer {
     // GET /api/workspace/read-file?path=...
     private async handleReadFile(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
         const params = url.parse(req.url || '', true).query;
-        const filePath = params.path as string;
+        const requestedPath = params.path as string;
 
-        if (!filePath) {
+        if (!requestedPath) {
             this.jsonResponse(res, 400, { error: 'File path required' });
             return;
         }
 
         try {
-            const content = fs.readFileSync(filePath, 'utf-8');
+            const filePath = this.resolveWorkspaceApiPath(requestedPath, false);
+            if (!filePath) {
+                this.jsonResponse(res, 403, { error: 'File path is outside the opened workspace.' });
+                return;
+            }
+            const stat = fs.statSync(filePath);
+            if (!stat.isFile()) {
+                this.jsonResponse(res, 400, { error: 'Path is not a file' });
+                return;
+            }
+            const maxBytes = 1024 * 1024;
+            if (stat.size > maxBytes) {
+                this.jsonResponse(res, 413, { error: 'File is too large to read over the remote API.', maxBytes });
+                return;
+            }
+            const buffer = fs.readFileSync(filePath);
+            if (this.looksBinary(buffer)) {
+                this.jsonResponse(res, 415, { error: 'Binary files are not returned by the remote text API.' });
+                return;
+            }
+            const content = buffer.toString('utf-8');
             const ext = path.extname(filePath);
             this.jsonResponse(res, 200, {
                 path: filePath,
                 content,
                 extension: ext,
-                size: Buffer.byteLength(content, 'utf-8'),
+                size: stat.size,
                 language: this.getLanguageFromExt(ext)
             });
         } catch (err: any) {
@@ -1660,48 +1725,51 @@ export class RemoteServer {
     // POST /api/terminal/exec
     private async handleTerminalExec(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
         const body = await this.readBody(req);
-        const { command } = JSON.parse(body);
+        const { command, cwd } = JSON.parse(body);
 
-        if (!command) {
+        if (!command || typeof command !== 'string') {
             this.jsonResponse(res, 400, { error: 'Command is required' });
             return;
         }
 
-        try {
-            // Пытаемся выполнить команду и получить вывод
-            let output = '';
-            try {
-                output = this.execSync(command, 15000).trim();
-            } catch (execErr: any) {
-                output = execErr.message || 'Command failed';
-                if (execErr.stdout) output = execErr.stdout.toString().trim();
-                if (!output) output = execErr.message || 'Command failed';
-            }
-
-            // Также отправляем команду в активный терминал VS Code
-            try {
-                const terminal = vscode.window.activeTerminal || vscode.window.createTerminal('Remote');
-                terminal.show();
-                terminal.sendText(command);
-            } catch (e) {
-                // Терминал VS Code — опционально
-            }
-
-            this.jsonResponse(res, 200, {
-                success: true,
-                output: output || `✅ Команда выполнена: ${command}`,
-                command
-            });
-        } catch (err: any) {
-            this.jsonResponse(res, 500, { error: err.message, output: err.message });
-        }
+        const threadId = this.currentRemoteThreadId || this.createRemoteCodeThread();
+        const event: RemoteCodeActionEvent = {
+            id: `terminal_action_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+            type: 'command_approval',
+            title: 'Run terminal command',
+            detail: command.trim(),
+            status: 'pending',
+            timestamp: Date.now(),
+            threadId,
+            actionable: true,
+            command: command.trim(),
+            cwd: typeof cwd === 'string' && cwd.trim() ? cwd.trim() : undefined
+        };
+        this.codexActionEvents = this.codexActionEvents.concat(event).slice(-250);
+        this.saveRemoteCodeState();
+        this.refreshPcChatPanel();
+        this.broadcast({
+            type: 'codex:approval-request',
+            threadId,
+            event,
+            events: this.getActionEventsForThread(threadId),
+            timestamp: Date.now()
+        });
+        this.jsonResponse(res, 202, {
+            success: false,
+            pendingApproval: true,
+            actionId: event.id,
+            command: event.command,
+            message: 'Command queued for approval in Remote Code chat.'
+        });
     }
 
     // ========== WEBSOCKET ==========
 
     private async handleWsConnection(ws: WebSocket, req: http.IncomingMessage): Promise<void> {
         const publicAccess = this.requestUsesPublicAccess(req);
-        if (!this.checkAuth(req, publicAccess)) {
+        const authRequired = this.isAuthRequiredForRequest(req, '/ws', publicAccess);
+        if (authRequired && !this.checkAuth(req, true)) {
             ws.close(1008, 'Unauthorized');
             return;
         }
@@ -1874,6 +1942,48 @@ export class RemoteServer {
 
     // ========== HELPERS ==========
 
+    private setCorsHeaders(req: http.IncomingMessage, res: http.ServerResponse): void {
+        const origin = this.headerToString(req.headers.origin).trim();
+        res.setHeader('Vary', 'Origin');
+        if (origin && this.isAllowedCorsOrigin(origin)) {
+            res.setHeader('Access-Control-Allow-Origin', origin);
+        }
+        res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+        res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+    }
+
+    private isAllowedCorsOrigin(origin: string): boolean {
+        if (!origin) return false;
+        try {
+            const parsed = new URL(origin);
+            if (parsed.protocol === 'vscode-webview:') return true;
+            const host = parsed.hostname.toLowerCase();
+            if (this.isLocalOrPrivateHost(host)) return true;
+            const allowedPublicHosts = [
+                this.getConfiguredPublicUrl(),
+                this._tunnelUrl || '',
+                this.getConfiguredKeeneticHost()
+            ]
+                .map(value => this.extractHost(value))
+                .filter(Boolean);
+            return allowedPublicHosts.includes(host);
+        } catch {
+            return false;
+        }
+    }
+
+    private isLocalOnlyBind(): boolean {
+        const host = (this._host || '').trim().toLowerCase();
+        return host === '127.0.0.1' || host === 'localhost' || host === '::1';
+    }
+
+    private isAuthRequiredForRequest(req: http.IncomingMessage, pathname: string, publicAccess = this.requestUsesPublicAccess(req)): boolean {
+        if (this.isPublicStatusEndpoint(pathname)) {
+            return !!this._authToken || publicAccess || !this.isLocalOnlyBind();
+        }
+        return !!this._authToken || publicAccess || !this.isLocalOnlyBind();
+    }
+
     private checkAuth(req: http.IncomingMessage, requireConfiguredToken = false): boolean {
         if (!this._authToken) return !requireConfiguredToken;
         const authHeader = req.headers['authorization'];
@@ -1887,6 +1997,15 @@ export class RemoteServer {
     }
 
     private getExtensionVersion(): string {
+        try {
+            const packagePath = path.join(this._context.extensionPath, 'package.json');
+            const parsed = JSON.parse(fs.readFileSync(packagePath, 'utf8'));
+            if (typeof parsed.version === 'string' && parsed.version.trim()) {
+                return parsed.version;
+            }
+        } catch {
+            // Fall back to VS Code's cached package metadata below.
+        }
         return vscode.extensions.getExtension('remote-code-on-pc.remote-code-on-pc')?.packageJSON?.version
             || (this._context as any).extension?.packageJSON?.version
             || 'dev';
@@ -2168,8 +2287,11 @@ export class RemoteServer {
                     .filter(thread => thread && typeof thread.id === 'string' && thread.id.trim())
                     .map(thread => ({
                         id: thread.id.trim(),
-                        title: typeof thread.title === 'string' && thread.title.trim() ? thread.title.trim() : 'Новый чат',
-                        timestamp: Number.isFinite(thread.timestamp) ? thread.timestamp : Date.now()
+                        title: this.cleanThreadTitle(thread.title) || 'Новый чат',
+                        timestamp: Number.isFinite(thread.timestamp) ? thread.timestamp : Date.now(),
+                        source: thread.source || (thread.id.startsWith('codex-file:') ? 'codex' : 'remote'),
+                        workspaceName: thread.workspaceName,
+                        workspacePath: thread.workspacePath
                     }))
                     .slice(-80)
                 : [];
@@ -2233,11 +2355,16 @@ export class RemoteServer {
         if (!id) return;
         this.archivedThreadIds.delete(id);
         const existing = this.remoteCodeThreads.find(thread => thread.id === id);
-        const cleanTitle = title?.replace(/\s+/g, ' ').trim().slice(0, 80);
+        const workspace = this.getCurrentWorkspaceSummary();
+        const cleanTitle = this.cleanThreadTitle(title);
+        const existingTitle = this.cleanThreadTitle(existing?.title);
         const next: RemoteCodeThreadSummary = {
             id,
-            title: cleanTitle || existing?.title || 'Новый чат',
-            timestamp: Math.max(existing?.timestamp || 0, Math.round(timestamp || Date.now()))
+            title: cleanTitle || existingTitle || 'Новый чат',
+            timestamp: Math.max(existing?.timestamp || 0, Math.round(timestamp || Date.now())),
+            source: existing?.source || (id.startsWith('codex-file:') ? 'codex' : 'remote'),
+            workspaceName: workspace.workspaceName || existing?.workspaceName,
+            workspacePath: workspace.workspacePath || existing?.workspacePath
         };
         this.remoteCodeThreads = [
             next,
@@ -2248,9 +2375,51 @@ export class RemoteServer {
         this.remoteCodeThreadsCache = undefined;
     }
 
+    private getCurrentWorkspaceSummary(): { workspaceName?: string; workspacePath?: string } {
+        const folder = vscode.workspace.workspaceFolders?.[0];
+        if (!folder) return {};
+        return {
+            workspaceName: folder.name,
+            workspacePath: folder.uri.fsPath
+        };
+    }
+
+    private workspaceNameFromPath(workspacePath?: string): string | undefined {
+        const clean = workspacePath?.trim();
+        if (!clean) return undefined;
+        return path.basename(clean);
+    }
+
     private isUntitledRemoteThread(title?: string): boolean {
         const normalized = (title || '').replace(/\s+/g, ' ').trim().toLowerCase();
         return !normalized || normalized === 'новый чат' || normalized === 'new chat' || normalized === 'remote code';
+    }
+
+    private isCorruptedThreadTitle(title?: string): boolean {
+        const normalized = (title || '').replace(/\s+/g, ' ').trim();
+        if (!normalized) return false;
+        if (normalized.includes('\uFFFD')) return true;
+        const compact = normalized.replace(/\s+/g, '');
+        const questionMarks = (compact.match(/\?/g) || []).length;
+        return questionMarks >= 3 && questionMarks / Math.max(1, compact.length) > 0.25;
+    }
+
+    private cleanThreadTitle(title?: string): string {
+        const normalized = (title || '').replace(/\s+/g, ' ').trim();
+        if (!normalized || this.isCorruptedThreadTitle(normalized)) return '';
+        return normalized.slice(0, 80);
+    }
+
+    private pickThreadTitle(...candidates: Array<string | undefined>): string {
+        for (const candidate of candidates) {
+            const clean = this.cleanThreadTitle(candidate);
+            if (clean && !this.isUntitledRemoteThread(clean)) return clean;
+        }
+        for (const candidate of candidates) {
+            const clean = this.cleanThreadTitle(candidate);
+            if (clean) return clean;
+        }
+        return 'Новый чат';
     }
 
     private hasVisibleRemoteThreadContent(threadId: string): boolean {
@@ -2300,9 +2469,11 @@ export class RemoteServer {
             if (this.isUntitledRemoteThread(thread.title) && !this.liveDraftThreadIds.has(thread.id) && !this.hasVisibleRemoteThreadContent(thread.id)) continue;
             byThread.set(thread.id, {
                 id: thread.id,
-                title: thread.title || 'Новый чат',
+                title: this.cleanThreadTitle(thread.title) || 'Новый чат',
                 timestamp: Math.round(thread.timestamp || 0),
-                source: thread.source || (thread.id.startsWith('codex-file:') ? 'codex' : 'remote')
+                source: thread.source || (thread.id.startsWith('codex-file:') ? 'codex' : 'remote'),
+                workspaceName: thread.workspaceName,
+                workspacePath: thread.workspacePath
             });
         }
         for (const thread of this.getCodexThreadSummariesFast()) {
@@ -2311,9 +2482,11 @@ export class RemoteServer {
             const existing = byThread.get(id);
             byThread.set(id, {
                 id,
-                title: existing?.title || thread.title || 'Codex',
+                title: this.pickThreadTitle(existing?.title, thread.title, 'Codex'),
                 timestamp: Math.max(existing?.timestamp || 0, Math.round(thread.timestamp || 0)),
-                source: 'codex'
+                source: 'codex',
+                workspaceName: existing?.workspaceName || thread.workspaceName,
+                workspacePath: existing?.workspacePath || thread.workspacePath
             });
         }
         for (const message of this.codexHistory.filter(item => item.role !== 'system')) {
@@ -2323,16 +2496,24 @@ export class RemoteServer {
             const titleSource = message.role === 'user' && message.content.trim()
                 ? message.content
                 : existing?.title || 'Remote Code';
-            const title = titleSource.replace(/\s+/g, ' ').slice(0, 80) || 'Remote Code';
+            const title = this.pickThreadTitle(titleSource, existing?.title, 'Remote Code');
             const timestamp = Math.max(existing?.timestamp || 0, Math.round(message.timestamp || 0));
-            byThread.set(id, { id, title, timestamp, source: existing?.source || (id.startsWith('codex-file:') ? 'codex' : 'remote') });
+            byThread.set(id, {
+                id,
+                title,
+                timestamp,
+                source: existing?.source || (id.startsWith('codex-file:') ? 'codex' : 'remote'),
+                workspaceName: existing?.workspaceName || message.workspaceName,
+                workspacePath: existing?.workspacePath || message.workspacePath
+            });
         }
         if (this.currentRemoteThreadId && !this.isHiddenThread(this.currentRemoteThreadId) && !byThread.has(this.currentRemoteThreadId)) {
             byThread.set(this.currentRemoteThreadId, {
                 id: this.currentRemoteThreadId,
                 title: 'Новый чат',
                 timestamp: Date.now(),
-                source: this.currentRemoteThreadId.startsWith('codex-file:') ? 'codex' : 'remote'
+                source: this.currentRemoteThreadId.startsWith('codex-file:') ? 'codex' : 'remote',
+                ...this.getCurrentWorkspaceSummary()
             });
         }
         const threads = Array.from(byThread.values())
@@ -2522,6 +2703,54 @@ export class RemoteServer {
         return normalized;
     }
 
+    private getWorkspaceRoots(): string[] {
+        return (vscode.workspace.workspaceFolders || [])
+            .map(folder => path.resolve(folder.uri.fsPath))
+            .filter(root => {
+                try {
+                    return fs.existsSync(root) && fs.statSync(root).isDirectory();
+                } catch {
+                    return false;
+                }
+            });
+    }
+
+    private isInsideWorkspaceRoot(candidate: string, root: string): boolean {
+        const relative = path.relative(path.resolve(root), path.resolve(candidate));
+        return relative === '' || (!!relative && !relative.startsWith('..') && !path.isAbsolute(relative));
+    }
+
+    private resolveWorkspaceApiPath(rawPath: string | undefined, defaultToFirstRoot: boolean): string | undefined {
+        const roots = this.getWorkspaceRoots();
+        if (roots.length === 0) return undefined;
+        const trimmed = (rawPath || '').trim();
+        if (!trimmed && defaultToFirstRoot) return roots[0];
+        if (!trimmed) return undefined;
+
+        const candidates = path.isAbsolute(trimmed)
+            ? [path.resolve(trimmed)]
+            : roots.map(root => path.resolve(root, trimmed));
+        for (const candidate of candidates) {
+            if (!roots.some(root => this.isInsideWorkspaceRoot(candidate, root))) continue;
+            try {
+                if (fs.existsSync(candidate)) return candidate;
+            } catch {
+                // Continue with other candidates.
+            }
+        }
+        return undefined;
+    }
+
+    private looksBinary(buffer: Buffer): boolean {
+        const sample = buffer.subarray(0, Math.min(buffer.length, 4096));
+        if (sample.includes(0)) return true;
+        let suspicious = 0;
+        for (const byte of sample) {
+            if (byte < 7 || (byte > 14 && byte < 32)) suspicious++;
+        }
+        return sample.length > 0 && suspicious / sample.length > 0.08;
+    }
+
     private async sendToChat(message: string, agentName: string): Promise<string> {
         return this.sendToChatStreaming(message, agentName);
     }
@@ -2704,6 +2933,26 @@ export class RemoteServer {
         this.refreshPcChatPanel();
         this.broadcast({ type: 'codex:message', message: thinking, threadId, timestamp: Date.now() });
 
+        const progressBase = `progress_${thinking.id}`;
+        const contextProgressId = `${progressBase}_context`;
+        const modelProgressId = `${progressBase}_model`;
+        const streamProgressId = `${progressBase}_stream`;
+        this.upsertProgressEvent(
+            threadId,
+            contextProgressId,
+            'Сбор контекста IDE',
+            includeContext ? 'Рабочие папки, активный редактор, история чата и вложения.' : 'Контекст отключен для этого запроса.',
+            'completed'
+        );
+        this.upsertProgressEvent(
+            threadId,
+            modelProgressId,
+            'Ожидание модели',
+            `${model || this.selectedAgent || 'auto'} · ${effort}`,
+            'running'
+        );
+        let streamStarted = false;
+
         try {
             const historyForModel = priorHistory ?? this.getMessagesForRemoteThread(threadId, 24)
                     .filter(item => item.id !== thinking.id && item.role !== 'system');
@@ -2711,6 +2960,23 @@ export class RemoteServer {
                 `${message}\n\nReasoning effort: ${this.reasoningEffortLabel(effort)} (${effort}).\n${this.profileInstruction(this.selectedProfile)}`,
                 model || this.selectedAgent || 'auto',
                 (content) => {
+                if (!streamStarted) {
+                    streamStarted = true;
+                    this.upsertProgressEvent(
+                        threadId,
+                        modelProgressId,
+                        'Модель ответила',
+                        `${model || this.selectedAgent || 'auto'} · ${effort}`,
+                        'completed'
+                    );
+                    this.upsertProgressEvent(
+                        threadId,
+                        streamProgressId,
+                        'Поток ответа',
+                        'Получаем видимый текст ответа.',
+                        'running'
+                    );
+                }
                 thinking.content = this.stripActionDirectives(content || '...');
                 thinking.timestamp = Date.now();
                 this.codexHistory = this.codexHistory.map(m => m.id === thinking.id ? { ...thinking } : m);
@@ -2741,6 +3007,13 @@ export class RemoteServer {
             };
             this.codexHistory = this.codexHistory.filter(m => m.id !== thinking.id).concat(done).slice(-200);
             this.createActionsFromAssistantResponse(response, threadId);
+            this.upsertProgressEvent(
+                threadId,
+                streamStarted ? streamProgressId : modelProgressId,
+                streamStarted ? 'Ответ готов' : 'Модель ответила',
+                'Финальное сообщение доступно.',
+                'completed'
+            );
             this.saveRemoteCodeState();
             this.refreshPcChatPanel();
             this.broadcast({ type: 'codex:message', message: done, threadId, timestamp: Date.now() });
@@ -2756,11 +3029,25 @@ export class RemoteServer {
                     isStreaming: false
                 };
                 this.codexHistory = this.codexHistory.filter(m => m.id !== thinking.id).concat(stopped).slice(-200);
+                this.upsertProgressEvent(
+                    threadId,
+                    streamStarted ? streamProgressId : modelProgressId,
+                    'Остановлено',
+                    'Активная генерация остановлена.',
+                    'denied'
+                );
                 this.saveRemoteCodeState();
                 this.refreshPcChatPanel(true);
                 this.broadcast({ type: 'codex:message', message: stopped, threadId, timestamp: Date.now() });
                 return;
             }
+            this.upsertProgressEvent(
+                threadId,
+                streamStarted ? streamProgressId : modelProgressId,
+                'Ошибка запроса к модели',
+                err?.message || String(err),
+                'failed'
+            );
             throw err;
         } finally {
             if (this.activeChatCancellation === cancellation) {
@@ -2798,6 +3085,7 @@ export class RemoteServer {
             .filter(item => item.role !== 'system' && !item.isStreaming);
         const displayMessage = message.trim() || (attachmentFiles.length ? 'Проверь вложения.' : message);
         const messageForAgent = this.withAttachmentInstructions(displayMessage, attachmentFiles);
+        const workspace = this.getCurrentWorkspaceSummary();
         const userMessage: CodexChatMessage = {
             id: `remote_user_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
             role: 'user',
@@ -2807,7 +3095,9 @@ export class RemoteServer {
             reasoningEffort: effort,
             includeContext: this.selectedIncludeContext,
             threadId: targetThreadId,
-            attachments: attachmentFiles
+            attachments: attachmentFiles,
+            workspaceName: workspace.workspaceName,
+            workspacePath: workspace.workspacePath
         };
         this.codexHistory.push(userMessage);
         this.codexHistory = this.codexHistory.slice(-200);
@@ -4015,7 +4305,11 @@ export class RemoteServer {
 
         for (const candidate of candidates) {
             try {
-                if (fs.existsSync(candidate) && fs.statSync(candidate).isFile()) {
+                if (
+                    roots.some(root => this.isInsideWorkspaceRoot(candidate, root)) &&
+                    fs.existsSync(candidate) &&
+                    fs.statSync(candidate).isFile()
+                ) {
                     return { path: candidate };
                 }
             } catch {
@@ -4108,15 +4402,56 @@ export class RemoteServer {
             .slice(-80);
     }
 
+    private upsertActionEvent(event: RemoteCodeActionEvent, refresh = true): void {
+        const index = this.codexActionEvents.findIndex(item => item.id === event.id);
+        if (index >= 0) {
+            this.codexActionEvents = this.codexActionEvents.map(item => item.id === event.id ? event : item);
+        } else {
+            this.codexActionEvents = this.codexActionEvents.concat(event);
+        }
+        this.codexActionEvents = this.codexActionEvents.slice(-250);
+        this.saveRemoteCodeState();
+        if (refresh) this.refreshPcChatPanel();
+        this.broadcastActionUpdate(event);
+    }
+
+    private upsertProgressEvent(
+        threadId: string,
+        id: string,
+        title: string,
+        detail: string,
+        status: RemoteCodeActionEvent['status']
+    ): RemoteCodeActionEvent {
+        const existing = this.codexActionEvents.find(event => event.id === id);
+        const event: RemoteCodeActionEvent = {
+            ...(existing || {
+                type: 'model_progress',
+                actionable: false,
+                threadId
+            } as RemoteCodeActionEvent),
+            id,
+            type: 'model_progress',
+            title,
+            detail,
+            status,
+            timestamp: Date.now(),
+            threadId,
+            actionable: false
+        };
+        this.upsertActionEvent(event);
+        return event;
+    }
+
     private getCurrentThreadTitle(): string {
         const summary = this.getRemoteCodeThreads().find(thread => thread.id === this.currentRemoteThreadId);
-        if (summary?.title) return summary.title;
+        const summaryTitle = this.cleanThreadTitle(summary?.title);
+        if (summaryTitle && !this.isUntitledRemoteThread(summaryTitle)) return summaryTitle;
         const firstUserMessage = this.codexHistory.find(message =>
             (message.threadId || this.currentRemoteThreadId) === this.currentRemoteThreadId &&
             message.role === 'user' &&
             message.content.trim()
         );
-        return firstUserMessage?.content.replace(/\s+/g, ' ').slice(0, 80) || 'Новый чат';
+        return this.pickThreadTitle(firstUserMessage?.content, summaryTitle, 'Новый чат');
     }
 
     private getGitBranchLabel(): string {
@@ -4212,10 +4547,14 @@ export class RemoteServer {
             const selected = thread.id === this.currentRemoteThreadId;
             const pinned = this.pinnedThreadIds.has(thread.id);
             const age = this.formatThreadAge(thread.timestamp);
+            const projectLabel = thread.workspaceName || this.workspaceNameFromPath(thread.workspacePath);
             return `<div class="sidebar-thread ${selected ? 'selected' : ''}">
                 <button class="sidebar-thread-btn" type="button" data-thread-id="${this.escapeHtml(thread.id)}" title="${this.escapeHtml(thread.title)}">
-                    <span class="sidebar-thread-title">${pinned ? '• ' : ''}${this.escapeHtml(thread.title)}</span>
-                    <span class="sidebar-thread-age">${this.escapeHtml(age)}</span>
+                    <span class="sidebar-thread-main">
+                        <span class="sidebar-thread-title">${pinned ? '• ' : ''}${this.escapeHtml(thread.title)}</span>
+                        <span class="sidebar-thread-age">${this.escapeHtml(age)}</span>
+                    </span>
+                    ${projectLabel ? `<span class="sidebar-thread-project">${this.escapeHtml(projectLabel)}</span>` : ''}
                 </button>
                 <button class="sidebar-thread-delete" type="button" data-delete-thread-id="${this.escapeHtml(thread.id)}" title="Удалить чат">${icon.trash}</button>
             </div>`;
@@ -4342,13 +4681,15 @@ svg{width:15px;height:15px;display:block;fill:none;stroke:currentColor;stroke-wi
 .sidebar-project-btn:hover{background:rgba(255,255,255,.055);color:#fff}
 .sidebar-project-btn svg{width:15px;height:15px;color:#9fa1a5;flex:0 0 auto}
 .sidebar-project-btn span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.sidebar-thread{height:33px;display:flex;align-items:center;gap:2px;border-radius:9px;position:relative}
+.sidebar-thread{min-height:41px;display:flex;align-items:center;gap:2px;border-radius:9px;position:relative}
 .sidebar-thread.selected{background:#34323a}
 .sidebar-thread.selected::before{content:'';position:absolute;left:0;top:8px;bottom:8px;width:2px;border-radius:999px;background:var(--codex-blue)}
-.sidebar-thread-btn{flex:1;min-width:0;height:33px;border:0;background:transparent;color:#d8d8d8;border-radius:9px;display:flex;align-items:center;gap:8px;padding:0 8px 0 12px;cursor:pointer;text-align:left;font:inherit;font-size:13.25px}
+.sidebar-thread-btn{flex:1;min-width:0;min-height:41px;border:0;background:transparent;color:#d8d8d8;border-radius:9px;display:flex;flex-direction:column;justify-content:center;gap:2px;padding:4px 8px 4px 12px;cursor:pointer;text-align:left;font:inherit;font-size:13.25px}
 .sidebar-thread:not(.selected) .sidebar-thread-btn:hover{background:rgba(255,255,255,.05)}
+.sidebar-thread-main{width:100%;display:flex;align-items:center;gap:8px;min-width:0}
 .sidebar-thread-title{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .sidebar-thread-age{color:#8b8d91;font-size:12px;flex:0 0 auto}
+.sidebar-thread-project{width:100%;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#868a91;font-size:11.5px;line-height:1.2}
 .sidebar-thread-delete{width:26px;height:26px;border:0;background:transparent;color:#7f8287;border-radius:7px;display:flex;align-items:center;justify-content:center;cursor:pointer;opacity:.35;padding:0;margin-right:3px}
 .sidebar-thread-delete svg{width:13px;height:13px}
 .sidebar-thread:hover .sidebar-thread-delete{opacity:.9}
@@ -5058,6 +5399,7 @@ prompt.addEventListener('keydown', event => {
     }
 
     private actionTimelineLabel(event: RemoteCodeActionEvent): string {
+        if (event.type === 'model_progress') return event.title || 'Прогресс модели';
         switch (event.status) {
             case 'running': return 'Выполняется';
             case 'pending': return event.actionable ? 'Ожидает подтверждения' : 'Ожидает';
@@ -6748,9 +7090,9 @@ prompt.addEventListener('keydown', event => {
         return [...serverMessages, ...localMessages].sort((a, b) => a.timestamp - b.timestamp);
     }
 
-    private getCodexThreadSummariesFast(): Array<{ id: string; title: string; timestamp: number }> {
+    private getCodexThreadSummariesFast(): Array<{ id: string; title: string; timestamp: number; workspaceName?: string; workspacePath?: string }> {
         const index = this.getCodexSessionIndex();
-        const byId = new Map<string, { id: string; title: string; timestamp: number }>();
+        const byId = new Map<string, { id: string; title: string; timestamp: number; workspaceName?: string; workspacePath?: string }>();
         for (const [id, meta] of index.entries()) {
             byId.set(id, {
                 id,
@@ -6763,10 +7105,13 @@ prompt.addEventListener('keydown', event => {
             const id = this.codexIdFromFilePath(filePath);
             const statTimestamp = Math.round(fs.statSync(filePath).mtimeMs);
             const existing = byId.get(id);
+            const workspace = this.readCodexSessionWorkspace(filePath);
             byId.set(id, {
                 id,
                 title: existing?.title || path.basename(filePath, '.jsonl'),
-                timestamp: Math.max(existing?.timestamp || 0, statTimestamp)
+                timestamp: Math.max(existing?.timestamp || 0, statTimestamp),
+                workspaceName: existing?.workspaceName || workspace.workspaceName,
+                workspacePath: existing?.workspacePath || workspace.workspacePath
             });
         }
 
@@ -6774,6 +7119,32 @@ prompt.addEventListener('keydown', event => {
             .filter(thread => !this.hiddenCodexThreadIds.has(this.toCodexThreadId(thread.id)));
         threads.sort((a, b) => b.timestamp - a.timestamp);
         return threads.slice(0, 80);
+    }
+
+    private readCodexSessionWorkspace(filePath: string): { workspaceName?: string; workspacePath?: string } {
+        try {
+            const fd = fs.openSync(filePath, 'r');
+            try {
+                const buffer = Buffer.alloc(64 * 1024);
+                const bytesRead = fs.readSync(fd, buffer, 0, buffer.length, 0);
+                const head = buffer.toString('utf8', 0, bytesRead);
+                for (const line of head.split(/\r?\n/)) {
+                    if (!line.includes('"session_meta"')) continue;
+                    const item = JSON.parse(line);
+                    const cwd = typeof item?.payload?.cwd === 'string' ? item.payload.cwd : '';
+                    if (!cwd) return {};
+                    return {
+                        workspacePath: cwd,
+                        workspaceName: this.workspaceNameFromPath(cwd)
+                    };
+                }
+            } finally {
+                fs.closeSync(fd);
+            }
+        } catch {
+            // best-effort metadata for grouping only
+        }
+        return {};
     }
 
     private codexIdFromFilePath(filePath: string): string {

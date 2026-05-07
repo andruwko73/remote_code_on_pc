@@ -51,7 +51,7 @@ fun VSCodeScreen(
     onNavigateToSettings: () -> Unit = {}
 ) {
     var selectedTab by remember { mutableStateOf(0) }
-    val tabs = listOf("CODEX", "\u0424\u0410\u0419\u041B\u042B")
+    val tabs = listOf("CODEX", "\u041F\u0420\u041E\u0415\u041A\u0422\u042B")
 
     Column(
         modifier = Modifier

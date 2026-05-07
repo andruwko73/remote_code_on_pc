@@ -266,7 +266,10 @@ data class CodexActionResponse(
 data class CodexThread(
     val id: String = "",
     val title: String = "",
-    val timestamp: Long = 0
+    val timestamp: Long = 0,
+    val source: String? = null,
+    val workspaceName: String? = null,
+    val workspacePath: String? = null
 )
 
 data class CodexThreadsResponse(
