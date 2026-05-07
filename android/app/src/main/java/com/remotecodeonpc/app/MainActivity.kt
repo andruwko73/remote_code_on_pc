@@ -7,6 +7,8 @@ import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.provider.Settings
 import android.widget.Toast
 import androidx.activity.ComponentActivity
@@ -116,7 +118,13 @@ class MainActivity : ComponentActivity() {
                         pendingVerifiedApk?.let { update ->
                             UpdateReadyDialog(
                                 update = update,
-                                onInstall = { openVerifiedUpdateApk(File(update.filePath)) },
+                                onInstall = {
+                                    val apkFile = File(update.filePath)
+                                    pendingVerifiedApk = null
+                                    Handler(Looper.getMainLooper()).post {
+                                        openVerifiedUpdateApk(apkFile)
+                                    }
+                                },
                                 onDismiss = { pendingVerifiedApk = null }
                             )
                         }
@@ -451,8 +459,8 @@ class MainActivity : ComponentActivity() {
             return
         }
         val uri = FileProvider.getUriForFile(this, "$packageName.fileprovider", apkFile)
-        val intent = Intent(Intent.ACTION_VIEW).apply {
-            setDataAndType(uri, apkMimeType)
+        val intent = Intent(Intent.ACTION_INSTALL_PACKAGE).apply {
+            data = uri
             putExtra(Intent.EXTRA_NOT_UNKNOWN_SOURCE, true)
             putExtra(Intent.EXTRA_RETURN_RESULT, true)
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
@@ -461,7 +469,20 @@ class MainActivity : ComponentActivity() {
             grantApkUriReadPermissions(uri, intent)
             startActivityForResult(intent, updateInstallRequestCode)
         } catch (e: Exception) {
-            CrashLogger.w("MainActivity", "Package installer did not accept update APK: ${e.message}")
+            CrashLogger.w("MainActivity", "Package installer did not accept install intent: ${e.message}")
+            val viewIntent = Intent(Intent.ACTION_VIEW).apply {
+                setDataAndType(uri, apkMimeType)
+                putExtra(Intent.EXTRA_NOT_UNKNOWN_SOURCE, true)
+                putExtra(Intent.EXTRA_RETURN_RESULT, true)
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+            try {
+                grantApkUriReadPermissions(uri, viewIntent)
+                startActivityForResult(viewIntent, updateInstallRequestCode)
+                return
+            } catch (viewError: Exception) {
+                CrashLogger.w("MainActivity", "Package installer did not accept view intent: ${viewError.message}")
+            }
             val shareIntent = Intent(Intent.ACTION_SEND).apply {
                 type = apkMimeType
                 putExtra(Intent.EXTRA_STREAM, uri)
