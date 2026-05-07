@@ -188,6 +188,7 @@ console.log('\n🔐 Тест 7.1: Безопасность внешнего до
 
 assert(serverContent.includes('requestUsesPublicAccess'), 'Определение внешнего Host', 'requestUsesPublicAccess не найден');
 assert(serverContent.includes('publicAuthRequiredStatus'), 'Минимальный статус без токена', 'publicAuthRequiredStatus не найден');
+assert(serverContent.includes('isPublicAssetEndpoint') && serverContent.includes("return pathname === '/api/app/apk';") && serverContent.includes('!this.isPublicAssetEndpoint(pathname)'), 'APK updater endpoint is public', 'Android updater APK endpoint should not require a token because stale clients may need it before reconnecting');
 assert(serverContent.includes('sanitizeLogText'), 'Маскирование логов расширения', 'sanitizeLogText не найден');
 assert(serverContent.includes('if (!this._authToken) return !requireConfiguredToken'), 'Внешний доступ требует настроенный токен', 'checkAuth не требует токен для public access');
 assert(

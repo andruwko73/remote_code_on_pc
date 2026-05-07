@@ -985,7 +985,8 @@ export class RemoteServer {
         // Public status endpoints let the Android app distinguish "PC not found"
         // from "PC found, token required" without exposing protected data.
         const publicAccess = this.requestUsesPublicAccess(req);
-        const authRequired = this.isAuthRequiredForRequest(req, pathname, publicAccess);
+        const authRequired = !this.isPublicAssetEndpoint(pathname)
+            && this.isAuthRequiredForRequest(req, pathname, publicAccess);
         if (authRequired && !this._authToken && !this.isPublicStatusEndpoint(pathname)) {
             this.jsonResponse(res, 403, {
                 error: 'Access token is required before LAN or public access is enabled.'
@@ -2009,6 +2010,10 @@ export class RemoteServer {
 
     private isPublicStatusEndpoint(pathname: string): boolean {
         return pathname === '/api/status' || pathname === '/api/tunnel/status';
+    }
+
+    private isPublicAssetEndpoint(pathname: string): boolean {
+        return pathname === '/api/app/apk';
     }
 
     private getExtensionVersion(): string {
