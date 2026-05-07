@@ -28,10 +28,12 @@ import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -62,6 +64,7 @@ class MainActivity : ComponentActivity() {
     private val publicUpdateSha256Url = "$publicUpdateUrl.sha256"
     private val crashPrefsName = "remote_code_crash_recovery"
     private val appPrefsName = "remote_code_prefs"
+    private val apkMimeType = "application/vnd.android.package-archive"
     private var isUpdateInProgress = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -79,6 +82,7 @@ class MainActivity : ComponentActivity() {
             .getString("last_crash", "")
         setContent {
             var recoveryMode by remember { mutableStateOf(shouldShowRecovery) }
+            var pendingVerifiedApk by remember { mutableStateOf<PendingVerifiedApk?>(null) }
             RemoteCodeTheme {
                 Surface(
                     modifier = Modifier.fillMaxSize(),
@@ -103,8 +107,17 @@ class MainActivity : ComponentActivity() {
                         RemoteCodeApp(
                             onShareLogs = { shareLogs() },
                             onClearLogs = { clearLogs() },
-                            onUpdateApp = { config -> downloadAndInstallUpdate(config) }
+                            onUpdateApp = { config ->
+                                downloadAndInstallUpdate(config) { pendingVerifiedApk = it }
+                            }
                         )
+                        pendingVerifiedApk?.let { update ->
+                            UpdateReadyDialog(
+                                update = update,
+                                onInstall = { openVerifiedUpdateApk(File(update.filePath)) },
+                                onDismiss = { pendingVerifiedApk = null }
+                            )
+                        }
                     }
                 }
             }
@@ -207,7 +220,7 @@ class MainActivity : ComponentActivity() {
         Toast.makeText(this, "Local settings reset", Toast.LENGTH_SHORT).show()
     }
 
-    private fun downloadAndInstallUpdate(config: ServerConfig) {
+    private fun downloadAndInstallUpdate(config: ServerConfig, onReady: (PendingVerifiedApk) -> Unit) {
         if (isUpdateInProgress) {
             Toast.makeText(this, "Обновление уже загружается...", Toast.LENGTH_SHORT).show()
             return
@@ -262,10 +275,21 @@ class MainActivity : ComponentActivity() {
                             }
                             val expectedSha256 = resolveExpectedUpdateSha256(client, updateUrl, response.headers["X-Remote-Code-Apk-Sha256"])
                                 ?: throw IllegalStateException("Источник обновления не отдал SHA-256 для проверки APK")
-                            validateDownloadedApk(apkFile, expectedSha256)
+                            val archiveInfo = validateDownloadedApk(apkFile, expectedSha256)
+                            val archiveVersionCode = packageVersionCode(archiveInfo)
+                            val archiveVersionName = archiveInfo.versionName?.takeIf { it.isNotBlank() }
+                                ?: archiveVersionCode.toString()
                             runOnUiThread {
                                 isUpdateInProgress = false
-                                openVerifiedUpdateApk(apkFile)
+                                onReady(
+                                    PendingVerifiedApk(
+                                        filePath = apkFile.absolutePath,
+                                        versionName = archiveVersionName,
+                                        versionCode = archiveVersionCode,
+                                        sizeBytes = apkFile.length(),
+                                        sha256 = expectedSha256
+                                    )
+                                )
                             }
                             return@Thread
                         }
@@ -317,7 +341,7 @@ class MainActivity : ComponentActivity() {
         }.getOrNull()
     }
 
-    private fun validateDownloadedApk(apkFile: File, expectedSha256: String) {
+    private fun validateDownloadedApk(apkFile: File, expectedSha256: String): PackageInfo {
         val actualSha256 = sha256Hex(apkFile)
         if (!actualSha256.equals(expectedSha256, ignoreCase = true)) {
             throw IllegalStateException("SHA-256 APK не совпал")
@@ -340,6 +364,7 @@ class MainActivity : ComponentActivity() {
         if (installedSigners.isNotEmpty() && archiveSigners.isNotEmpty() && installedSigners != archiveSigners) {
             throw IllegalStateException("Подпись APK не совпадает с установленным приложением")
         }
+        return archiveInfo
     }
 
     @Suppress("DEPRECATION")
@@ -409,27 +434,83 @@ class MainActivity : ComponentActivity() {
             .joinToString("") { "%02x".format(it) }
     }
 
+    @Suppress("DEPRECATION")
     private fun openVerifiedUpdateApk(apkFile: File) {
+        if (!apkFile.exists() || apkFile.length() <= 0L) {
+            Toast.makeText(this, "APK обновления не найден. Скачайте обновление заново.", Toast.LENGTH_LONG).show()
+            return
+        }
         val uri = FileProvider.getUriForFile(this, "$packageName.fileprovider", apkFile)
         val intent = Intent(Intent.ACTION_VIEW).apply {
-            setDataAndType(uri, "application/vnd.android.package-archive")
+            setDataAndType(uri, apkMimeType)
+            putExtra(Intent.EXTRA_NOT_UNKNOWN_SOURCE, true)
+            putExtra(Intent.EXTRA_RETURN_RESULT, true)
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         }
         try {
-            startActivity(intent)
-            Toast.makeText(this, "APK проверен. Завершите установку в системном окне.", Toast.LENGTH_LONG).show()
+            grantApkUriReadPermissions(uri, intent)
+            startActivityForResult(intent, 12078)
         } catch (e: Exception) {
             CrashLogger.w("MainActivity", "Package installer did not accept update APK: ${e.message}")
             val shareIntent = Intent(Intent.ACTION_SEND).apply {
-                type = "application/vnd.android.package-archive"
+                type = apkMimeType
                 putExtra(Intent.EXTRA_STREAM, uri)
                 addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
             }
-            startActivity(Intent.createChooser(shareIntent, "Открыть APK обновления"))
+            try {
+                grantApkUriReadPermissions(uri, shareIntent)
+                startActivity(Intent.createChooser(shareIntent, "Открыть APK обновления"))
+            } catch (fallbackError: Exception) {
+                CrashLogger.e("MainActivity", "Failed to open verified update APK", fallbackError)
+                Toast.makeText(this, "Не удалось открыть системный установщик: ${fallbackError.message}", Toast.LENGTH_LONG).show()
+            }
         }
     }
+
+    @Suppress("DEPRECATION")
+    private fun grantApkUriReadPermissions(uri: Uri, intent: Intent) {
+        packageManager.queryIntentActivities(intent, PackageManager.MATCH_DEFAULT_ONLY)
+            .forEach { resolveInfo ->
+                val packageName = resolveInfo.activityInfo?.packageName ?: return@forEach
+                grantUriPermission(packageName, uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+    }
 }
+
+@Composable
+private fun UpdateReadyDialog(
+    update: PendingVerifiedApk,
+    onInstall: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("APK готов к установке") },
+        text = {
+            Text(
+                "Версия ${update.versionName} проверена. Нажмите «Установить», затем подтвердите обновление в системном окне."
+            )
+        },
+        confirmButton = {
+            Button(onClick = onInstall) {
+                Text("Установить")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Позже")
+            }
+        }
+    )
+}
+
+private data class PendingVerifiedApk(
+    val filePath: String,
+    val versionName: String,
+    val versionCode: Long,
+    val sizeBytes: Long,
+    val sha256: String
+)
 
 @Composable
 private fun CrashRecoveryScreen(
