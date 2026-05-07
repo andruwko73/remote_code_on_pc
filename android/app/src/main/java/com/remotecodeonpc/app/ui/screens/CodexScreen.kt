@@ -1790,7 +1790,7 @@ private fun HighlightedMessageText(text: String) {
         blocks.forEach { block ->
             when (block.kind) {
                 MobileTextBlockKind.Bullet -> MobileBulletList(block.lines, ordered = false)
-                MobileTextBlockKind.Ordered -> MobileBulletList(block.lines, ordered = true)
+                MobileTextBlockKind.Ordered -> MobileBulletList(block.lines, ordered = true, startNumber = block.startNumber)
                 else -> Text(
                     highlightedText(block.lines.joinToString("\n")),
                     color = TextPrimary,
@@ -1803,12 +1803,12 @@ private fun HighlightedMessageText(text: String) {
 }
 
 @Composable
-private fun MobileBulletList(lines: List<String>, ordered: Boolean) {
+private fun MobileBulletList(lines: List<String>, ordered: Boolean, startNumber: Int = 1) {
     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
         lines.forEachIndexed { index, line ->
             Row(verticalAlignment = Alignment.Top) {
                 Text(
-                    if (ordered) "${index + 1}." else "•",
+                    if (ordered) "${startNumber + index}." else "•",
                     color = TextSecondary,
                     fontSize = 13.sp,
                     lineHeight = 19.sp,
@@ -1830,7 +1830,8 @@ private enum class MobileTextBlockKind { Paragraph, Bullet, Ordered }
 
 private data class MobileTextBlock(
     val kind: MobileTextBlockKind,
-    val lines: List<String>
+    val lines: List<String>,
+    val startNumber: Int = 1
 )
 
 private fun mobileTextBlocks(text: String): List<MobileTextBlock> {
@@ -1846,7 +1847,7 @@ private fun mobileTextBlocks(text: String): List<MobileTextBlock> {
     while (index < lines.size) {
         val raw = lines[index]
         val bullet = Regex("""^\s*[-*•]\s+(.+)$""").find(raw)
-        val ordered = Regex("""^\s*\d+[.)]\s+(.+)$""").find(raw)
+        val ordered = Regex("""^\s*(\d+)[.)]\s+(.+)$""").find(raw)
         when {
             raw.isBlank() -> {
                 flushParagraph()
@@ -1865,12 +1866,13 @@ private fun mobileTextBlocks(text: String): List<MobileTextBlock> {
             ordered != null -> {
                 flushParagraph()
                 val items = mutableListOf<String>()
+                val startNumber = ordered.groupValues[1].toIntOrNull() ?: 1
                 while (index < lines.size) {
-                    val match = Regex("""^\s*\d+[.)]\s+(.+)$""").find(lines[index]) ?: break
-                    items += match.groupValues[1].trim()
+                    val match = Regex("""^\s*(\d+)[.)]\s+(.+)$""").find(lines[index]) ?: break
+                    items += match.groupValues[2].trim()
                     index++
                 }
-                blocks += MobileTextBlock(MobileTextBlockKind.Ordered, items)
+                blocks += MobileTextBlock(MobileTextBlockKind.Ordered, items, startNumber)
             }
             else -> {
                 paragraph += raw

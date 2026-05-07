@@ -32,6 +32,7 @@ import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
@@ -87,6 +88,7 @@ class MainActivity : ComponentActivity() {
         setContent {
             var recoveryMode by remember { mutableStateOf(shouldShowRecovery) }
             var pendingVerifiedApk by remember { mutableStateOf<PendingVerifiedApk?>(null) }
+            var updateStatus by remember { mutableStateOf<String?>(null) }
             RemoteCodeTheme {
                 Surface(
                     modifier = Modifier.fillMaxSize(),
@@ -112,17 +114,25 @@ class MainActivity : ComponentActivity() {
                             onShareLogs = { shareLogs() },
                             onClearLogs = { clearLogs() },
                             onUpdateApp = { config ->
-                                downloadAndInstallUpdate(config) { pendingVerifiedApk = it }
+                                downloadAndInstallUpdate(
+                                    config = config,
+                                    onStatus = { updateStatus = it },
+                                    onReady = { pendingVerifiedApk = it }
+                                )
                             }
                         )
+                        updateStatus?.let { status ->
+                            UpdateStatusDialog(status = status)
+                        }
                         pendingVerifiedApk?.let { update ->
                             UpdateReadyDialog(
                                 update = update,
                                 onInstall = {
                                     val apkFile = File(update.filePath)
                                     pendingVerifiedApk = null
+                                    updateStatus = "Открываю системный установщик..."
                                     Handler(Looper.getMainLooper()).post {
-                                        openVerifiedUpdateApk(apkFile)
+                                        openVerifiedUpdateApk(apkFile) { updateStatus = it }
                                     }
                                 },
                                 onDismiss = { pendingVerifiedApk = null }
@@ -230,7 +240,11 @@ class MainActivity : ComponentActivity() {
         Toast.makeText(this, "Local settings reset", Toast.LENGTH_SHORT).show()
     }
 
-    private fun downloadAndInstallUpdate(config: ServerConfig, onReady: (PendingVerifiedApk) -> Unit) {
+    private fun downloadAndInstallUpdate(
+        config: ServerConfig,
+        onStatus: (String?) -> Unit,
+        onReady: (PendingVerifiedApk) -> Unit
+    ) {
         if (isUpdateInProgress) {
             Toast.makeText(this, "Обновление уже загружается...", Toast.LENGTH_SHORT).show()
             return
@@ -243,6 +257,7 @@ class MainActivity : ComponentActivity() {
         }
 
         isUpdateInProgress = true
+        onStatus("Скачивание обновления...")
         Toast.makeText(this, "Загружаю обновление...", Toast.LENGTH_SHORT).show()
         Thread {
             try {
@@ -254,6 +269,9 @@ class MainActivity : ComponentActivity() {
                 for (updateUrl in updateUrls) {
                     try {
                         CrashLogger.i("MainActivity", "Downloading update from $updateUrl")
+                        runOnUiThread {
+                            onStatus(if (updateUrl.startsWith(publicUpdateUrl)) "Скачивание APK из резервного источника..." else "Скачивание APK из подключенного расширения...")
+                        }
                         val request = Request.Builder()
                             .url(updateUrl)
                             .header("Cache-Control", "no-cache")
@@ -283,14 +301,17 @@ class MainActivity : ComponentActivity() {
                             if (apkFile.length() > 120L * 1024L * 1024L) {
                                 throw IllegalStateException("Файл обновления слишком большой")
                             }
+                            runOnUiThread { onStatus("Проверка APK и SHA-256...") }
                             val expectedSha256 = resolveExpectedUpdateSha256(client, updateUrl, response.headers["X-Remote-Code-Apk-Sha256"])
                                 ?: throw IllegalStateException("Источник обновления не отдал SHA-256 для проверки APK")
+                            runOnUiThread { onStatus("Проверка подписи APK...") }
                             val archiveInfo = validateDownloadedApk(apkFile, expectedSha256)
                             val archiveVersionCode = packageVersionCode(archiveInfo)
                             val archiveVersionName = archiveInfo.versionName?.takeIf { it.isNotBlank() }
                                 ?: archiveVersionCode.toString()
                             runOnUiThread {
                                 isUpdateInProgress = false
+                                onStatus(null)
                                 onReady(
                                     PendingVerifiedApk(
                                         filePath = apkFile.absolutePath,
@@ -313,6 +334,7 @@ class MainActivity : ComponentActivity() {
                 CrashLogger.e("MainActivity", "Update failed", e)
                 runOnUiThread {
                     isUpdateInProgress = false
+                    onStatus(null)
                     Toast.makeText(this, "Обновление не удалось: ${e.message}", Toast.LENGTH_LONG).show()
                 }
             }
@@ -445,12 +467,14 @@ class MainActivity : ComponentActivity() {
     }
 
     @Suppress("DEPRECATION")
-    private fun openVerifiedUpdateApk(apkFile: File) {
+    private fun openVerifiedUpdateApk(apkFile: File, onStatus: (String?) -> Unit = {}) {
         if (!apkFile.exists() || apkFile.length() <= 0L) {
+            onStatus(null)
             Toast.makeText(this, "APK обновления не найден. Скачайте обновление заново.", Toast.LENGTH_LONG).show()
             return
         }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && !packageManager.canRequestPackageInstalls()) {
+            onStatus(null)
             Toast.makeText(this, "Разрешите установку обновлений для Remote Code, затем нажмите «Установить» ещё раз.", Toast.LENGTH_LONG).show()
             val settingsIntent = Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES).apply {
                 data = Uri.parse("package:$packageName")
@@ -467,6 +491,7 @@ class MainActivity : ComponentActivity() {
         }
         try {
             grantApkUriReadPermissions(uri, intent)
+            onStatus(null)
             startActivityForResult(intent, updateInstallRequestCode)
         } catch (e: Exception) {
             CrashLogger.w("MainActivity", "Package installer did not accept install intent: ${e.message}")
@@ -478,6 +503,7 @@ class MainActivity : ComponentActivity() {
             }
             try {
                 grantApkUriReadPermissions(uri, viewIntent)
+                onStatus(null)
                 startActivityForResult(viewIntent, updateInstallRequestCode)
                 return
             } catch (viewError: Exception) {
@@ -490,8 +516,10 @@ class MainActivity : ComponentActivity() {
             }
             try {
                 grantApkUriReadPermissions(uri, shareIntent)
+                onStatus(null)
                 startActivity(Intent.createChooser(shareIntent, "Открыть APK обновления"))
             } catch (fallbackError: Exception) {
+                onStatus(null)
                 CrashLogger.e("MainActivity", "Failed to open verified update APK", fallbackError)
                 Toast.makeText(this, "Не удалось открыть системный установщик: ${fallbackError.message}", Toast.LENGTH_LONG).show()
             }
@@ -506,6 +534,28 @@ class MainActivity : ComponentActivity() {
                 grantUriPermission(packageName, uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
             }
     }
+}
+
+@Composable
+private fun UpdateStatusDialog(status: String) {
+    AlertDialog(
+        onDismissRequest = {},
+        title = { Text("Обновление APK") },
+        text = {
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(30.dp),
+                    color = AccentBlue,
+                    strokeWidth = 3.dp
+                )
+                Text(status, textAlign = TextAlign.Center)
+            }
+        },
+        confirmButton = {}
+    )
 }
 
 @Composable
