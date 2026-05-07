@@ -50,7 +50,15 @@ const assertWebviewInteractionWiring = () => {
     assert(serverContent.includes("data-change-action=\"review\"") && serverContent.includes("case 'reviewChangeBlock'"), 'Change-card review button works', 'review action missing');
     assert(serverContent.includes("data-change-action=\"undo\"") && serverContent.includes("case 'undoChangeBlock'"), 'Change-card undo button works', 'undo action missing');
     assert(serverContent.includes("data-change-action=\"toggle\"") && serverContent.includes("card?.classList.toggle('collapsed'"), 'Change-card expand button works', 'toggle action missing');
-    assert(serverContent.includes("message-tool") && serverContent.includes("case 'copyMessage'") && serverContent.includes("case 'messageFeedback'"), 'Message hover buttons work', 'copy/feedback handlers missing');
+    assert(
+        serverContent.includes("message-tool") &&
+        serverContent.includes("case 'copyMessage'") &&
+        serverContent.includes("case 'deleteMessage'") &&
+        serverContent.includes("case 'regenerateMessage'") &&
+        serverContent.includes("case 'messageFeedback'"),
+        'Message hover buttons work',
+        'copy/edit/delete/regenerate/feedback handlers missing'
+    );
     assert(serverContent.includes("data-action-id=") && serverContent.includes("actionResponse"), 'Approve/deny action buttons work', 'action response wiring missing');
     assert(serverContent.includes("prompt.addEventListener('paste'") && serverContent.includes("pasteFiles"), 'Paste attachment flow works', 'paste attachment wiring missing');
 assert(serverContent.includes("prompt.addEventListener('keydown'") && serverContent.includes("event.key === 'Enter'"), 'Enter sends message in extension', 'Enter send wiring missing');
@@ -87,6 +95,7 @@ const routes = [
     '/api/codex/history',
     '/api/codex/events',
     '/api/codex/actions',
+    '/api/codex/message',
     '/api/codex/models',
     '/api/codex/threads',
     '/api/codex/launch',
@@ -123,6 +132,7 @@ const handlers = [
     'handleCodexHistory',
     'handleCodexEvents',
     'handleCodexActionResponse',
+    'handleRemoteCodeMessageAction',
     'handleCodexModels',
     'handleCodexSelectModel',
     'handleCodexThreads',
@@ -205,6 +215,14 @@ assert(
 assert(serverContent.includes('isCorruptedThreadTitle') && serverContent.includes('pickThreadTitle(existing?.title, thread.title'), 'Повреждённые заголовки чатов чинятся из Codex index', 'corrupted saved thread titles should not override Codex thread titles');
 assert(serverContent.includes('decodeBasicHtmlEntities') && serverContent.includes('isTechnicalProgressLine'), 'Прогресс не показывает технические строки вложений', 'Фильтрация технических progress-строк не найдена');
 assert(serverContent.includes('.msg.user{max-width:var(--chat-max);margin:0 auto 23px;color:var(--codex-bright);display:flex;justify-content:center') && serverContent.includes('margin-right:auto'), 'Extension user messages match Codex centered cards', 'user prompt bubble should be centered in the webview');
+assert(
+    serverContent.includes('remote_code_hidden_messages') &&
+    serverContent.includes('deleteRemoteMessage') &&
+    serverContent.includes('regenerateRemoteMessage') &&
+    serverContent.includes("type: 'codex:message-deleted'"),
+    'Extension message actions persist and broadcast',
+    'message delete/regenerate API should persist hidden messages and notify clients'
+);
 
 const terminalExecBody = serverContent.match(/private async handleTerminalExec[\s\S]*?\/\/ ========== WEBSOCKET ==========/)?.[0] || '';
 assert(
@@ -296,7 +314,7 @@ assert(
     'APK downloads must be verified before install'
 );
 assert(!androidManifest.includes('REQUEST_INSTALL_PACKAGES') && mainActivity.includes('openVerifiedUpdateApk') && !mainActivity.includes('canRequestPackageInstalls'), 'Android APK avoids self-installer permission', 'Play Protect-sensitive package install permission should not be declared');
-assert(androidBuildGradle.includes('versionCode = 78') && androidBuildGradle.includes('versionName = "1.0.77"') && androidBuildGradle.includes('signingConfig = signingConfigs.getByName("debug")'), 'Android release artifact can update existing sideload installs', 'release APK should be version-bumped and signed for sideload updates');
+assert(androidBuildGradle.includes('versionCode = 79') && androidBuildGradle.includes('versionName = "1.0.78"') && androidBuildGradle.includes('signingConfig = signingConfigs.getByName("debug")'), 'Android release artifact can update existing sideload installs', 'release APK should be version-bumped and signed for sideload updates');
 assert(codexScreen.includes('CodexNavigationPanel') && codexScreen.includes('CodexDrawerProjectRow') && codexScreen.includes('buildMobileCodexProjects') && modelsFile.includes('workspaceName'), 'Android exposes projects in Codex chat list', 'project drawer/thread workspace metadata should be visible to Android');
 assert(codexScreen.includes('Icons.Outlined.Extension') && codexScreen.includes('Icons.Outlined.Schedule') && codexScreen.includes('Плагины') && codexScreen.includes('Автоматизации') && codexScreen.includes('PaddingValues(bottom = 64.dp)'), 'Android drawer mirrors Codex navigation actions', 'drawer should expose Codex-like plugins and automations entries');
 assert(connectionUrl.includes('trimmed.startsWith("//")') && connectionUrl.includes('"http:$trimmed"'), 'Android normalizes protocol-relative public URLs', 'protocol-relative public URL should become http://host');
@@ -309,6 +327,24 @@ assert(codexScreen.includes('contentAlignment = Alignment.Center') && codexScree
 assert(codexScreen.includes('minLines = 1') && codexScreen.includes('Modifier.size(40.dp)'), 'Android composer is compact like Codex', 'mobile composer should avoid excessive vertical height');
 assert(codexScreen.includes('mobileWorkSummary(events, running)') && codexScreen.includes('MOBILE_WORK_SUMMARY_IDLE_GAP_MS') && codexScreen.includes('на протяжении'), 'Android shows Codex-like work summary', 'mobile work summary should match Codex wording');
 assert(apiClient.includes('selectCodexModel(@Body body: Map<String, @JvmSuppressWildcards Any>)'), 'Android composer preference API accepts booleans', 'selectCodexModel body type is too narrow');
+assert(
+    apiClient.includes('codexMessageAction') &&
+    mainVm.includes('deleteCodexMessage') &&
+    mainVm.includes('regenerateCodexMessage') &&
+    mainVm.includes('codex:message-deleted') &&
+    codexScreen.includes('MobileMessageToolbar') &&
+    modelsFile.includes('CodexMessageActionResponse'),
+    'Android message actions match Codex chat controls',
+    'Android should expose copy/edit/delete/regenerate actions and call the extension message API'
+);
+assert(
+    modelsFile.includes('val projectId: String? = null') &&
+    mainVm.includes('thread.projectId?.takeIf') &&
+    mainVm.includes('codexProjectKey(it.projectId, it.workspaceName, it.workspacePath)') &&
+    codexScreen.includes('mobileProjectKey(it.projectId, it.workspaceName, it.workspacePath)'),
+    'Android chats stay attached to projects',
+    'thread projectId should be modeled and preferred when selecting a project'
+);
 
 for (const f of androidFiles) {
     const fullPath = path.join(androidBase, f);

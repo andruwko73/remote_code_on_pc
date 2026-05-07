@@ -168,6 +168,7 @@ export class RemoteServer {
     private activeChatCancellation?: vscode.CancellationTokenSource;
     private activeChatThreadId?: string;
     private hiddenCodexThreadIds: Set<string> = new Set();
+    private hiddenRemoteMessageIds: Set<string> = new Set();
     private pinnedThreadIds: Set<string> = new Set();
     private archivedThreadIds: Set<string> = new Set();
     private workspaceStorageCache?: { timestamp: number; dirs: string[] };
@@ -1055,6 +1056,8 @@ export class RemoteServer {
                     return this.handleCodexEvents(req, res);
                 case pathname === '/api/codex/actions':
                     return this.handleCodexActionResponse(req, res);
+                case pathname === '/api/codex/message':
+                    return this.handleRemoteCodeMessageAction(req, res);
                 case pathname === '/api/codex/models' && req.method === 'GET':
                     return this.handleCodexModels(req, res);
                 case pathname === '/api/codex/models' && req.method === 'POST':
@@ -2345,6 +2348,7 @@ export class RemoteServer {
             const savedWorkMode = this._context.globalState.get<string>('remote_code_work_mode', this.selectedWorkMode);
             const savedProfile = this._context.globalState.get<string>('remote_code_profile', this.selectedProfile);
             const savedHiddenCodexThreads = this._context.globalState.get<string[]>('remote_code_hidden_codex_threads', []);
+            const savedHiddenMessages = this._context.globalState.get<string[]>('remote_code_hidden_messages', []);
             const savedPinnedThreads = this._context.globalState.get<string[]>('remote_code_pinned_threads', []);
             const savedArchivedThreads = this._context.globalState.get<string[]>('remote_code_archived_threads', []);
             const allowedModelIds = new Set(this.getDefaultCodexModels().map(model => model.id));
@@ -2370,6 +2374,7 @@ export class RemoteServer {
             this.selectedWorkMode = savedWorkMode === 'workspace' ? 'workspace' : 'local';
             this.selectedProfile = ['user', 'review', 'fast'].includes(savedProfile || '') ? savedProfile : 'user';
             this.hiddenCodexThreadIds = new Set(Array.isArray(savedHiddenCodexThreads) ? savedHiddenCodexThreads.filter(Boolean) : []);
+            this.hiddenRemoteMessageIds = new Set(Array.isArray(savedHiddenMessages) ? savedHiddenMessages.filter(Boolean) : []);
             this.pinnedThreadIds = new Set(Array.isArray(savedPinnedThreads) ? savedPinnedThreads.filter(Boolean) : []);
             this.archivedThreadIds = new Set(Array.isArray(savedArchivedThreads) ? savedArchivedThreads.filter(Boolean) : []);
             this.pruneEmptyRemoteCodeThreads(false);
@@ -2414,6 +2419,7 @@ export class RemoteServer {
         void this._context.globalState.update('remote_code_work_mode', this.selectedWorkMode);
         void this._context.globalState.update('remote_code_profile', this.selectedProfile);
         void this._context.globalState.update('remote_code_hidden_codex_threads', Array.from(this.hiddenCodexThreadIds).slice(-250));
+        void this._context.globalState.update('remote_code_hidden_messages', Array.from(this.hiddenRemoteMessageIds).slice(-500));
         void this._context.globalState.update('remote_code_pinned_threads', Array.from(this.pinnedThreadIds).slice(-250));
         void this._context.globalState.update('remote_code_archived_threads', Array.from(this.archivedThreadIds).slice(-250));
     }
@@ -2710,6 +2716,7 @@ export class RemoteServer {
         const merged: CodexChatMessage[] = [];
         const seen = new Set<string>();
         for (const message of [...fileMessages, ...localMessages].sort((a, b) => a.timestamp - b.timestamp)) {
+            if (this.isRemoteMessageHidden(message)) continue;
             const key = `${message.role}:${message.timestamp}:${message.content}`;
             if (seen.has(key)) continue;
             seen.add(key);
@@ -2718,6 +2725,70 @@ export class RemoteServer {
         return this.dedupeAdjacentCodexMessages(merged)
             .slice(-limit)
             .map(message => this.enrichCodexMessageForClient(message));
+    }
+
+    private isRemoteMessageHidden(message: CodexChatMessage): boolean {
+        const id = (message.id || '').trim();
+        if (id && this.hiddenRemoteMessageIds.has(id)) return true;
+        return this.hiddenRemoteMessageIds.has(this.remoteMessageStableKey(message));
+    }
+
+    private remoteMessageStableKey(message: CodexChatMessage): string {
+        return [
+            message.threadId || '',
+            message.role || '',
+            Math.round(Number(message.timestamp || 0)),
+            (message.content || '').replace(/\s+/g, ' ').trim()
+        ].join('\u0000');
+    }
+
+    private findRemoteMessage(threadId: string, messageId: string): CodexChatMessage | undefined {
+        return this.getMessagesForRemoteThread(threadId, 200)
+            .find(message => message.id === messageId);
+    }
+
+    private deleteRemoteMessage(threadId: string, messageId: string): { success: boolean; message?: CodexChatMessage } {
+        const message = this.findRemoteMessage(threadId, messageId);
+        if (!message) return { success: false };
+        const hiddenId = (message.id || '').trim();
+        const hiddenStableKey = this.remoteMessageStableKey(message);
+        if (hiddenId) this.hiddenRemoteMessageIds.add(hiddenId);
+        this.hiddenRemoteMessageIds.add(hiddenStableKey);
+        this.codexHistory = this.codexHistory.filter(item =>
+            !(hiddenId && item.id === hiddenId) && this.remoteMessageStableKey(item) !== hiddenStableKey
+        );
+        this.saveRemoteCodeState(true);
+        this.refreshPcChatPanel(true);
+        this.broadcast({
+            type: 'codex:message-deleted',
+            threadId,
+            messageId,
+            messages: this.getMessagesForRemoteThread(threadId, 120),
+            timestamp: Date.now()
+        });
+        return { success: true, message };
+    }
+
+    private async regenerateRemoteMessage(threadId: string, messageId: string): Promise<{ success: boolean; error?: string; source?: CodexChatMessage }> {
+        const messages = this.getMessagesForRemoteThread(threadId, 200);
+        const index = messages.findIndex(message => message.id === messageId);
+        if (index < 0) return { success: false, error: 'Message not found' };
+        const source = messages[index].role === 'user'
+            ? messages[index]
+            : messages.slice(0, index).reverse().find(message => message.role === 'user');
+        if (!source || !source.content.trim()) {
+            return { success: false, error: 'No user prompt found to regenerate from' };
+        }
+        await this.enqueueRemoteCodeMessage(
+            source.content,
+            source.model || this.selectedAgent,
+            threadId,
+            [],
+            source.reasoningEffort || this.selectedReasoningEffort,
+            source.includeContext !== false,
+            source.attachments || []
+        );
+        return { success: true, source };
     }
 
     private dedupeAdjacentCodexMessages(messages: CodexChatMessage[]): CodexChatMessage[] {
@@ -3898,6 +3969,20 @@ export class RemoteServer {
                     await vscode.window.setStatusBarMessage('Remote Code: сообщение скопировано', 1600);
                 }
                 return;
+            case 'deleteMessage':
+                if (typeof msg.messageId === 'string' && msg.messageId.trim()) {
+                    const result = this.deleteRemoteMessage(this.currentRemoteThreadId, msg.messageId.trim());
+                    await vscode.window.setStatusBarMessage(result.success ? 'Remote Code: сообщение удалено' : 'Remote Code: сообщение не найдено', 1600);
+                }
+                return;
+            case 'regenerateMessage':
+                if (typeof msg.messageId === 'string' && msg.messageId.trim()) {
+                    const result = await this.regenerateRemoteMessage(this.currentRemoteThreadId, msg.messageId.trim());
+                    if (!result.success) {
+                        await vscode.window.setStatusBarMessage(`Remote Code: ${result.error || 'не удалось повторить ответ'}`, 1800);
+                    }
+                }
+                return;
             case 'messageFeedback':
                 if (typeof msg.messageId === 'string' && typeof msg.feedback === 'string') {
                     const feedback = this._context.globalState.get<Record<string, string>>('remote_code_message_feedback', {});
@@ -4804,15 +4889,24 @@ export class RemoteServer {
                 .join(' - ');
             const content = this.renderMessageContent(message.content);
             const attachments = this.renderMessageAttachments(message.attachments);
+            const userMessageTools = message.role === 'user'
+                ? `<button type="button" class="hover-btn message-tool" data-message-action="edit" title="Редактировать">${icon.edit}</button>`
+                : '';
+            const assistantMessageTools = message.role === 'assistant'
+                ? `<button type="button" class="hover-btn message-tool" data-message-action="regenerate" title="Повторить ответ">${this.webIcon('undo')}</button>
+                    <button type="button" class="hover-btn message-tool" data-message-action="up" title="&#1061;&#1086;&#1088;&#1086;&#1096;&#1080;&#1081; &#1086;&#1090;&#1074;&#1077;&#1090;">${icon.up}</button>
+                    <button type="button" class="hover-btn message-tool" data-message-action="down" title="&#1055;&#1083;&#1086;&#1093;&#1086;&#1081; &#1086;&#1090;&#1074;&#1077;&#1090;">${icon.down}</button>`
+                : '';
             const row = `<section class="msg ${cls} ${message.isStreaming ? 'streaming' : ''}" data-message-id="${this.escapeHtml(message.id)}">
                 ${role ? `<div class="role">${this.escapeHtml(role)}</div>` : ''}
                 <div class="message-text">${content}</div>
                 ${attachments}
                 ${message.role === 'assistant' && meta ? `<div class="meta meta-bottom">${this.escapeHtml(meta)}</div>` : ''}
                 <div class="msg-tools">
+                    ${userMessageTools}
                     <button type="button" class="hover-btn message-tool" data-message-action="copy" title="&#1050;&#1086;&#1087;&#1080;&#1088;&#1086;&#1074;&#1072;&#1090;&#1100;">${icon.copy}</button>
-                    <button type="button" class="hover-btn message-tool" data-message-action="up" title="&#1061;&#1086;&#1088;&#1086;&#1096;&#1080;&#1081; &#1086;&#1090;&#1074;&#1077;&#1090;">${icon.up}</button>
-                    <button type="button" class="hover-btn message-tool" data-message-action="down" title="&#1055;&#1083;&#1086;&#1093;&#1086;&#1081; &#1086;&#1090;&#1074;&#1077;&#1090;">${icon.down}</button>
+                    ${assistantMessageTools}
+                    <button type="button" class="hover-btn message-tool danger" data-message-action="delete" title="Удалить сообщение">${icon.trash}</button>
                 </div>
             </section>`;
             return index === timelineInsertIndex ? `${actionTimelineRows}${row}` : row;
@@ -5005,6 +5099,7 @@ pre{margin:0;white-space:pre-wrap;word-wrap:break-word;font:inherit}
 .hover-btn{width:23px;height:23px;border:0;border-radius:6px;background:var(--codex-bg);color:#909399;display:inline-flex;align-items:center;justify-content:center;padding:0;cursor:pointer}
 .hover-btn svg{width:14px;height:14px}
 .hover-btn:hover{background:var(--codex-surface);color:#e6e6e6}
+.hover-btn.danger:hover{background:#463033;color:#f3b4b4}
 .action-timeline{max-width:var(--chat-max);margin:0 auto 16px;color:#8f9094;font-size:12.75px;line-height:1.38}
 .action-line,.action-log-summary{display:flex;align-items:center;gap:8px;min-height:26px;color:#8f9094}
 .action-line strong,.action-log-summary strong{color:#aeb0b3;font-weight:500}
@@ -5492,6 +5587,27 @@ document.querySelectorAll('.message-tool').forEach(button => {
     if (action === 'copy') {
       if (!text) return;
       vscode.postMessage({ type: 'action', action: 'copyMessage', text, messageId });
+      return;
+    }
+    if (action === 'edit') {
+      prompt.textContent = text;
+      prompt.dispatchEvent(new Event('input'));
+      prompt.focus();
+      const range = document.createRange();
+      range.selectNodeContents(prompt);
+      range.collapse(false);
+      const selection = window.getSelection();
+      selection?.removeAllRanges();
+      selection?.addRange(range);
+      scrollMessagesToBottom('smooth');
+      return;
+    }
+    if (action === 'delete' || action === 'regenerate') {
+      vscode.postMessage({
+        type: 'action',
+        action: action === 'delete' ? 'deleteMessage' : 'regenerateMessage',
+        messageId
+      });
       return;
     }
     if (action === 'up' || action === 'down') {
@@ -6951,6 +7067,50 @@ prompt.addEventListener('keydown', event => {
                 threads,
                 projects: this.getRemoteCodeProjects(threads)
             });
+        } catch (err: any) {
+            this.jsonResponse(res, 500, { success: false, error: err.message });
+        }
+    }
+
+    private async handleRemoteCodeMessageAction(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
+        try {
+            const body = JSON.parse(await this.readBody(req) || '{}');
+            const action = typeof body.action === 'string' ? body.action.trim() : '';
+            const messageId = typeof body.messageId === 'string' ? body.messageId.trim() : '';
+            const threadId = typeof body.threadId === 'string' && body.threadId.trim()
+                ? body.threadId.trim()
+                : this.currentRemoteThreadId;
+            if (!threadId || !messageId) {
+                this.jsonResponse(res, 400, { success: false, error: 'threadId and messageId are required' });
+                return;
+            }
+
+            if (action === 'delete') {
+                const result = this.deleteRemoteMessage(threadId, messageId);
+                this.jsonResponse(res, result.success ? 200 : 404, {
+                    success: result.success,
+                    threadId,
+                    messageId,
+                    messages: this.getMessagesForRemoteThread(threadId, 120),
+                    error: result.success ? undefined : 'Message not found'
+                });
+                return;
+            }
+
+            if (action === 'regenerate') {
+                const result = await this.regenerateRemoteMessage(threadId, messageId);
+                this.jsonResponse(res, result.success ? 200 : 404, {
+                    success: result.success,
+                    threadId,
+                    messageId,
+                    regeneratedFrom: result.source?.id,
+                    messages: this.getMessagesForRemoteThread(threadId, 120),
+                    error: result.error
+                });
+                return;
+            }
+
+            this.jsonResponse(res, 400, { success: false, error: 'Unsupported message action' });
         } catch (err: any) {
             this.jsonResponse(res, 500, { success: false, error: err.message });
         }

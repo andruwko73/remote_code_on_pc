@@ -263,11 +263,21 @@ data class CodexActionResponse(
     val error: String? = null
 )
 
+data class CodexMessageActionResponse(
+    val success: Boolean = false,
+    val threadId: String = "",
+    val messageId: String = "",
+    val regeneratedFrom: String? = null,
+    val messages: List<CodexChatMessage> = emptyList(),
+    val error: String? = null
+)
+
 data class CodexThread(
     val id: String = "",
     val title: String = "",
     val timestamp: Long = 0,
     val source: String? = null,
+    val projectId: String? = null,
     val workspaceName: String? = null,
     val workspacePath: String? = null
 )

@@ -459,6 +459,21 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         updateCodexStreamingMessage(messageId, content, timestamp)
                         _uiState.value = _uiState.value.copy(isCodexLoading = true)
                     }
+                    "codex:message-deleted" -> {
+                        val threadId = data["threadId"] as? String
+                        val messageId = data["messageId"] as? String
+                        @Suppress("UNCHECKED_CAST")
+                        val messages = (data["messages"] as? List<Map<*, *>>)
+                            ?.mapNotNull { it.toCodexChatMessage() }
+                        _uiState.value = _uiState.value.copy(
+                            codexChatHistory = messages
+                                ?: _uiState.value.codexChatHistory.filterNot { it.id == messageId },
+                            codexError = null
+                        )
+                        if (!threadId.isNullOrBlank()) {
+                            viewModelScope.launch { loadCodexEvents(threadId) }
+                        }
+                    }
                     "codex:sessions-update" -> {
                         viewModelScope.launch {
                             loadCodexThreads(loadCurrent = false)
@@ -1252,7 +1267,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     ): String {
         projects.firstOrNull { project -> project.threads.any { it.id == threadId } }?.let { return it.id }
         threads.firstOrNull { it.id == threadId }?.let { thread ->
-            val key = codexProjectKey(thread.workspaceName, thread.workspacePath)
+            thread.projectId?.takeIf { it.isNotBlank() }?.let { return it }
+            val key = codexProjectKey(thread.projectId, thread.workspaceName, thread.workspacePath)
             if (key.isNotBlank()) return key
         }
         return projects.firstOrNull()?.id.orEmpty()
@@ -1260,7 +1276,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private fun buildCodexProjects(threads: List<CodexThread>): List<CodexProject> {
         return threads
-            .groupBy { codexProjectKey(it.workspaceName, it.workspacePath) }
+            .groupBy { codexProjectKey(it.projectId, it.workspaceName, it.workspacePath) }
             .map { (id, groupedThreads) ->
                 val first = groupedThreads.firstOrNull()
                 CodexProject(
@@ -1275,7 +1291,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             .sortedByDescending { it.timestamp }
     }
 
-    private fun codexProjectKey(workspaceName: String?, workspacePath: String?): String {
+    private fun codexProjectKey(projectId: String?, workspaceName: String?, workspacePath: String?): String {
+        projectId?.trim()?.takeIf { it.isNotBlank() }?.let { return it }
         val path = workspacePath
             ?.trim()
             ?.replace('\\', '/')
@@ -1362,6 +1379,70 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 }
             } catch (e: Exception) {
                 _uiState.value = _uiState.value.copy(codexError = e.message)
+            }
+        }
+    }
+
+    fun deleteCodexMessage(messageId: String) {
+        if (messageId.isBlank()) return
+        val threadId = _uiState.value.currentCodexThreadId
+        _uiState.value = _uiState.value.copy(
+            codexChatHistory = _uiState.value.codexChatHistory.filterNot { it.id == messageId },
+            codexError = null
+        )
+        viewModelScope.launch {
+            try {
+                val api = ApiClient.getApi(_uiState.value.serverConfig)
+                val response = api.codexMessageAction(
+                    mapOf(
+                        "action" to "delete",
+                        "threadId" to threadId,
+                        "messageId" to messageId
+                    )
+                )
+                if (response.isSuccessful) {
+                    response.body()?.messages?.let { messages ->
+                        _uiState.value = _uiState.value.copy(
+                            codexChatHistory = messages.dedupeCodexMessages().takeLast(120),
+                            codexError = null
+                        )
+                    }
+                } else {
+                    loadCodexHistory(threadId)
+                    _uiState.value = _uiState.value.copy(codexError = "Delete message failed: ${response.code()}")
+                }
+            } catch (e: Exception) {
+                loadCodexHistory(threadId)
+                _uiState.value = _uiState.value.copy(codexError = e.message)
+            }
+        }
+    }
+
+    fun regenerateCodexMessage(messageId: String) {
+        if (messageId.isBlank() || _uiState.value.isCodexLoading) return
+        val threadId = _uiState.value.currentCodexThreadId
+        _uiState.value = _uiState.value.copy(isCodexLoading = true, codexError = null)
+        viewModelScope.launch {
+            try {
+                val api = ApiClient.getApi(_uiState.value.serverConfig)
+                val response = api.codexMessageAction(
+                    mapOf(
+                        "action" to "regenerate",
+                        "threadId" to threadId,
+                        "messageId" to messageId
+                    )
+                )
+                if (response.isSuccessful && response.body()?.success == true) {
+                    loadCodexHistory(threadId)
+                    loadCodexEvents(threadId)
+                } else {
+                    _uiState.value = _uiState.value.copy(
+                        isCodexLoading = false,
+                        codexError = response.body()?.error ?: "Regenerate failed: ${response.code()}"
+                    )
+                }
+            } catch (e: Exception) {
+                _uiState.value = _uiState.value.copy(isCodexLoading = false, codexError = e.message)
             }
         }
     }

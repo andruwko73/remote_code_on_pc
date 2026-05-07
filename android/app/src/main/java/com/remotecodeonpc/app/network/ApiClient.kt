@@ -75,6 +75,9 @@ interface RemoteCodeApi {
     @POST("/api/codex/actions")
     suspend fun respondToCodexAction(@Body body: Map<String, String>): Response<CodexActionResponse>
 
+    @POST("/api/codex/message")
+    suspend fun codexMessageAction(@Body body: Map<String, String>): Response<CodexMessageActionResponse>
+
     @GET("/api/codex/models")
     suspend fun getCodexModels(): Response<CodexModelsResponse>
 

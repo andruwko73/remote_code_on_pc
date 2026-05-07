@@ -2,6 +2,8 @@ package com.remotecodeonpc.app.ui.screens
 
 import android.app.Activity
 import android.content.ActivityNotFoundException
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.database.Cursor
 import android.content.Context
 import android.content.Intent
@@ -96,6 +98,8 @@ fun CodexScreen(
     onLoadThreads: () -> Unit,
     onSwitchThread: (String) -> Unit,
     onDeleteThread: (String) -> Unit,
+    onDeleteMessage: (String) -> Unit = {},
+    onRegenerateMessage: (String) -> Unit = {},
     onStopGeneration: () -> Unit,
     onRespondToAction: (String, Boolean) -> Unit,
     // Files callbacks (same as VSCodeScreen)
@@ -167,6 +171,8 @@ fun CodexScreen(
             onLoadThreads = onLoadThreads,
             onSwitchThread = onSwitchThread,
             onDeleteThread = onDeleteThread,
+            onDeleteMessage = onDeleteMessage,
+            onRegenerateMessage = onRegenerateMessage,
             onStopGeneration = onStopGeneration,
             onRespondToAction = onRespondToAction,
             onNavigateToSettings = onNavigateToSettings,
@@ -510,6 +516,8 @@ fun CodexChatTab(
     onLoadThreads: () -> Unit,
     onSwitchThread: (String) -> Unit,
     onDeleteThread: (String) -> Unit,
+    onDeleteMessage: (String) -> Unit = {},
+    onRegenerateMessage: (String) -> Unit = {},
     onStopGeneration: () -> Unit,
     onRespondToAction: (String, Boolean) -> Unit,
     onNavigateToSettings: () -> Unit = {},
@@ -851,7 +859,18 @@ fun CodexChatTab(
                     if (timelineActionEvents.isNotEmpty() && index == timelineInsertIndex) {
                         item(key = "action-timeline") { MobileActionTimeline(timelineActionEvents) }
                     }
-                    item(key = msg.id.ifBlank { "msg-$index" }) { CodexMessageBubble(msg, onOpenFile) }
+                    item(key = msg.id.ifBlank { "msg-$index" }) {
+                        CodexMessageBubble(
+                            message = msg,
+                            onOpenFile = onOpenFile,
+                            onEditMessage = { text ->
+                                messageText = text
+                                showThreads = false
+                            },
+                            onDeleteMessage = onDeleteMessage,
+                            onRegenerateMessage = onRegenerateMessage
+                        )
+                    }
                 }
                 if (timelineActionEvents.isNotEmpty() && timelineInsertIndex < 0) item { MobileActionTimeline(timelineActionEvents) }
                 items(approvalActionEvents) { event -> DesktopToolBlock(event, onRespondToAction) }
@@ -1086,7 +1105,7 @@ private fun mobileProjectSubtitle(project: CodexProject): String {
 
 private fun buildMobileCodexProjects(threads: List<CodexThread>): List<CodexProject> {
     return threads
-        .groupBy { mobileProjectKey(it.workspaceName, it.workspacePath) }
+        .groupBy { mobileProjectKey(it.projectId, it.workspaceName, it.workspacePath) }
         .map { (id, groupedThreads) ->
             val sortedThreads = groupedThreads.sortedByDescending { it.timestamp }
             val first = sortedThreads.firstOrNull()
@@ -1108,7 +1127,8 @@ private fun buildMobileCodexProjects(threads: List<CodexThread>): List<CodexProj
         .sortedByDescending { it.timestamp }
 }
 
-private fun mobileProjectKey(workspaceName: String?, workspacePath: String?): String {
+private fun mobileProjectKey(projectId: String?, workspaceName: String?, workspacePath: String?): String {
+    projectId?.trim()?.takeIf { it.isNotBlank() }?.let { return it }
     val path = workspacePath
         ?.trim()
         ?.replace('\\', '/')
@@ -1526,9 +1546,13 @@ private fun CodexActionStrip(
 @Composable
 private fun CodexMessageBubble(
     message: CodexChatMessage,
-    onOpenFile: (String) -> Unit
+    onOpenFile: (String) -> Unit,
+    onEditMessage: (String) -> Unit,
+    onDeleteMessage: (String) -> Unit,
+    onRegenerateMessage: (String) -> Unit
 ) {
     val isUser = message.role == "user"
+    val context = LocalContext.current
     val cleanedContent = remember(message.content) { cleanMobileMessageContent(message.content) }
     val changeSummary = remember(message.content, message.changeSummary) {
         message.changeSummary?.takeIf { it.files.isNotEmpty() } ?: parseMobileChangeSummary(message.content)
@@ -1563,6 +1587,14 @@ private fun CodexMessageBubble(
                     }
                 }
             }
+            MobileMessageToolbar(
+                isUser = true,
+                canDelete = message.id.isNotBlank(),
+                onCopy = { context.copyMessageToClipboard(cleanedContent) },
+                onEdit = { onEditMessage(cleanedContent) },
+                onDelete = { onDeleteMessage(message.id) },
+                onRegenerate = {}
+            )
         } else {
             if (message.isStreaming) {
                 Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(bottom = 8.dp)) {
@@ -1584,8 +1616,93 @@ private fun CodexMessageBubble(
                 Spacer(modifier = Modifier.height(10.dp))
                 MobileChangeCard(changeSummary, onOpenFile)
             }
+            MobileMessageToolbar(
+                isUser = false,
+                canDelete = message.id.isNotBlank(),
+                onCopy = { context.copyMessageToClipboard(cleanedContent) },
+                onEdit = {},
+                onDelete = { onDeleteMessage(message.id) },
+                onRegenerate = { onRegenerateMessage(message.id) }
+            )
         }
     }
+}
+
+@Composable
+private fun MobileMessageToolbar(
+    isUser: Boolean,
+    canDelete: Boolean,
+    onCopy: () -> Unit,
+    onEdit: () -> Unit,
+    onDelete: () -> Unit,
+    onRegenerate: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(top = 4.dp),
+        horizontalArrangement = if (isUser) Arrangement.Center else Arrangement.Start,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        if (isUser) {
+            MobileMessageToolButton(
+                icon = Icons.Outlined.Edit,
+                contentDescription = "Редактировать",
+                onClick = onEdit
+            )
+        }
+        MobileMessageToolButton(
+            icon = Icons.Outlined.ContentCopy,
+            contentDescription = "Копировать",
+            onClick = onCopy
+        )
+        if (!isUser) {
+            MobileMessageToolButton(
+                icon = Icons.Default.Refresh,
+                contentDescription = "Повторить ответ",
+                onClick = onRegenerate
+            )
+        }
+        MobileMessageToolButton(
+            icon = Icons.Outlined.Delete,
+            contentDescription = "Удалить",
+            enabled = canDelete,
+            danger = true,
+            onClick = onDelete
+        )
+    }
+}
+
+@Composable
+private fun MobileMessageToolButton(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    contentDescription: String,
+    enabled: Boolean = true,
+    danger: Boolean = false,
+    onClick: () -> Unit
+) {
+    IconButton(
+        onClick = onClick,
+        enabled = enabled,
+        modifier = Modifier.size(31.dp)
+    ) {
+        Icon(
+            icon,
+            contentDescription = contentDescription,
+            tint = when {
+                !enabled -> TextSecondary.copy(alpha = 0.34f)
+                danger -> TextSecondary.copy(alpha = 0.82f)
+                else -> TextSecondary
+            },
+            modifier = Modifier.size(16.dp)
+        )
+    }
+}
+
+private fun Context.copyMessageToClipboard(text: String) {
+    val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager ?: return
+    clipboard.setPrimaryClip(ClipData.newPlainText("Remote Code message", text))
+    Toast.makeText(this, "Сообщение скопировано", Toast.LENGTH_SHORT).show()
 }
 
 @Composable
