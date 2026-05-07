@@ -855,7 +855,7 @@ fun CodexChatTab(
         if (error != null) Text(error, color = ErrorRed, fontSize = 13.sp, modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp))
 
         Box(modifier = Modifier.fillMaxWidth().weight(1f)) {
-            LazyColumn(state = listState, modifier = Modifier.fillMaxSize().padding(horizontal = 14.dp), verticalArrangement = Arrangement.spacedBy(5.dp), contentPadding = PaddingValues(top = 8.dp, bottom = 6.dp)) {
+            LazyColumn(state = listState, modifier = Modifier.fillMaxSize().padding(horizontal = 14.dp), verticalArrangement = Arrangement.spacedBy(4.dp), contentPadding = PaddingValues(top = 7.dp, bottom = 6.dp)) {
                 val timelineInsertIndex = visibleChatHistory.indexOfLast { it.role == "assistant" }
                 visibleChatHistory.forEachIndexed { index, msg ->
                     if (timelineActionEvents.isNotEmpty() && index == timelineInsertIndex) {
@@ -901,12 +901,12 @@ fun CodexChatTab(
             }
         }
 
-        Surface(modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 7.dp), color = Color(0xFF2D2D2D), shape = RoundedCornerShape(22.dp), border = BorderStroke(1.dp, Color(0xFF363636))) {
-            Column(modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)) {
+        Surface(modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp), color = Color(0xFF2D2D2D), shape = RoundedCornerShape(22.dp), border = BorderStroke(1.dp, Color(0xFF363636))) {
+            Column(modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp)) {
                 if (attachments.isNotEmpty()) {
                     LazyColumn(modifier = Modifier.heightIn(max = 90.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                         items(attachments) { attachment ->
-                            Row(modifier = Modifier.fillMaxWidth().background(Color(0xFF242424), RoundedCornerShape(9.dp)).padding(horizontal = 8.dp, vertical = 5.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Row(modifier = Modifier.fillMaxWidth().background(Color(0xFF242424), RoundedCornerShape(8.dp)).padding(horizontal = 8.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
                                 Icon(Icons.Default.AttachFile, contentDescription = null, tint = TextSecondary, modifier = Modifier.size(16.dp))
                                 Spacer(modifier = Modifier.width(6.dp))
                                 Text(attachment.name, color = TextPrimary, fontSize = 12.sp, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -919,22 +919,22 @@ fun CodexChatTab(
                 BasicTextField(
                     value = messageText,
                     onValueChange = { messageText = it },
-                    modifier = Modifier.fillMaxWidth().heightIn(min = 42.dp, max = 108.dp),
-                    textStyle = LocalTextStyle.current.copy(color = TextPrimary, fontSize = 14.sp, lineHeight = 20.sp),
+                    modifier = Modifier.fillMaxWidth().heightIn(min = 40.dp, max = 108.dp),
+                    textStyle = LocalTextStyle.current.copy(color = TextPrimary, fontSize = 13.5.sp, lineHeight = 19.sp),
                     cursorBrush = SolidColor(TextPrimary),
                     keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
                     keyboardActions = KeyboardActions(onSend = { if (!isLoading) submitMessage() }),
                     decorationBox = { innerTextField ->
                         Box(
-                            modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 9.dp),
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 8.dp),
                             contentAlignment = Alignment.TopStart
                         ) {
                             if (messageText.isBlank()) {
                                 Text(
                                     "\u0417\u0430\u043F\u0440\u043E\u0441\u0438\u0442\u0435 \u0432\u043D\u0435\u0441\u0435\u043D\u0438\u0435 \u0434\u043E\u043F\u043E\u043B\u043D\u0438\u0442\u0435\u043B\u044C\u043D\u044B\u0445 \u0438\u0437\u043C\u0435\u043D\u0435\u043D\u0438\u0439",
                                     color = TextSecondary.copy(alpha = 0.62f),
-                                    fontSize = 14.sp,
-                                    lineHeight = 20.sp,
+                                    fontSize = 13.5.sp,
+                                    lineHeight = 19.sp,
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis
                                 )
@@ -946,14 +946,14 @@ fun CodexChatTab(
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .heightIn(min = 40.dp),
+                        .heightIn(min = 38.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     IconButton(
                         onClick = { attachmentPicker.launch("*/*") },
-                        modifier = Modifier.size(32.dp)
+                        modifier = Modifier.size(31.dp)
                     ) {
-                        Icon(Icons.Default.Add, contentDescription = "\u0414\u043E\u0431\u0430\u0432\u0438\u0442\u044C", tint = TextSecondary, modifier = Modifier.size(20.dp))
+                        Icon(Icons.Default.Add, contentDescription = "\u0414\u043E\u0431\u0430\u0432\u0438\u0442\u044C", tint = TextSecondary, modifier = Modifier.size(19.dp))
                     }
                     Box {
                         TextButton(
@@ -1019,20 +1019,20 @@ fun CodexChatTab(
                         }
                     }
                     Spacer(modifier = Modifier.weight(1f))
-                    IconButton(onClick = onToggleContext, modifier = Modifier.size(32.dp)) {
+                    IconButton(onClick = onToggleContext, modifier = Modifier.size(31.dp)) {
                         Icon(
                             Icons.Default.AutoAwesome,
                             contentDescription = "\u041A\u043E\u043D\u0442\u0435\u043A\u0441\u0442 IDE",
                             tint = if (includeContext) AccentBlue else TextSecondary,
-                            modifier = Modifier.size(18.dp)
+                            modifier = Modifier.size(17.dp)
                         )
                     }
-                    IconButton(onClick = { startVoiceInput() }, modifier = Modifier.size(32.dp)) {
+                    IconButton(onClick = { startVoiceInput() }, modifier = Modifier.size(31.dp)) {
                         Icon(
                             Icons.Default.Mic,
                             contentDescription = "\u0413\u043E\u043B\u043E\u0441\u043E\u0432\u043E\u0439 \u0432\u0432\u043E\u0434",
                             tint = TextSecondary,
-                            modifier = Modifier.size(18.dp)
+                            modifier = Modifier.size(17.dp)
                         )
                     }
                     FilledIconButton(
@@ -1040,7 +1040,7 @@ fun CodexChatTab(
                         enabled = isLoading || messageText.isNotBlank() || attachments.isNotEmpty(),
                         shape = CircleShape,
                         colors = IconButtonDefaults.filledIconButtonColors(containerColor = Color(0xFFD9D9D9), disabledContainerColor = Color(0xFF414141)),
-                        modifier = Modifier.size(38.dp)
+                        modifier = Modifier.size(37.dp)
                     ) {
                         if (isLoading) {
                             Icon(Icons.Default.Stop, contentDescription = "Остановить", tint = Color.Black)
@@ -1292,16 +1292,17 @@ private fun MobileActionTimeline(events: List<CodexActionEvent>) {
     var expanded by remember(events.map { it.id to it.status }) { mutableStateOf(false) }
     val running = events.any { it.status == "running" || it.status == "approved" }
     val summary = remember(events, running) { mobileWorkSummary(events, running) }
+    val previewEvents = visibleEvents.takeLast(if (running) 4 else 3)
 
     Column(
-        modifier = Modifier.fillMaxWidth().padding(vertical = 5.dp),
+        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
         verticalArrangement = Arrangement.spacedBy(3.dp)
     ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
                 .clickable { expanded = !expanded }
-                .padding(horizontal = 2.dp, vertical = 5.dp),
+                .padding(horizontal = 2.dp, vertical = 4.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             if (running) {
@@ -1330,26 +1331,20 @@ private fun MobileActionTimeline(events: List<CodexActionEvent>) {
                 modifier = Modifier.size(17.dp)
             )
         }
+        if (!expanded && previewEvents.isNotEmpty()) {
+            Column(
+                modifier = Modifier.padding(start = 23.dp, end = 4.dp, bottom = 1.dp),
+                verticalArrangement = Arrangement.spacedBy(2.dp)
+            ) {
+                previewEvents.forEach { event -> MobileTimelineEventPreview(event) }
+            }
+        }
         AnimatedVisibility(visible = expanded) {
             Column(
                 modifier = Modifier.padding(start = 23.dp, end = 4.dp, bottom = 2.dp),
                 verticalArrangement = Arrangement.spacedBy(3.dp)
             ) {
-                visibleEvents.forEach { event ->
-                    if (event.status == "completed" && event.type.contains("command")) {
-                        Text(
-                            compactActionText(event),
-                            color = TextSecondary,
-                            fontSize = 11.sp,
-                            lineHeight = 14.sp,
-                            fontFamily = FontFamily.Monospace,
-                            maxLines = 2,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                    } else {
-                        MobileActionLine(event)
-                    }
-                }
+                visibleEvents.forEach { event -> MobileTimelineEventPreview(event) }
                 if (visibleEvents.isEmpty()) {
                     Text(
                         "Подробностей пока нет",
@@ -1359,6 +1354,23 @@ private fun MobileActionTimeline(events: List<CodexActionEvent>) {
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun MobileTimelineEventPreview(event: CodexActionEvent) {
+    if (event.status == "completed" && event.type.contains("command")) {
+        Text(
+            compactActionText(event),
+            color = TextSecondary,
+            fontSize = 11.sp,
+            lineHeight = 14.sp,
+            fontFamily = FontFamily.Monospace,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis
+        )
+    } else {
+        MobileActionLine(event)
     }
 }
 
@@ -1420,12 +1432,12 @@ private fun formatMobileDuration(durationMs: Long): String {
 private fun MobileActionLine(event: CodexActionEvent) {
     val isRunning = event.status == "running" || event.status == "approved"
     Row(
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 2.dp, vertical = 2.dp),
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 2.dp, vertical = 1.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         if (isRunning) {
             CircularProgressIndicator(
-                modifier = Modifier.size(14.dp),
+                modifier = Modifier.size(13.dp),
                 strokeWidth = 2.dp,
                 color = TextSecondary
             )
@@ -1445,14 +1457,14 @@ private fun MobileActionLine(event: CodexActionEvent) {
                     event.status == "completed" -> AccentGreen.copy(alpha = 0.85f)
                     else -> TextSecondary
                 },
-                modifier = Modifier.size(15.dp)
+                modifier = Modifier.size(14.dp)
             )
         }
-        Spacer(modifier = Modifier.width(8.dp))
+        Spacer(modifier = Modifier.width(7.dp))
         Text(
             actionStatusText(event),
             color = TextSecondary,
-            fontSize = 12.sp,
+            fontSize = 11.5.sp,
             fontWeight = FontWeight.Medium,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis
@@ -1463,7 +1475,7 @@ private fun MobileActionLine(event: CodexActionEvent) {
             Text(
                 detail,
                 color = TextSecondary.copy(alpha = 0.72f),
-                fontSize = 12.sp,
+                fontSize = 11.5.sp,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.weight(1f)
@@ -1473,19 +1485,27 @@ private fun MobileActionLine(event: CodexActionEvent) {
 }
 
 private fun actionStatusText(event: CodexActionEvent): String {
-    if (event.type == "model_progress") return event.title.ifBlank { "Прогресс модели" }
+    val title = event.title.trim()
+    if (title.isNotBlank() && !event.type.contains("command")) return title
+    if (event.type == "model_progress") return title.ifBlank { "Прогресс модели" }
     return when (event.status) {
         "running", "approved" -> "Выполняется"
         "pending" -> if (event.actionable) "Ожидает подтверждения" else "Ожидает"
         "completed" -> "Выполнено"
         "failed" -> "Ошибка"
         "denied" -> "Отклонено"
-        else -> event.title.ifBlank { event.type }
+        else -> title.ifBlank { event.type }
     }
 }
 
 private fun compactActionText(event: CodexActionEvent): String {
-    return (event.detail.ifBlank { event.title.ifBlank { event.type } })
+    val title = event.title.trim()
+    val raw = if (title.isNotBlank() && !event.type.contains("command")) {
+        event.detail
+    } else {
+        event.detail.ifBlank { title.ifBlank { event.type } }
+    }
+    return raw
         .lineSequence()
         .firstOrNull { it.isNotBlank() }
         .orEmpty()
@@ -1580,7 +1600,7 @@ private fun CodexMessageBubble(
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(vertical = 1.dp)
+            .padding(vertical = 0.dp)
     ) {
         if (isUser) {
             Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
@@ -1594,8 +1614,8 @@ private fun CodexMessageBubble(
                         Text(
                             highlightedText(cleanedContent.ifBlank { "..." }),
                             color = TextBright,
-                            fontSize = 13.sp,
-                            lineHeight = 19.sp,
+                            fontSize = 12.75.sp,
+                            lineHeight = 18.sp,
                             modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
                         )
                         if (message.attachments.isNotEmpty()) {
@@ -1618,7 +1638,7 @@ private fun CodexMessageBubble(
             )
         } else {
             if (message.isStreaming) {
-                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(bottom = 8.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(bottom = 6.dp)) {
                     CircularProgressIndicator(
                         modifier = Modifier.size(13.dp),
                         strokeWidth = 2.dp,
@@ -1630,11 +1650,11 @@ private fun CodexMessageBubble(
             }
             HighlightedMessageText(cleanedContent.ifBlank { "..." })
             if (message.attachments.isNotEmpty()) {
-                Spacer(modifier = Modifier.height(8.dp))
+                Spacer(modifier = Modifier.height(7.dp))
                 MobileMessageAttachments(message.attachments)
             }
             if (changeSummary != null) {
-                Spacer(modifier = Modifier.height(8.dp))
+                Spacer(modifier = Modifier.height(7.dp))
                 MobileChangeCard(changeSummary, onOpenFile)
             }
             MobileMessageToolbar(
@@ -1663,7 +1683,7 @@ private fun MobileMessageToolbar(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(top = 2.dp),
+            .padding(top = 1.dp),
         horizontalArrangement = if (alignCenter) Arrangement.Center else Arrangement.Start,
         verticalAlignment = Alignment.CenterVertically
     ) {
@@ -1707,7 +1727,7 @@ private fun MobileMessageToolButton(
     IconButton(
         onClick = onClick,
         enabled = enabled,
-        modifier = Modifier.size(28.dp)
+        modifier = Modifier.size(26.dp)
     ) {
         Icon(
             icon,
@@ -1717,7 +1737,7 @@ private fun MobileMessageToolButton(
                 danger -> TextSecondary.copy(alpha = 0.82f)
                 else -> TextSecondary
             },
-            modifier = Modifier.size(15.dp)
+            modifier = Modifier.size(14.dp)
         )
     }
 }
@@ -1786,7 +1806,7 @@ private fun formatAttachmentSize(size: Long): String {
 @Composable
 private fun HighlightedMessageText(text: String) {
     val blocks = remember(text) { mobileTextBlocks(text) }
-    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
         blocks.forEach { block ->
             when (block.kind) {
                 MobileTextBlockKind.Bullet -> MobileBulletList(block.lines, ordered = false)
@@ -1794,8 +1814,8 @@ private fun HighlightedMessageText(text: String) {
                 else -> Text(
                     highlightedText(block.lines.joinToString("\n")),
                     color = TextPrimary,
-                    fontSize = 13.sp,
-                    lineHeight = 19.sp
+                    fontSize = 12.75.sp,
+                    lineHeight = 18.sp
                 )
             }
         }
@@ -1804,21 +1824,21 @@ private fun HighlightedMessageText(text: String) {
 
 @Composable
 private fun MobileBulletList(lines: List<String>, ordered: Boolean, startNumber: Int = 1) {
-    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+    Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
         lines.forEachIndexed { index, line ->
             Row(verticalAlignment = Alignment.Top) {
                 Text(
                     if (ordered) "${startNumber + index}." else "•",
                     color = TextSecondary,
-                    fontSize = 13.sp,
-                    lineHeight = 19.sp,
-                    modifier = Modifier.width(18.dp)
+                    fontSize = 12.75.sp,
+                    lineHeight = 18.sp,
+                    modifier = Modifier.width(22.dp)
                 )
                 Text(
                     highlightedText(line),
                     color = TextPrimary,
-                    fontSize = 13.sp,
-                    lineHeight = 19.sp,
+                    fontSize = 12.75.sp,
+                    lineHeight = 18.sp,
                     modifier = Modifier.weight(1f)
                 )
             }
@@ -1890,10 +1910,10 @@ private fun MobileChangeCard(
     onOpenFile: (String) -> Unit
 ) {
     var expanded by remember(summary.files) { mutableStateOf(false) }
-    val visibleFiles = if (expanded) summary.files else summary.files.take(3)
+    val visibleFiles = if (expanded) summary.files else summary.files.take(5)
     Surface(
         color = Color(0xFF242424),
-        shape = RoundedCornerShape(9.dp),
+        shape = RoundedCornerShape(8.dp),
         border = BorderStroke(1.dp, Color(0xFF303030)),
         modifier = Modifier.fillMaxWidth()
     ) {
@@ -1902,13 +1922,13 @@ private fun MobileChangeCard(
                 modifier = Modifier
                     .fillMaxWidth()
                     .background(Color(0xFF2D2D2D))
-                    .padding(horizontal = 10.dp, vertical = 7.dp),
+                    .padding(horizontal = 10.dp, vertical = 6.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
                     changeHeaderText(summary),
                     color = TextPrimary,
-                    fontSize = 13.sp,
+                    fontSize = 12.75.sp,
                     fontWeight = FontWeight.SemiBold,
                     modifier = Modifier.weight(1f)
                 )
@@ -1917,16 +1937,16 @@ private fun MobileChangeCard(
                     enabled = summary.files.isNotEmpty(),
                     contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp)
                 ) {
-                    Text("Проверить", color = TextSecondary, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                    Text("Проверить", color = TextSecondary, fontSize = 11.5.sp, fontWeight = FontWeight.SemiBold)
                     Spacer(modifier = Modifier.width(3.dp))
                     Icon(Icons.Default.NorthEast, contentDescription = null, tint = TextSecondary, modifier = Modifier.size(13.dp))
                 }
-                IconButton(onClick = { expanded = !expanded }, modifier = Modifier.size(28.dp)) {
+                IconButton(onClick = { expanded = !expanded }, modifier = Modifier.size(26.dp)) {
                     Icon(
                         if (expanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
                         contentDescription = if (expanded) "Свернуть" else "Развернуть",
                         tint = TextSecondary,
-                        modifier = Modifier.size(18.dp)
+                        modifier = Modifier.size(17.dp)
                     )
                 }
             }
@@ -1959,16 +1979,16 @@ private fun ChangeFileRow(
         modifier = Modifier
             .fillMaxWidth()
             .clickable { onOpenFile(file.path) }
-            .padding(horizontal = 10.dp, vertical = 7.dp),
+            .padding(horizontal = 10.dp, vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Text(file.path, color = TextPrimary, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
-        if (file.additions > 0) Text("+${file.additions}", color = AccentGreen, fontSize = 12.sp, fontFamily = FontFamily.Monospace)
+        Text(file.path, color = TextPrimary, fontSize = 11.75.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+        if (file.additions > 0) Text("+${file.additions}", color = AccentGreen, fontSize = 11.75.sp, fontFamily = FontFamily.Monospace)
         if (file.deletions > 0) {
             Spacer(modifier = Modifier.width(6.dp))
-            Text("-${file.deletions}", color = ErrorRed, fontSize = 12.sp, fontFamily = FontFamily.Monospace)
+            Text("-${file.deletions}", color = ErrorRed, fontSize = 11.75.sp, fontFamily = FontFamily.Monospace)
         }
-        Icon(Icons.Default.NorthEast, contentDescription = null, tint = TextSecondary, modifier = Modifier.size(14.dp))
+        Icon(Icons.Default.NorthEast, contentDescription = null, tint = TextSecondary, modifier = Modifier.size(13.dp))
     }
 }
 
