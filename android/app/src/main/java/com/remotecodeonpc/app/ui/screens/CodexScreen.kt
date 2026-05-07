@@ -25,6 +25,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
@@ -37,6 +38,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
@@ -853,7 +855,7 @@ fun CodexChatTab(
         if (error != null) Text(error, color = ErrorRed, fontSize = 13.sp, modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp))
 
         Box(modifier = Modifier.fillMaxWidth().weight(1f)) {
-            LazyColumn(state = listState, modifier = Modifier.fillMaxSize().padding(horizontal = 14.dp), verticalArrangement = Arrangement.spacedBy(6.dp), contentPadding = PaddingValues(top = 10.dp, bottom = 8.dp)) {
+            LazyColumn(state = listState, modifier = Modifier.fillMaxSize().padding(horizontal = 14.dp), verticalArrangement = Arrangement.spacedBy(5.dp), contentPadding = PaddingValues(top = 8.dp, bottom = 6.dp)) {
                 val timelineInsertIndex = visibleChatHistory.indexOfLast { it.role == "assistant" }
                 visibleChatHistory.forEachIndexed { index, msg ->
                     if (timelineActionEvents.isNotEmpty() && index == timelineInsertIndex) {
@@ -899,8 +901,8 @@ fun CodexChatTab(
             }
         }
 
-        Surface(modifier = Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 8.dp), color = Color(0xFF2D2D2D), shape = RoundedCornerShape(21.dp), border = BorderStroke(1.dp, Color(0xFF363636))) {
-            Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
+        Surface(modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 7.dp), color = Color(0xFF2D2D2D), shape = RoundedCornerShape(22.dp), border = BorderStroke(1.dp, Color(0xFF363636))) {
+            Column(modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)) {
                 if (attachments.isNotEmpty()) {
                     LazyColumn(modifier = Modifier.heightIn(max = 90.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                         items(attachments) { attachment ->
@@ -914,16 +916,32 @@ fun CodexChatTab(
                     }
                     Spacer(modifier = Modifier.height(6.dp))
                 }
-                OutlinedTextField(
+                BasicTextField(
                     value = messageText,
                     onValueChange = { messageText = it },
-                    placeholder = { Text("\u0417\u0430\u043F\u0440\u043E\u0441\u0438\u0442\u0435 \u0432\u043D\u0435\u0441\u0435\u043D\u0438\u0435 \u0434\u043E\u043F\u043E\u043B\u043D\u0438\u0442\u0435\u043B\u044C\u043D\u044B\u0445 \u0438\u0437\u043C\u0435\u043D\u0435\u043D\u0438\u0439", color = TextSecondary.copy(alpha = 0.62f)) },
-                    modifier = Modifier.fillMaxWidth(),
-                    minLines = 1,
-                    maxLines = 4,
-                    colors = OutlinedTextFieldDefaults.colors(focusedTextColor = TextPrimary, unfocusedTextColor = TextPrimary, focusedBorderColor = Color.Transparent, unfocusedBorderColor = Color.Transparent, focusedContainerColor = Color.Transparent, unfocusedContainerColor = Color.Transparent, cursorColor = TextPrimary),
+                    modifier = Modifier.fillMaxWidth().heightIn(min = 42.dp, max = 108.dp),
+                    textStyle = LocalTextStyle.current.copy(color = TextPrimary, fontSize = 14.sp, lineHeight = 20.sp),
+                    cursorBrush = SolidColor(TextPrimary),
                     keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
-                    keyboardActions = KeyboardActions(onSend = { if (!isLoading) submitMessage() })
+                    keyboardActions = KeyboardActions(onSend = { if (!isLoading) submitMessage() }),
+                    decorationBox = { innerTextField ->
+                        Box(
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 9.dp),
+                            contentAlignment = Alignment.TopStart
+                        ) {
+                            if (messageText.isBlank()) {
+                                Text(
+                                    "\u0417\u0430\u043F\u0440\u043E\u0441\u0438\u0442\u0435 \u0432\u043D\u0435\u0441\u0435\u043D\u0438\u0435 \u0434\u043E\u043F\u043E\u043B\u043D\u0438\u0442\u0435\u043B\u044C\u043D\u044B\u0445 \u0438\u0437\u043C\u0435\u043D\u0435\u043D\u0438\u0439",
+                                    color = TextSecondary.copy(alpha = 0.62f),
+                                    fontSize = 14.sp,
+                                    lineHeight = 20.sp,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+                            innerTextField()
+                        }
+                    }
                 )
                 Row(
                     modifier = Modifier
@@ -933,7 +951,7 @@ fun CodexChatTab(
                 ) {
                     IconButton(
                         onClick = { attachmentPicker.launch("*/*") },
-                        modifier = Modifier.size(34.dp)
+                        modifier = Modifier.size(32.dp)
                     ) {
                         Icon(Icons.Default.Add, contentDescription = "\u0414\u043E\u0431\u0430\u0432\u0438\u0442\u044C", tint = TextSecondary, modifier = Modifier.size(20.dp))
                     }
@@ -941,9 +959,11 @@ fun CodexChatTab(
                         TextButton(
                             onClick = { showProfileSelector = true },
                             contentPadding = PaddingValues(horizontal = 3.dp),
-                            modifier = Modifier.width(44.dp)
+                            modifier = Modifier.widthIn(min = 72.dp, max = 92.dp)
                         ) {
                             Icon(Icons.Outlined.Settings, contentDescription = profileLabel, tint = TextSecondary, modifier = Modifier.size(18.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text(profileLabel, color = TextSecondary, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                             Icon(Icons.Default.ArrowDropDown, contentDescription = null, tint = TextSecondary, modifier = Modifier.size(14.dp))
                         }
                         DropdownMenu(expanded = showProfileSelector, onDismissRequest = { showProfileSelector = false }, modifier = Modifier.background(Color(0xFF242424))) {
@@ -962,12 +982,12 @@ fun CodexChatTab(
                         TextButton(
                             onClick = { showModelEffortSelector = true },
                             contentPadding = PaddingValues(horizontal = 5.dp),
-                            modifier = Modifier.widthIn(min = 140.dp, max = 158.dp)
+                            modifier = Modifier.widthIn(min = 116.dp, max = 148.dp)
                         ) {
                             Text(
                                 "$modelLabel $reasoningLabel",
                                 color = TextSecondary,
-                                fontSize = 13.sp,
+                                fontSize = 12.sp,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
                                 modifier = Modifier.weight(1f, fill = false)
@@ -999,20 +1019,20 @@ fun CodexChatTab(
                         }
                     }
                     Spacer(modifier = Modifier.weight(1f))
-                    IconButton(onClick = onToggleContext, modifier = Modifier.size(34.dp)) {
+                    IconButton(onClick = onToggleContext, modifier = Modifier.size(32.dp)) {
                         Icon(
                             Icons.Default.AutoAwesome,
                             contentDescription = "\u041A\u043E\u043D\u0442\u0435\u043A\u0441\u0442 IDE",
                             tint = if (includeContext) AccentBlue else TextSecondary,
-                            modifier = Modifier.size(19.dp)
+                            modifier = Modifier.size(18.dp)
                         )
                     }
-                    IconButton(onClick = { startVoiceInput() }, modifier = Modifier.size(34.dp)) {
+                    IconButton(onClick = { startVoiceInput() }, modifier = Modifier.size(32.dp)) {
                         Icon(
                             Icons.Default.Mic,
                             contentDescription = "\u0413\u043E\u043B\u043E\u0441\u043E\u0432\u043E\u0439 \u0432\u0432\u043E\u0434",
                             tint = TextSecondary,
-                            modifier = Modifier.size(19.dp)
+                            modifier = Modifier.size(18.dp)
                         )
                     }
                     FilledIconButton(
@@ -1020,7 +1040,7 @@ fun CodexChatTab(
                         enabled = isLoading || messageText.isNotBlank() || attachments.isNotEmpty(),
                         shape = CircleShape,
                         colors = IconButtonDefaults.filledIconButtonColors(containerColor = Color(0xFFD9D9D9), disabledContainerColor = Color(0xFF414141)),
-                        modifier = Modifier.size(40.dp)
+                        modifier = Modifier.size(38.dp)
                     ) {
                         if (isLoading) {
                             Icon(Icons.Default.Stop, contentDescription = "Остановить", tint = Color.Black)
@@ -1589,6 +1609,7 @@ private fun CodexMessageBubble(
             }
             MobileMessageToolbar(
                 isUser = true,
+                alignCenter = true,
                 canDelete = message.id.isNotBlank(),
                 onCopy = { context.copyMessageToClipboard(cleanedContent) },
                 onEdit = { onEditMessage(cleanedContent) },
@@ -1613,11 +1634,12 @@ private fun CodexMessageBubble(
                 MobileMessageAttachments(message.attachments)
             }
             if (changeSummary != null) {
-                Spacer(modifier = Modifier.height(10.dp))
+                Spacer(modifier = Modifier.height(8.dp))
                 MobileChangeCard(changeSummary, onOpenFile)
             }
             MobileMessageToolbar(
                 isUser = false,
+                alignCenter = false,
                 canDelete = message.id.isNotBlank(),
                 onCopy = { context.copyMessageToClipboard(cleanedContent) },
                 onEdit = {},
@@ -1631,6 +1653,7 @@ private fun CodexMessageBubble(
 @Composable
 private fun MobileMessageToolbar(
     isUser: Boolean,
+    alignCenter: Boolean,
     canDelete: Boolean,
     onCopy: () -> Unit,
     onEdit: () -> Unit,
@@ -1640,8 +1663,8 @@ private fun MobileMessageToolbar(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(top = 4.dp),
-        horizontalArrangement = if (isUser) Arrangement.Center else Arrangement.Start,
+            .padding(top = 2.dp),
+        horizontalArrangement = if (alignCenter) Arrangement.Center else Arrangement.Start,
         verticalAlignment = Alignment.CenterVertically
     ) {
         if (isUser) {
@@ -1684,7 +1707,7 @@ private fun MobileMessageToolButton(
     IconButton(
         onClick = onClick,
         enabled = enabled,
-        modifier = Modifier.size(31.dp)
+        modifier = Modifier.size(28.dp)
     ) {
         Icon(
             icon,
@@ -1694,7 +1717,7 @@ private fun MobileMessageToolButton(
                 danger -> TextSecondary.copy(alpha = 0.82f)
                 else -> TextSecondary
             },
-            modifier = Modifier.size(16.dp)
+            modifier = Modifier.size(15.dp)
         )
     }
 }
@@ -1763,7 +1786,7 @@ private fun formatAttachmentSize(size: Long): String {
 @Composable
 private fun HighlightedMessageText(text: String) {
     val blocks = remember(text) { mobileTextBlocks(text) }
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
         blocks.forEach { block ->
             when (block.kind) {
                 MobileTextBlockKind.Bullet -> MobileBulletList(block.lines, ordered = false)
@@ -1772,7 +1795,7 @@ private fun HighlightedMessageText(text: String) {
                     highlightedText(block.lines.joinToString("\n")),
                     color = TextPrimary,
                     fontSize = 13.sp,
-                    lineHeight = 20.sp
+                    lineHeight = 19.sp
                 )
             }
         }
@@ -1781,21 +1804,21 @@ private fun HighlightedMessageText(text: String) {
 
 @Composable
 private fun MobileBulletList(lines: List<String>, ordered: Boolean) {
-    Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
         lines.forEachIndexed { index, line ->
             Row(verticalAlignment = Alignment.Top) {
                 Text(
                     if (ordered) "${index + 1}." else "•",
                     color = TextSecondary,
                     fontSize = 13.sp,
-                    lineHeight = 20.sp,
-                    modifier = Modifier.width(20.dp)
+                    lineHeight = 19.sp,
+                    modifier = Modifier.width(18.dp)
                 )
                 Text(
                     highlightedText(line),
                     color = TextPrimary,
                     fontSize = 13.sp,
-                    lineHeight = 20.sp,
+                    lineHeight = 19.sp,
                     modifier = Modifier.weight(1f)
                 )
             }
@@ -1877,31 +1900,31 @@ private fun MobileChangeCard(
                 modifier = Modifier
                     .fillMaxWidth()
                     .background(Color(0xFF2D2D2D))
-                    .padding(horizontal = 12.dp, vertical = 8.dp),
+                    .padding(horizontal = 10.dp, vertical = 7.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
                     changeHeaderText(summary),
                     color = TextPrimary,
-                    fontSize = 14.sp,
+                    fontSize = 13.sp,
                     fontWeight = FontWeight.SemiBold,
                     modifier = Modifier.weight(1f)
                 )
                 TextButton(
                     onClick = { summary.files.firstOrNull()?.let { onOpenFile(it.path) } },
                     enabled = summary.files.isNotEmpty(),
-                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp)
+                    contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp)
                 ) {
                     Text("Проверить", color = TextSecondary, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
                     Spacer(modifier = Modifier.width(3.dp))
                     Icon(Icons.Default.NorthEast, contentDescription = null, tint = TextSecondary, modifier = Modifier.size(13.dp))
                 }
-                IconButton(onClick = { expanded = !expanded }, modifier = Modifier.size(30.dp)) {
+                IconButton(onClick = { expanded = !expanded }, modifier = Modifier.size(28.dp)) {
                     Icon(
                         if (expanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
                         contentDescription = if (expanded) "Свернуть" else "Развернуть",
                         tint = TextSecondary,
-                        modifier = Modifier.size(19.dp)
+                        modifier = Modifier.size(18.dp)
                     )
                 }
             }
@@ -1930,23 +1953,20 @@ private fun ChangeFileRow(
     file: CodexChangeFile,
     onOpenFile: (String) -> Unit
 ) {
-    Surface(
-        onClick = { onOpenFile(file.path) },
-        color = Color.Transparent,
-        modifier = Modifier.fillMaxWidth()
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { onOpenFile(file.path) }
+            .padding(horizontal = 10.dp, vertical = 7.dp),
+        verticalAlignment = Alignment.CenterVertically
     ) {
-        Row(
-            modifier = Modifier.padding(horizontal = 10.dp, vertical = 9.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Text(file.path, color = TextPrimary, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
-            if (file.additions > 0) Text("+${file.additions}", color = AccentGreen, fontSize = 12.sp, fontFamily = FontFamily.Monospace)
-            if (file.deletions > 0) {
-                Spacer(modifier = Modifier.width(6.dp))
-                Text("-${file.deletions}", color = ErrorRed, fontSize = 12.sp, fontFamily = FontFamily.Monospace)
-            }
-            Icon(Icons.Default.NorthEast, contentDescription = null, tint = TextSecondary, modifier = Modifier.size(15.dp))
+        Text(file.path, color = TextPrimary, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+        if (file.additions > 0) Text("+${file.additions}", color = AccentGreen, fontSize = 12.sp, fontFamily = FontFamily.Monospace)
+        if (file.deletions > 0) {
+            Spacer(modifier = Modifier.width(6.dp))
+            Text("-${file.deletions}", color = ErrorRed, fontSize = 12.sp, fontFamily = FontFamily.Monospace)
         }
+        Icon(Icons.Default.NorthEast, contentDescription = null, tint = TextSecondary, modifier = Modifier.size(14.dp))
     }
 }
 
@@ -1979,7 +1999,7 @@ private fun AnnotatedString.Builder.appendHighlightedSegment(segment: String, bo
                 color = TextPrimary,
                 background = Color(0xFF232323),
                 fontFamily = FontFamily.Monospace,
-                fontSize = 13.sp,
+                fontSize = 12.sp,
                 fontWeight = if (bold) FontWeight.Bold else null
             ),
             start,

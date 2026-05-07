@@ -7,6 +7,7 @@ import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.provider.Settings
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -65,6 +66,7 @@ class MainActivity : ComponentActivity() {
     private val crashPrefsName = "remote_code_crash_recovery"
     private val appPrefsName = "remote_code_prefs"
     private val apkMimeType = "application/vnd.android.package-archive"
+    private val updateInstallRequestCode = 12078
     private var isUpdateInProgress = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -440,6 +442,14 @@ class MainActivity : ComponentActivity() {
             Toast.makeText(this, "APK обновления не найден. Скачайте обновление заново.", Toast.LENGTH_LONG).show()
             return
         }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && !packageManager.canRequestPackageInstalls()) {
+            Toast.makeText(this, "Разрешите установку обновлений для Remote Code, затем нажмите «Установить» ещё раз.", Toast.LENGTH_LONG).show()
+            val settingsIntent = Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES).apply {
+                data = Uri.parse("package:$packageName")
+            }
+            startActivity(settingsIntent)
+            return
+        }
         val uri = FileProvider.getUriForFile(this, "$packageName.fileprovider", apkFile)
         val intent = Intent(Intent.ACTION_VIEW).apply {
             setDataAndType(uri, apkMimeType)
@@ -449,7 +459,7 @@ class MainActivity : ComponentActivity() {
         }
         try {
             grantApkUriReadPermissions(uri, intent)
-            startActivityForResult(intent, 12078)
+            startActivityForResult(intent, updateInstallRequestCode)
         } catch (e: Exception) {
             CrashLogger.w("MainActivity", "Package installer did not accept update APK: ${e.message}")
             val shareIntent = Intent(Intent.ACTION_SEND).apply {
