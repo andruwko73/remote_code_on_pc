@@ -215,6 +215,17 @@ assert(
 assert(serverContent.includes('isCorruptedThreadTitle') && serverContent.includes('pickThreadTitle(existing?.title, thread.title'), 'Повреждённые заголовки чатов чинятся из Codex index', 'corrupted saved thread titles should not override Codex thread titles');
 assert(serverContent.includes('decodeBasicHtmlEntities') && serverContent.includes('isTechnicalProgressLine'), 'Прогресс не показывает технические строки вложений', 'Фильтрация технических progress-строк не найдена');
 assert(serverContent.includes('.msg.user{max-width:var(--chat-max);margin:0 auto 23px;color:var(--codex-bright);display:flex;justify-content:center') && serverContent.includes('margin-right:auto'), 'Extension user messages match Codex centered cards', 'user prompt bubble should be centered in the webview');
+const compactWebviewChecks = [
+    '--codex-sidebar:#17191d',
+    '--codex-selected:#303039',
+    '.sidebar-thread{min-height:39px',
+    '.sidebar-thread.selected{background:var(--codex-selected)}',
+    '.message-text{margin:0;white-space:normal;word-wrap:break-word;font:inherit;color:var(--codex-text);font-size:14px;line-height:1.47}',
+    '.change-card{margin:10px 0 13px',
+    '.change-row{display:flex;align-items:center;gap:11px;min-height:38px',
+    '.composer{max-width:var(--composer-max);margin:0 auto;border:1px solid var(--codex-strong-border);background:#2d2d2d;border-radius:18px',
+];
+assert(compactWebviewChecks.every((snippet) => serverContent.includes(snippet)), 'Extension webview uses compact Codex-like density', 'webview sidebar/message/change-card/composer density drifted from Codex target');
 assert(
     serverContent.includes('remote_code_hidden_messages') &&
     serverContent.includes('deleteRemoteMessage') &&
