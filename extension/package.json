@@ -2,7 +2,7 @@
   "name": "remote-code-on-pc",
   "displayName": "Remote Code on PC",
   "description": "HTTP/WebSocket сервер для удаленного управления VS Code с Android-приложения",
-  "version": "1.1.84",
+  "version": "1.1.87",
   "publisher": "remote-code-on-pc",
   "license": "MIT",
   "engines": {
@@ -77,7 +77,7 @@
         "remoteCodeOnPC.keeneticHost": {
           "type": "string",
           "default": "",
-          "description": "Рмя KeenDNS для автоматического формирования публичного URL, например name.keenetic.link или name"
+          "description": "Имя KeenDNS для автоматического формирования публичного URL, например name.keenetic.link или name"
         },
         "remoteCodeOnPC.keeneticZone": {
           "type": "string",

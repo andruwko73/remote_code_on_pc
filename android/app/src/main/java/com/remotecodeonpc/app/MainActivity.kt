@@ -69,7 +69,6 @@ class MainActivity : ComponentActivity() {
     private val crashPrefsName = "remote_code_crash_recovery"
     private val appPrefsName = "remote_code_prefs"
     private val apkMimeType = "application/vnd.android.package-archive"
-    private val updateInstallRequestCode = 12078
     private var isUpdateInProgress = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -129,10 +128,14 @@ class MainActivity : ComponentActivity() {
                                 update = update,
                                 onInstall = {
                                     val apkFile = File(update.filePath)
-                                    pendingVerifiedApk = null
                                     updateStatus = "Открываю системный установщик..."
                                     Handler(Looper.getMainLooper()).post {
-                                        openVerifiedUpdateApk(apkFile) { updateStatus = it }
+                                        openVerifiedUpdateApk(
+                                            apkFile = apkFile,
+                                            onStatus = { updateStatus = it },
+                                            onReadyDialogFinished = { pendingVerifiedApk = null },
+                                            onInstallPermissionRequired = { pendingVerifiedApk = update }
+                                        )
                                     }
                                 },
                                 onDismiss = { pendingVerifiedApk = null }
@@ -344,16 +347,22 @@ class MainActivity : ComponentActivity() {
     private fun buildUpdateUrls(config: ServerConfig): List<String> {
         val ts = System.currentTimeMillis()
         val urls = mutableListOf<String>()
+        var hasConfiguredSource = false
         if (config.useTunnel && config.tunnelUrl.isNotBlank()) {
+            hasConfiguredSource = true
             urls += "${ConnectionUrl.httpBase(config).trimEnd('/')}/api/app/apk?ts=$ts"
         }
         if (config.tunnelUrl.isNotBlank()) {
+            hasConfiguredSource = true
             urls += "${ConnectionUrl.httpBase(config.copy(useTunnel = true)).trimEnd('/')}/api/app/apk?ts=$ts"
         }
         if (config.host.isNotBlank()) {
+            hasConfiguredSource = true
             urls += "${ConnectionUrl.httpBase(config.copy(useTunnel = false)).trimEnd('/')}/api/app/apk?ts=$ts"
         }
-        urls += "$publicUpdateUrl?ts=$ts"
+        if (!hasConfiguredSource) {
+            urls += "$publicUpdateUrl?ts=$ts"
+        }
         return urls.distinct()
     }
 
@@ -385,8 +394,8 @@ class MainActivity : ComponentActivity() {
             throw IllegalStateException("APK предназначен для другого пакета: ${archiveInfo.packageName}")
         }
         val archiveVersion = packageVersionCode(archiveInfo)
-        if (archiveVersion < BuildConfig.VERSION_CODE) {
-            throw IllegalStateException("APK старее установленной версии")
+        if (archiveVersion <= BuildConfig.VERSION_CODE) {
+            throw IllegalStateException("APK has version not newer than installed")
         }
 
         val installedInfo = readInstalledPackageInfo()
@@ -467,9 +476,15 @@ class MainActivity : ComponentActivity() {
     }
 
     @Suppress("DEPRECATION")
-    private fun openVerifiedUpdateApk(apkFile: File, onStatus: (String?) -> Unit = {}) {
+    private fun openVerifiedUpdateApk(
+        apkFile: File,
+        onStatus: (String?) -> Unit = {},
+        onReadyDialogFinished: () -> Unit = {},
+        onInstallPermissionRequired: () -> Unit = {}
+    ) {
         if (!apkFile.exists() || apkFile.length() <= 0L) {
             onStatus(null)
+            onReadyDialogFinished()
             Toast.makeText(this, "APK обновления не найден. Скачайте обновление заново.", Toast.LENGTH_LONG).show()
             return
         }
@@ -479,32 +494,38 @@ class MainActivity : ComponentActivity() {
             val settingsIntent = Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES).apply {
                 data = Uri.parse("package:$packageName")
             }
-            startActivity(settingsIntent)
+            try {
+                startActivity(settingsIntent)
+                onInstallPermissionRequired()
+            } catch (e: Exception) {
+                CrashLogger.e("MainActivity", "Failed to open APK install permission settings", e)
+                Toast.makeText(this, "Не удалось открыть настройки разрешения установки: ${e.message}", Toast.LENGTH_LONG).show()
+            }
             return
         }
         val uri = FileProvider.getUriForFile(this, "$packageName.fileprovider", apkFile)
         val intent = Intent(Intent.ACTION_INSTALL_PACKAGE).apply {
             data = uri
             putExtra(Intent.EXTRA_NOT_UNKNOWN_SOURCE, true)
-            putExtra(Intent.EXTRA_RETURN_RESULT, true)
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
         }
         try {
             grantApkUriReadPermissions(uri, intent)
+            startActivity(intent)
             onStatus(null)
-            startActivityForResult(intent, updateInstallRequestCode)
+            onReadyDialogFinished()
         } catch (e: Exception) {
             CrashLogger.w("MainActivity", "Package installer did not accept install intent: ${e.message}")
             val viewIntent = Intent(Intent.ACTION_VIEW).apply {
                 setDataAndType(uri, apkMimeType)
                 putExtra(Intent.EXTRA_NOT_UNKNOWN_SOURCE, true)
-                putExtra(Intent.EXTRA_RETURN_RESULT, true)
                 addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
             }
             try {
                 grantApkUriReadPermissions(uri, viewIntent)
+                startActivity(viewIntent)
                 onStatus(null)
-                startActivityForResult(viewIntent, updateInstallRequestCode)
+                onReadyDialogFinished()
                 return
             } catch (viewError: Exception) {
                 CrashLogger.w("MainActivity", "Package installer did not accept view intent: ${viewError.message}")
@@ -516,10 +537,12 @@ class MainActivity : ComponentActivity() {
             }
             try {
                 grantApkUriReadPermissions(uri, shareIntent)
-                onStatus(null)
                 startActivity(Intent.createChooser(shareIntent, "Открыть APK обновления"))
+                onStatus(null)
+                onReadyDialogFinished()
             } catch (fallbackError: Exception) {
                 onStatus(null)
+                onReadyDialogFinished()
                 CrashLogger.e("MainActivity", "Failed to open verified update APK", fallbackError)
                 Toast.makeText(this, "Не удалось открыть системный установщик: ${fallbackError.message}", Toast.LENGTH_LONG).show()
             }
@@ -569,7 +592,7 @@ private fun UpdateReadyDialog(
         title = { Text("APK готов к установке") },
         text = {
             Text(
-                "Версия ${update.versionName} проверена. Нажмите «Установить», затем подтвердите обновление в системном окне."
+                "Версия ${update.versionName} проверена. Нажмите «Установить», затем подтвердите обновление в системном окне. Если Android попросит разрешение на установку, вернитесь сюда и нажмите «Установить» ещё раз."
             )
         },
         confirmButton = {
@@ -664,3 +687,4 @@ private fun CrashRecoveryScreen(
         }
     }
 }
+
