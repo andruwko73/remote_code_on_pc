@@ -1,8 +1,8 @@
 {
   "name": "remote-code-on-pc",
   "displayName": "Remote Code on PC",
-  "description": "HTTP/WebSocket СЃРµСЂРІРµСЂ РґР»СЏ СѓРґР°Р»РµРЅРЅРѕРіРѕ СѓРїСЂР°РІР»РµРЅРёСЏ VS Code СЃ Android-РїСЂРёР»РѕР¶РµРЅРёСЏ",
-  "version": "1.1.78",
+  "description": "HTTP/WebSocket сервер для удаленного управления VS Code с Android-приложения",
+  "version": "1.1.84",
   "publisher": "remote-code-on-pc",
   "license": "MIT",
   "engines": {
@@ -28,27 +28,27 @@
       },
       {
         "command": "remoteCodeOnPC.start",
-        "title": "Remote Code on PC: Р—Р°РїСѓСЃС‚РёС‚СЊ СЃРµСЂРІРµСЂ"
+        "title": "Remote Code on PC: Запустить сервер"
       },
       {
         "command": "remoteCodeOnPC.stop",
-        "title": "Remote Code on PC: РћСЃС‚Р°РЅРѕРІРёС‚СЊ СЃРµСЂРІРµСЂ"
+        "title": "Remote Code on PC: Остановить сервер"
       },
       {
         "command": "remoteCodeOnPC.tunnel",
-        "title": "Remote Code on PC: РџСѓР±Р»РёС‡РЅС‹Р№ Keenetic URL"
+        "title": "Remote Code on PC: Публичный Keenetic URL"
       },
       {
         "command": "remoteCodeOnPC.status",
-        "title": "Remote Code on PC: РџРѕРєР°Р·Р°С‚СЊ СЃС‚Р°С‚СѓСЃ"
+        "title": "Remote Code on PC: Показать статус"
       },
       {
         "command": "remoteCodeOnPC.connection",
-        "title": "Remote Code on PC: РџРѕРґРєР»СЋС‡РµРЅРёРµ"
+        "title": "Remote Code on PC: Подключение"
       },
       {
         "command": "remoteCodeOnPC.token",
-        "title": "Remote Code on PC: РўРѕРєРµРЅ РґРѕСЃС‚СѓРїР°"
+        "title": "Remote Code on PC: Токен доступа"
       }
     ],
     "configuration": {
@@ -57,38 +57,38 @@
         "remoteCodeOnPC.port": {
           "type": "number",
           "default": 8799,
-          "description": "РџРѕСЂС‚ HTTP/WebSocket СЃРµСЂРІРµСЂР°"
+          "description": "Порт HTTP/WebSocket сервера"
         },
         "remoteCodeOnPC.host": {
           "type": "string",
           "default": "127.0.0.1",
-          "description": "РҐРѕСЃС‚ РґР»СЏ СЃРµСЂРІРµСЂР°. РџРѕ СѓРјРѕР»С‡Р°РЅРёСЋ С‚РѕР»СЊРєРѕ Р»РѕРєР°Р»СЊРЅС‹Р№ РџРљ; 0.0.0.0 РѕС‚РєСЂС‹РІР°РµС‚ РІСЃРµ РёРЅС‚РµСЂС„РµР№СЃС‹ Рё С‚СЂРµР±СѓРµС‚ С‚РѕРєРµРЅ."
+          "description": "Хост для сервера. По умолчанию только локальный ПК; 0.0.0.0 открывает все интерфейсы и требует токен."
         },
         "remoteCodeOnPC.authToken": {
           "type": "string",
           "default": "",
-          "description": "РўРѕРєРµРЅ Р°РІС‚РѕСЂРёР·Р°С†РёРё (РїСѓСЃС‚Рѕ вЂ” Р±РµР· РїР°СЂРѕР»СЏ)"
+          "description": "Токен авторизации (пусто — без пароля)"
         },
         "remoteCodeOnPC.publicUrl": {
           "type": "string",
           "default": "",
-          "description": "РџСѓР±Р»РёС‡РЅС‹Р№ KeenDNS/Keenetic URL РґР»СЏ РІРЅРµС€РЅРµРіРѕ РїРѕРґРєР»СЋС‡РµРЅРёСЏ, РЅР°РїСЂРёРјРµСЂ http://name.keenetic.link:8799"
+          "description": "Публичный KeenDNS/Keenetic URL для внешнего подключения, например http://name.keenetic.link:8799"
         },
         "remoteCodeOnPC.keeneticHost": {
           "type": "string",
           "default": "",
-          "description": "РРјСЏ KeenDNS РґР»СЏ Р°РІС‚РѕРјР°С‚РёС‡РµСЃРєРѕРіРѕ С„РѕСЂРјРёСЂРѕРІР°РЅРёСЏ РїСѓР±Р»РёС‡РЅРѕРіРѕ URL, РЅР°РїСЂРёРјРµСЂ name.keenetic.link РёР»Рё name"
+          "description": "Рмя KeenDNS для автоматического формирования публичного URL, например name.keenetic.link или name"
         },
         "remoteCodeOnPC.keeneticZone": {
           "type": "string",
           "default": "keenetic.link",
-          "description": "Р”РѕРјРµРЅРЅР°СЏ Р·РѕРЅР° KeenDNS, РєРѕС‚РѕСЂР°СЏ РґРѕР±Р°РІР»СЏРµС‚СЃСЏ Рє РєРѕСЂРѕС‚РєРѕРјСѓ РёРјРµРЅРё Keenetic"
+          "description": "Доменная зона KeenDNS, которая добавляется к короткому имени Keenetic"
         },
         "remoteCodeOnPC.keeneticScheme": {
           "type": "string",
           "enum": ["http", "https"],
           "default": "http",
-          "description": "РЎС…РµРјР° РґР»СЏ Р°РІС‚РѕРјР°С‚РёС‡РµСЃРєРё СЃС„РѕСЂРјРёСЂРѕРІР°РЅРЅРѕРіРѕ Keenetic URL. Р”Р»СЏ РїСЂСЏРјРѕРіРѕ РїСЂРѕР±СЂРѕСЃР° РїРѕСЂС‚Р° Рє HTTP-СЃРµСЂРІРµСЂСѓ СЂР°СЃС€РёСЂРµРЅРёСЏ РѕР±С‹С‡РЅРѕ РЅСѓР¶РµРЅ http."
+          "description": "Схема для автоматически сформированного Keenetic URL. Для прямого проброса порта к HTTP-серверу расширения обычно нужен http."
         },
         "remoteCodeOnPC.enableFileWatchers": {
           "type": "boolean",

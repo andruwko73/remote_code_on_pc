@@ -11,8 +11,8 @@ android {
         applicationId = "com.remotecodeonpc.app"
         minSdk = 26
         targetSdk = 34
-        versionCode = 69
-        versionName = "1.0.68"
+        versionCode = 78
+        versionName = "1.0.77"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
@@ -22,6 +22,7 @@ android {
 
     buildTypes {
         release {
+            signingConfig = signingConfigs.getByName("debug")
             isMinifyEnabled = false
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),

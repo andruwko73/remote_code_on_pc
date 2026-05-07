@@ -272,8 +272,21 @@ data class CodexThread(
     val workspacePath: String? = null
 )
 
-data class CodexThreadsResponse(
+data class CodexProject(
+    val id: String = "",
+    val name: String = "",
+    val path: String? = null,
+    val active: Boolean = false,
+    val threadCount: Int = 0,
+    val timestamp: Long = 0,
     val threads: List<CodexThread> = emptyList()
+)
+
+data class CodexThreadsResponse(
+    val threads: List<CodexThread> = emptyList(),
+    val projects: List<CodexProject> = emptyList(),
+    val currentThreadId: String = "",
+    val currentProjectId: String = ""
 )
 
 data class CodexSelectModelResponse(

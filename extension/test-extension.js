@@ -53,9 +53,10 @@ const assertWebviewInteractionWiring = () => {
     assert(serverContent.includes("message-tool") && serverContent.includes("case 'copyMessage'") && serverContent.includes("case 'messageFeedback'"), 'Message hover buttons work', 'copy/feedback handlers missing');
     assert(serverContent.includes("data-action-id=") && serverContent.includes("actionResponse"), 'Approve/deny action buttons work', 'action response wiring missing');
     assert(serverContent.includes("prompt.addEventListener('paste'") && serverContent.includes("pasteFiles"), 'Paste attachment flow works', 'paste attachment wiring missing');
-    assert(serverContent.includes("prompt.addEventListener('keydown'") && serverContent.includes("event.key === 'Enter'"), 'Enter sends message in extension', 'Enter send wiring missing');
-    assert(serverContent.includes("case 'stopGeneration'") && serverContent.includes("id=\"topRun\"") && serverContent.includes("id=\"send\""), 'Stop/run buttons are wired', 'stop/run wiring missing');
-    assert(serverContent.includes("codex:preferences-changed") && serverContent.includes("Composer preferences changed"), 'Composer preferences sync over API/WebSocket', 'preference sync missing');
+assert(serverContent.includes("prompt.addEventListener('keydown'") && serverContent.includes("event.key === 'Enter'"), 'Enter sends message in extension', 'Enter send wiring missing');
+assert(serverContent.includes("case 'stopGeneration'") && serverContent.includes("id=\"topRun\"") && serverContent.includes("id=\"send\""), 'Stop/run buttons are wired', 'stop/run wiring missing');
+assert(serverContent.includes("codex:preferences-changed") && serverContent.includes("Composer preferences changed"), 'Composer preferences sync over API/WebSocket', 'preference sync missing');
+assert(serverContent.includes('actionTimelineSummary') && serverContent.includes('recentActionTimelineEvents') && serverContent.includes('work-summary-line') && serverContent.includes('на протяжении'), 'Extension shows Codex-like work summary', 'work summary row missing from extension chat');
 };
 assertWebviewInteractionWiring();
 
@@ -190,8 +191,47 @@ assert(serverContent.includes('Создать новый токен') && serverC
 assert(serverContent.includes('liveDraftThreadIds'), 'Пустые чаты не закрепляются навсегда', 'liveDraftThreadIds не найден');
 assert(serverContent.includes("private currentRemoteThreadId: string = '';"), 'Нет скрытого default-чата при старте', 'currentRemoteThreadId не должен стартовать с remote-code-default');
 assert(serverContent.includes('if (!targetThreadId)') && serverContent.includes('targetThreadId = this.createRemoteCodeThread()'), 'Сообщение без thread создаёт реальный чат', 'fallback thread должен создаваться явно');
+assert(
+    serverContent.includes('getRemoteCodeThreadsUpdatePayload') &&
+    serverContent.includes('projects: this.getRemoteCodeProjects(threads)') &&
+    serverContent.includes('currentProjectId: this.getCurrentRemoteCodeProjectId(rawThreads)') &&
+    serverContent.includes('projectId?: string') &&
+    serverContent.includes('getRemoteCodeThreadsWithProjectIds') &&
+    serverContent.includes('workspaceName: workspace.workspaceName') &&
+    serverContent.includes('workspacePath: workspace.workspacePath'),
+    'Extension groups chats by project',
+    'codex thread API must expose project groups, per-thread project IDs, and workspace metadata'
+);
 assert(serverContent.includes('isCorruptedThreadTitle') && serverContent.includes('pickThreadTitle(existing?.title, thread.title'), 'Повреждённые заголовки чатов чинятся из Codex index', 'corrupted saved thread titles should not override Codex thread titles');
 assert(serverContent.includes('decodeBasicHtmlEntities') && serverContent.includes('isTechnicalProgressLine'), 'Прогресс не показывает технические строки вложений', 'Фильтрация технических progress-строк не найдена');
+assert(serverContent.includes('.msg.user{max-width:var(--chat-max);margin:0 auto 23px;color:var(--codex-bright);display:flex;justify-content:center') && serverContent.includes('margin-right:auto'), 'Extension user messages match Codex centered cards', 'user prompt bubble should be centered in the webview');
+
+const terminalExecBody = serverContent.match(/private async handleTerminalExec[\s\S]*?\/\/ ========== WEBSOCKET ==========/)?.[0] || '';
+assert(
+    terminalExecBody.includes("type: 'command_approval'") &&
+    terminalExecBody.includes('pendingApproval: true') &&
+    !terminalExecBody.includes('execSync') &&
+    !terminalExecBody.includes('sendText') &&
+    !terminalExecBody.includes('createTerminal'),
+    'Terminal exec идёт только через approval flow',
+    'terminal exec must not run commands directly'
+);
+const standaloneContent = fs.readFileSync(path.join(__dirname, 'src', 'standalone-server.ts'), 'utf-8');
+assert(
+    standaloneContent.includes("pathname === '/api/terminal/exec'") &&
+    standaloneContent.includes('Terminal execution is disabled in standalone mode') &&
+    !standaloneContent.match(/terminal\/exec[\s\S]{0,800}(execSync|spawn|sendText)/),
+    'Standalone terminal exec disabled',
+    'standalone terminal exec must not execute commands'
+);
+assert(
+    standaloneContent.includes('getStatus(this.canExposeFullStatus(req))') &&
+    standaloneContent.includes('private canExposeFullStatus') &&
+    standaloneContent.includes('if (!includePrivateDetails) return publicStatus') &&
+    standaloneContent.includes('tokenConfigured: Boolean(this.authToken)'),
+    'Standalone public status hides private workspace details',
+    'standalone /api/status should not expose workspace paths before auth on public binds'
+);
 
 const webviewActions = [...serverContent.matchAll(/data-action=\"([^\"]+)\"/g)].map(match => match[1]);
 const uniqueWebviewActions = [...new Set(webviewActions)].sort();
@@ -238,19 +278,36 @@ const connectionUrl = fs.readFileSync(path.join(androidBase, 'app', 'src', 'main
 const mainVm = fs.readFileSync(path.join(androidBase, 'app', 'src', 'main', 'java', 'com', 'remotecodeonpc', 'app', 'viewmodel', 'MainViewModel.kt'), 'utf-8');
 const modelsFile = fs.readFileSync(path.join(androidBase, 'app', 'src', 'main', 'java', 'com', 'remotecodeonpc', 'app', 'Models.kt'), 'utf-8');
 const mainActivity = fs.readFileSync(path.join(androidBase, 'app', 'src', 'main', 'java', 'com', 'remotecodeonpc', 'app', 'MainActivity.kt'), 'utf-8');
+const androidManifest = fs.readFileSync(path.join(androidBase, 'app', 'src', 'main', 'AndroidManifest.xml'), 'utf-8');
+const androidBuildGradle = fs.readFileSync(path.join(androidBase, 'app', 'build.gradle.kts'), 'utf-8');
 assert(!remoteCodeApp.includes('.verticalScroll(rememberScrollState())'), 'Android connection screen avoids forced startup scroll', 'startup screen still has verticalScroll');
 assert(remoteCodeApp.includes('Arrangement.spacedBy(7.dp, Alignment.CenterVertically)'), 'Android connection screen is compact', 'compact connection layout missing');
 assert(remoteCodeApp.includes('Text("Логи"') && remoteCodeApp.includes('Text("Очистить"') && remoteCodeApp.includes('Text("Обновить"'), 'Android startup action buttons are present', 'startup action row missing');
 assert(remoteCodeApp.includes('PasswordVisualTransformation') && remoteCodeApp.includes('showToken') && remoteCodeApp.includes('showCompactToken'), 'Android token fields are masked by default', 'token field must not show secrets by default');
 assert(!connectionUrl.includes('withKeeneticPort') && !remoteCodeApp.includes('Text("Порт"') && !remoteCodeApp.includes('порт'), 'Android hides manual port from connection UI', 'external URLs should not get an implicit app port and Android should not mention a manual port in the main UI');
 assert(mainActivity.includes('ConnectionUrl.httpBase(config).trimEnd') && mainActivity.indexOf('ConnectionUrl.httpBase(config).trimEnd') < mainActivity.indexOf('publicUpdateUrl?ts'), 'Android updater tries connected extension before GitHub', 'update button should prefer the current extension APK endpoint before public fallback');
-assert(codexScreen.includes('\\u041F\\u0420\\u041E\\u0415\\u041A\\u0422\\u042B') && modelsFile.includes('workspaceName'), 'Android exposes projects in Codex chat list', 'project tab/thread workspace metadata should be visible to Android');
+assert(
+    serverContent.includes('X-Remote-Code-Apk-Sha256') &&
+    standaloneContent.includes('X-Remote-Code-Apk-Sha256') &&
+    mainActivity.includes('validateDownloadedApk') &&
+    mainActivity.includes('SHA-256 APK не совпал') &&
+    mainActivity.includes('Подпись APK не совпадает'),
+    'APK updater verifies hash and signature',
+    'APK downloads must be verified before install'
+);
+assert(!androidManifest.includes('REQUEST_INSTALL_PACKAGES') && mainActivity.includes('openVerifiedUpdateApk') && !mainActivity.includes('canRequestPackageInstalls'), 'Android APK avoids self-installer permission', 'Play Protect-sensitive package install permission should not be declared');
+assert(androidBuildGradle.includes('versionCode = 78') && androidBuildGradle.includes('versionName = "1.0.77"') && androidBuildGradle.includes('signingConfig = signingConfigs.getByName("debug")'), 'Android release artifact can update existing sideload installs', 'release APK should be version-bumped and signed for sideload updates');
+assert(codexScreen.includes('CodexNavigationPanel') && codexScreen.includes('CodexDrawerProjectRow') && codexScreen.includes('buildMobileCodexProjects') && modelsFile.includes('workspaceName'), 'Android exposes projects in Codex chat list', 'project drawer/thread workspace metadata should be visible to Android');
+assert(codexScreen.includes('Icons.Outlined.Extension') && codexScreen.includes('Icons.Outlined.Schedule') && codexScreen.includes('Плагины') && codexScreen.includes('Автоматизации') && codexScreen.includes('PaddingValues(bottom = 64.dp)'), 'Android drawer mirrors Codex navigation actions', 'drawer should expose Codex-like plugins and automations entries');
 assert(connectionUrl.includes('trimmed.startsWith("//")') && connectionUrl.includes('"http:$trimmed"'), 'Android normalizes protocol-relative public URLs', 'protocol-relative public URL should become http://host');
 assert(mainVm.includes('isUnsupportedExternalUrl') && mainVm.includes('Расширение вернуло служебный адрес'), 'Android rejects unsupported service public URLs', 'Android should reject service URLs before connecting');
 assert(codexScreen.includes('item(key = "bottom-anchor")'), 'Android chat scrolls to a true bottom anchor', 'bottom anchor missing');
 assert(codexScreen.includes('showCurrentThreadMenu') && codexScreen.includes('pendingDeleteThread') && codexScreen.includes('onNavigateToSettings()'), 'Android current-chat menu buttons work', 'current chat menu wiring missing');
 assert(codexScreen.includes('attachmentPicker.launch') && codexScreen.includes('startVoiceInput'), 'Android composer file and voice buttons work', 'composer media/voice wiring missing');
 assert(codexScreen.includes('onStopGeneration') && codexScreen.includes('onRespondToAction'), 'Android stop and approve/deny actions are wired', 'stop/approval wiring missing');
+assert(codexScreen.includes('contentAlignment = Alignment.Center') && codexScreen.includes('modifier = Modifier.widthIn(max = 330.dp)'), 'Android user messages match Codex centered cards', 'user prompt bubble should be centered and constrained like Codex');
+assert(codexScreen.includes('minLines = 1') && codexScreen.includes('Modifier.size(40.dp)'), 'Android composer is compact like Codex', 'mobile composer should avoid excessive vertical height');
+assert(codexScreen.includes('mobileWorkSummary(events, running)') && codexScreen.includes('MOBILE_WORK_SUMMARY_IDLE_GAP_MS') && codexScreen.includes('на протяжении'), 'Android shows Codex-like work summary', 'mobile work summary should match Codex wording');
 assert(apiClient.includes('selectCodexModel(@Body body: Map<String, @JvmSuppressWildcards Any>)'), 'Android composer preference API accepts booleans', 'selectCodexModel body type is too narrow');
 
 for (const f of androidFiles) {

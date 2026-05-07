@@ -75,7 +75,9 @@ data class AppUiState(
     val codexActionEvents: List<CodexActionEvent> = emptyList(),
     val codexSendResult: CodexSendResponse? = null,
     val codexThreads: List<CodexThread> = emptyList(),
+    val codexProjects: List<CodexProject> = emptyList(),
     val currentCodexThreadId: String = "",
+    val currentCodexProjectId: String = "",
     val isCodexLoading: Boolean = false,
     val codexError: String? = null
 )
@@ -1211,15 +1213,23 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 val api = ApiClient.getApi(_uiState.value.serverConfig)
                 val response = api.getCodexThreads()
                 if (response.isSuccessful) {
-                    val threads = response.body()?.threads ?: emptyList()
+                    val body = response.body()
+                    val threads = body?.threads ?: emptyList()
+                    val projects = body?.projects?.takeIf { it.isNotEmpty() } ?: buildCodexProjects(threads)
                     val current = _uiState.value.currentCodexThreadId
                     val nextCurrent = when {
                         threads.any { it.id == current } -> current
+                        body?.currentThreadId?.isNotBlank() == true && threads.any { it.id == body.currentThreadId } -> body.currentThreadId
                         else -> threads.firstOrNull()?.id ?: ""
                     }
+                    val nextProject = body?.currentProjectId
+                        ?.takeIf { id -> id.isNotBlank() && projects.any { it.id == id } }
+                        ?: selectedProjectIdForThread(nextCurrent, projects, threads)
                     _uiState.value = _uiState.value.copy(
                         codexThreads = threads,
+                        codexProjects = projects,
                         currentCodexThreadId = nextCurrent,
+                        currentCodexProjectId = nextProject,
                         codexChatHistory = if (threads.isEmpty()) emptyList() else _uiState.value.codexChatHistory,
                         codexActionEvents = if (threads.isEmpty()) emptyList() else _uiState.value.codexActionEvents,
                         codexError = null
@@ -1235,9 +1245,62 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    private fun selectedProjectIdForThread(
+        threadId: String,
+        projects: List<CodexProject>,
+        threads: List<CodexThread>
+    ): String {
+        projects.firstOrNull { project -> project.threads.any { it.id == threadId } }?.let { return it.id }
+        threads.firstOrNull { it.id == threadId }?.let { thread ->
+            val key = codexProjectKey(thread.workspaceName, thread.workspacePath)
+            if (key.isNotBlank()) return key
+        }
+        return projects.firstOrNull()?.id.orEmpty()
+    }
+
+    private fun buildCodexProjects(threads: List<CodexThread>): List<CodexProject> {
+        return threads
+            .groupBy { codexProjectKey(it.workspaceName, it.workspacePath) }
+            .map { (id, groupedThreads) ->
+                val first = groupedThreads.firstOrNull()
+                CodexProject(
+                    id = id.ifBlank { "unassigned" },
+                    name = codexProjectName(first?.workspaceName, first?.workspacePath),
+                    path = first?.workspacePath,
+                    threadCount = groupedThreads.size,
+                    timestamp = groupedThreads.maxOfOrNull { it.timestamp } ?: 0,
+                    threads = groupedThreads.sortedByDescending { it.timestamp }
+                )
+            }
+            .sortedByDescending { it.timestamp }
+    }
+
+    private fun codexProjectKey(workspaceName: String?, workspacePath: String?): String {
+        val path = workspacePath
+            ?.trim()
+            ?.replace('\\', '/')
+            ?.trimEnd('/')
+            ?.takeIf { it.isNotBlank() }
+        if (path != null) return "path:${path.lowercase()}"
+        val name = workspaceName?.trim()?.takeIf { it.isNotBlank() }
+        return name?.let { "name:${it.lowercase()}" } ?: "unassigned"
+    }
+
+    private fun codexProjectName(workspaceName: String?, workspacePath: String?): String {
+        return workspaceName?.trim()?.takeIf { it.isNotBlank() }
+            ?: workspacePath
+                ?.replace('\\', '/')
+                ?.trimEnd('/')
+                ?.substringAfterLast('/')
+                ?.takeIf { it.isNotBlank() }
+            ?: "Без проекта"
+    }
+
     fun switchCodexThread(threadId: String) {
+        val nextProjectId = selectedProjectIdForThread(threadId, _uiState.value.codexProjects, _uiState.value.codexThreads)
         _uiState.value = _uiState.value.copy(
             currentCodexThreadId = threadId,
+            currentCodexProjectId = nextProjectId,
             codexChatHistory = emptyList(),
             codexActionEvents = emptyList(),
             codexError = null
@@ -1278,13 +1341,17 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 val response = api.deleteCodexThread(mapOf("threadId" to threadId))
                 if (response.isSuccessful) {
                     val remaining = _uiState.value.codexThreads.filterNot { it.id == threadId }
+                    val remainingProjects = buildCodexProjects(remaining)
                     val nextCurrent = when {
                         _uiState.value.currentCodexThreadId != threadId -> _uiState.value.currentCodexThreadId
                         else -> remaining.firstOrNull()?.id.orEmpty()
                     }
+                    val nextProject = selectedProjectIdForThread(nextCurrent, remainingProjects, remaining)
                     _uiState.value = _uiState.value.copy(
                         codexThreads = remaining,
+                        codexProjects = remainingProjects,
                         currentCodexThreadId = nextCurrent,
+                        currentCodexProjectId = nextProject,
                         codexChatHistory = if (nextCurrent.isBlank()) emptyList() else _uiState.value.codexChatHistory,
                         codexActionEvents = if (nextCurrent.isBlank()) emptyList() else _uiState.value.codexActionEvents,
                         codexError = null

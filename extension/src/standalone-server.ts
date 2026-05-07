@@ -2,6 +2,7 @@ import * as http from 'http';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
+import * as crypto from 'crypto';
 import { URL } from 'url';
 import { ChildProcessWithoutNullStreams, execSync, spawn, spawnSync } from 'child_process';
 import { WebSocket, WebSocketServer } from 'ws';
@@ -184,7 +185,7 @@ export class StandaloneRemoteServer {
         }
 
         if (req.method === 'GET' && pathname === '/api/status') {
-            this.sendJson(res, 200, this.getStatus());
+            this.sendJson(res, 200, this.getStatus(this.canExposeFullStatus(req)));
             return;
         }
         if (req.method === 'GET' && pathname === '/api/workspace/folders') {
@@ -333,13 +334,29 @@ export class StandaloneRemoteServer {
         this.sendJson(res, 404, { error: 'Not found', path: pathname });
     }
 
-    private getStatus(): JsonValue {
+    private getStatus(includePrivateDetails = true): JsonValue {
         const memory = process.memoryUsage();
-        return {
+        const publicStatus = {
             version: '1.0.0',
             appName: 'Remote Code on PC Standalone',
             isRunning: true,
             platform: process.platform,
+            remoteCode: {
+                port: this.port,
+                host: this.host,
+                localIp: includePrivateDetails ? this.localIp : null,
+                localUrl: includePrivateDetails ? `http://${this.localIp}:${this.port}` : null,
+                authRequired: this.isAuthRequired('/api/status') || Boolean(this.authToken),
+                authOk: includePrivateDetails,
+                tokenConfigured: Boolean(this.authToken),
+                standalone: true
+            },
+            uptime: (Date.now() - this.startedAt) / 1000,
+            memoryUsage: includePrivateDetails ? memory.rss : undefined
+        };
+        if (!includePrivateDetails) return publicStatus;
+        return {
+            ...publicStatus,
             workspace: {
                 folders: [{
                     name: path.basename(this.workspaceRoot),
@@ -349,7 +366,6 @@ export class StandaloneRemoteServer {
                 activeFile: null,
                 activeFileLanguage: null
             },
-            uptime: (Date.now() - this.startedAt) / 1000,
             memoryUsage: memory.rss
         };
     }
@@ -1454,15 +1470,26 @@ export class StandaloneRemoteServer {
             return { role: 'user', content: String(payload.message || this.extractTextParts(payload.text_elements) || '') };
         }
         if (payload.type === 'agent_message') {
+            if (!this.shouldShowCodexAssistantMessage(payload)) return null;
             return { role: 'assistant', content: String(payload.message || '') };
         }
         if (payload.type === 'message' && (payload.role === 'user' || payload.role === 'assistant')) {
+            if (payload.role === 'user') return null;
+            if (payload.role === 'assistant' && !this.shouldShowCodexAssistantMessage(payload)) return null;
             return { role: payload.role, content: this.extractResponseItemContent(payload.content) };
         }
         if (payload.item?.type === 'message' && (payload.item.role === 'user' || payload.item.role === 'assistant')) {
+            if (payload.item.role === 'user') return null;
+            if (payload.item.role === 'assistant' && !this.shouldShowCodexAssistantMessage(payload.item)) return null;
             return { role: payload.item.role, content: this.extractResponseItemContent(payload.item.content) };
         }
         return null;
+    }
+
+    private shouldShowCodexAssistantMessage(payload: any): boolean {
+        const phase = typeof payload?.phase === 'string' ? payload.phase.toLowerCase() : '';
+        if (!phase) return true;
+        return phase === 'final_answer';
     }
 
     private extractResponseItemContent(content: any): string {
@@ -1922,11 +1949,14 @@ export class StandaloneRemoteServer {
         }
 
         const stat = fs.statSync(apkPath);
+        const sha256 = crypto.createHash('sha256').update(fs.readFileSync(apkPath)).digest('hex');
         res.writeHead(200, {
             'Content-Type': 'application/vnd.android.package-archive',
             'Content-Length': stat.size,
             'Content-Disposition': 'attachment; filename="remote-code-on-pc.apk"',
-            'Cache-Control': 'no-store'
+            'Cache-Control': 'no-store',
+            'X-Remote-Code-Apk-Sha256': sha256,
+            'X-Remote-Code-Apk-Size': String(stat.size)
         });
         fs.createReadStream(apkPath).pipe(res);
     }
@@ -1944,7 +1974,7 @@ export class StandaloneRemoteServer {
     private isHttpAuthorized(req: http.IncomingMessage, pathname: string): boolean {
         if (!this.isAuthRequired(pathname)) return true;
         if (!this.authToken) return false;
-        return req.headers.authorization === `Bearer ${this.authToken}`;
+        return this.hasValidBearerToken(req);
     }
 
     private isWsAuthorized(req: http.IncomingMessage): boolean {
@@ -1957,6 +1987,15 @@ export class StandaloneRemoteServer {
     private isAuthRequired(pathname: string): boolean {
         if (pathname === '/api/status') return false;
         return Boolean(this.authToken) || !this.isLocalOnlyBind();
+    }
+
+    private canExposeFullStatus(req: http.IncomingMessage): boolean {
+        if (this.isLocalOnlyBind() && !this.authToken) return true;
+        return this.hasValidBearerToken(req);
+    }
+
+    private hasValidBearerToken(req: http.IncomingMessage): boolean {
+        return Boolean(this.authToken) && req.headers.authorization === `Bearer ${this.authToken}`;
     }
 
     private isLocalOnlyBind(): boolean {

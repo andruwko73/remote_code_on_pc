@@ -47,8 +47,19 @@ interface RemoteCodeThreadSummary {
     title: string;
     timestamp: number;
     source?: 'remote' | 'codex';
+    projectId?: string;
     workspaceName?: string;
     workspacePath?: string;
+}
+
+interface RemoteCodeProjectSummary {
+    id: string;
+    name: string;
+    path?: string;
+    active?: boolean;
+    threadCount: number;
+    timestamp: number;
+    threads: RemoteCodeThreadSummary[];
 }
 
 interface MobileAttachment {
@@ -141,6 +152,9 @@ export class RemoteServer {
     private selectedWorkMode: string = 'local';
     private selectedProfile: string = 'user';
     private agentCache?: { timestamp: number; agents: ChatAgent[] };
+    private lmModelsCache?: { timestamp: number; models: readonly vscode.LanguageModelChat[] };
+    private lmModelsInflight?: Promise<readonly vscode.LanguageModelChat[]>;
+    private lmModelsBlockedUntil = 0;
     private codexHistory: CodexChatMessage[] = [];
     private codexActionEvents: RemoteCodeActionEvent[] = [];
     private remoteCodeThreads: RemoteCodeThreadSummary[] = [];
@@ -1872,10 +1886,8 @@ export class RemoteServer {
                     if (!filename || !filename.toString().endsWith('.jsonl')) return;
                     setTimeout(() => {
                         this.broadcast({
-                            type: 'codex:sessions-update',
-                            threads: this.getRemoteCodeThreads(),
-                            currentThreadId: this.currentRemoteThreadId,
-                            timestamp: Date.now()
+                            ...this.getRemoteCodeThreadsUpdatePayload(),
+                            type: 'codex:sessions-update'
                         });
                     }, 2000);
                 });
@@ -2143,18 +2155,25 @@ export class RemoteServer {
     }
 
     private async handleAppApk(_req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
-        const apkPath = path.resolve(__dirname, '..', '..', 'apk', 'app-debug.apk');
-        if (!fs.existsSync(apkPath)) {
-            this.jsonResponse(res, 404, { error: 'APK not found', path: apkPath });
+        const apkPath = [
+            path.resolve(__dirname, '..', 'apk', 'app-debug.apk'),
+            path.resolve(__dirname, '..', '..', 'apk', 'app-debug.apk'),
+            path.resolve(__dirname, '..', '..', '..', 'apk', 'app-debug.apk')
+        ].find(candidate => fs.existsSync(candidate));
+        if (!apkPath) {
+            this.jsonResponse(res, 404, { error: 'APK not found' });
             return;
         }
 
         const stat = fs.statSync(apkPath);
+        const sha256 = crypto.createHash('sha256').update(fs.readFileSync(apkPath)).digest('hex');
         res.writeHead(200, {
             'Content-Type': 'application/vnd.android.package-archive',
             'Content-Length': stat.size,
             'Content-Disposition': 'attachment; filename="remote-code-on-pc.apk"',
-            'Cache-Control': 'no-store'
+            'Cache-Control': 'no-store',
+            'X-Remote-Code-Apk-Sha256': sha256,
+            'X-Remote-Code-Apk-Size': String(stat.size)
         });
         fs.createReadStream(apkPath).pipe(res);
     }
@@ -2184,7 +2203,7 @@ export class RemoteServer {
 
         // Пробуем получить реальные модели от VS Code Language Model API
         try {
-            const lmModels = await vscode.lm.selectChatModels({});
+            const lmModels = await this.getCachedLanguageModels();
             if (lmModels) {
                 for (const model of lmModels) {
                     const name = (model as any).id || (model as any).name || '';
@@ -2228,6 +2247,55 @@ export class RemoteServer {
 
         this.agentCache = { timestamp: Date.now(), agents };
         return agents;
+    }
+
+    private async getCachedLanguageModels(forceRefresh = false): Promise<readonly vscode.LanguageModelChat[]> {
+        const now = Date.now();
+        const cacheTtlMs = 5 * 60 * 1000;
+        if (!forceRefresh && this.lmModelsCache && now - this.lmModelsCache.timestamp < cacheTtlMs) {
+            return this.lmModelsCache.models;
+        }
+
+        if (this.lmModelsBlockedUntil > now) {
+            if (this.lmModelsCache) return this.lmModelsCache.models;
+            throw new Error(this.getLanguageModelBlockedMessage());
+        }
+
+        if (this.lmModelsInflight) return this.lmModelsInflight;
+
+        this.lmModelsInflight = (async () => {
+            try {
+                let models = await vscode.lm.selectChatModels({ vendor: 'copilot' });
+                if (!models || models.length === 0) {
+                    models = await vscode.lm.selectChatModels({});
+                }
+                this.lmModelsCache = { timestamp: Date.now(), models };
+                return models;
+            } catch (err: any) {
+                if (this.isLanguageModelRateLimitError(err)) {
+                    this.lmModelsBlockedUntil = Date.now() + 2 * 60 * 1000;
+                }
+                if (this.lmModelsCache) return this.lmModelsCache.models;
+                throw err;
+            } finally {
+                this.lmModelsInflight = undefined;
+            }
+        })();
+
+        return this.lmModelsInflight;
+    }
+
+    private isLanguageModelRateLimitError(err: any): boolean {
+        const text = `${err?.message || ''} ${err?.name || ''} ${String(err || '')}`.toLowerCase();
+        return text.includes('too many requests')
+            || text.includes('temporarily blocked')
+            || text.includes('rate limit')
+            || text.includes('429');
+    }
+
+    private getLanguageModelBlockedMessage(): string {
+        const seconds = Math.max(1, Math.ceil((this.lmModelsBlockedUntil - Date.now()) / 1000));
+        return `VS Code/Copilot временно ограничил запросы из-за слишком частых обращений. Подождите примерно ${seconds} сек. и отправьте снова.`;
     }
 
     private isRemoteCodeModel(agent: ChatAgent): boolean {
@@ -2390,6 +2458,108 @@ export class RemoteServer {
         return path.basename(clean);
     }
 
+    private normalizeWorkspacePath(workspacePath?: string): string | undefined {
+        const clean = workspacePath?.trim();
+        if (!clean) return undefined;
+        try {
+            return path.resolve(clean);
+        } catch {
+            return clean;
+        }
+    }
+
+    private getWorkspaceProjectId(workspaceName?: string, workspacePath?: string): string {
+        const normalizedPath = this.normalizeWorkspacePath(workspacePath);
+        if (normalizedPath) return `path:${normalizedPath.toLowerCase()}`;
+        const cleanName = workspaceName?.trim();
+        return cleanName ? `name:${cleanName.toLowerCase()}` : 'unassigned';
+    }
+
+    private getWorkspaceProjectName(workspaceName?: string, workspacePath?: string): string {
+        return workspaceName?.trim()
+            || this.workspaceNameFromPath(workspacePath)
+            || 'Без проекта';
+    }
+
+    private getRemoteCodeProjects(threads = this.getRemoteCodeThreads()): RemoteCodeProjectSummary[] {
+        const byProject = new Map<string, RemoteCodeProjectSummary>();
+        const seedProject = (name?: string, workspacePath?: string, active = false) => {
+            const projectName = this.getWorkspaceProjectName(name, workspacePath);
+            const normalizedPath = this.normalizeWorkspacePath(workspacePath);
+            const id = this.getWorkspaceProjectId(projectName, normalizedPath);
+            const existing = byProject.get(id);
+            byProject.set(id, {
+                id,
+                name: existing?.name || projectName,
+                path: existing?.path || normalizedPath,
+                active: Boolean(existing?.active || active),
+                threadCount: existing?.threadCount || 0,
+                timestamp: existing?.timestamp || 0,
+                threads: existing?.threads || []
+            });
+            return id;
+        };
+
+        for (const folder of vscode.workspace.workspaceFolders || []) {
+            seedProject(folder.name, folder.uri.fsPath, true);
+        }
+        for (const project of this.getRecentProjects().slice(0, 8)) {
+            seedProject(project.name, project.path, false);
+        }
+
+        for (const thread of threads) {
+            const id = this.getWorkspaceProjectId(thread.workspaceName, thread.workspacePath);
+            const threadWithProject = { ...thread, projectId: id };
+            const project = byProject.get(id) || {
+                id,
+                name: this.getWorkspaceProjectName(thread.workspaceName, thread.workspacePath),
+                path: this.normalizeWorkspacePath(thread.workspacePath),
+                active: false,
+                threadCount: 0,
+                timestamp: 0,
+                threads: []
+            };
+            project.threads = [...project.threads, threadWithProject].sort((a, b) => b.timestamp - a.timestamp);
+            project.threadCount = project.threads.length;
+            project.timestamp = Math.max(project.timestamp, thread.timestamp || 0);
+            byProject.set(id, project);
+        }
+
+        return Array.from(byProject.values())
+            .filter(project => project.active || project.threadCount > 0)
+            .sort((a, b) => {
+                const activeDelta = Number(b.active) - Number(a.active);
+                return activeDelta || b.timestamp - a.timestamp || a.name.localeCompare(b.name);
+            });
+    }
+
+    private getCurrentRemoteCodeProjectId(threads = this.getRemoteCodeThreads()): string {
+        const current = threads.find(thread => thread.id === this.currentRemoteThreadId);
+        if (current) return this.getWorkspaceProjectId(current.workspaceName, current.workspacePath);
+        const workspace = this.getCurrentWorkspaceSummary();
+        return this.getWorkspaceProjectId(workspace.workspaceName, workspace.workspacePath);
+    }
+
+    private getRemoteCodeThreadsWithProjectIds(threads = this.getRemoteCodeThreads()): RemoteCodeThreadSummary[] {
+        return threads.map(thread => ({
+            ...thread,
+            projectId: this.getWorkspaceProjectId(thread.workspaceName, thread.workspacePath)
+        }));
+    }
+
+    private getRemoteCodeThreadsUpdatePayload(currentThreadId = this.currentRemoteThreadId): Record<string, any> {
+        const rawThreads = this.getRemoteCodeThreads();
+        const threads = this.getRemoteCodeThreadsWithProjectIds(rawThreads);
+        return {
+            type: 'codex:threads-update',
+            threads,
+            projects: this.getRemoteCodeProjects(threads),
+            currentThreadId,
+            currentProjectId: this.getCurrentRemoteCodeProjectId(rawThreads),
+            timestamp: Date.now()
+        };
+    }
+
     private isUntitledRemoteThread(title?: string): boolean {
         const normalized = (title || '').replace(/\s+/g, ' ').trim().toLowerCase();
         return !normalized || normalized === 'новый чат' || normalized === 'new chat' || normalized === 'remote code';
@@ -2545,7 +2715,29 @@ export class RemoteServer {
             seen.add(key);
             merged.push(message);
         }
-        return merged.slice(-limit).map(message => this.enrichCodexMessageForClient(message));
+        return this.dedupeAdjacentCodexMessages(merged)
+            .slice(-limit)
+            .map(message => this.enrichCodexMessageForClient(message));
+    }
+
+    private dedupeAdjacentCodexMessages(messages: CodexChatMessage[]): CodexChatMessage[] {
+        const result: CodexChatMessage[] = [];
+        for (const message of messages) {
+            const normalized = this.normalizeCodexMessageForDedupe(message);
+            const previous = result[result.length - 1];
+            if (previous && this.normalizeCodexMessageForDedupe(previous) === normalized) {
+                continue;
+            }
+            result.push(message);
+        }
+        return result;
+    }
+
+    private normalizeCodexMessageForDedupe(message: CodexChatMessage): string {
+        return [
+            message.role,
+            (message.content || '').replace(/\s+/g, ' ').trim()
+        ].join('\u0000');
     }
 
     private createRemoteCodeThread(): string {
@@ -2556,7 +2748,7 @@ export class RemoteServer {
         this.codexActionEvents = this.codexActionEvents.filter(event => event.threadId !== threadId);
         this.saveRemoteCodeState();
         this.refreshPcChatPanel();
-        this.broadcast({ type: 'codex:threads-update', threads: this.getRemoteCodeThreads(), currentThreadId: threadId, timestamp: Date.now() });
+        this.broadcast(this.getRemoteCodeThreadsUpdatePayload(threadId));
         return threadId;
     }
 
@@ -2766,15 +2958,7 @@ export class RemoteServer {
     ): Promise<string> {
         // Используем VS Code LanguageModel API для отправки в Copilot Chat
         try {
-            // Сначала пробуем найти модель GitHub Copilot
-            let models = await vscode.lm.selectChatModels({
-                vendor: 'copilot'
-            });
-
-            // Если Copilot не найден, пробуем все модели
-            if (!models || models.length === 0) {
-                models = await vscode.lm.selectChatModels({});
-            }
+            let models = await this.getCachedLanguageModels();
 
             if (!models || models.length === 0) {
                 throw new Error('Нет доступных моделей чата. Проверьте подключение Copilot.');
@@ -2835,8 +3019,11 @@ export class RemoteServer {
             return result || '(пустой ответ)';
         } catch (err: any) {
             const errorMessage = err?.message || String(err);
+            if (this.isLanguageModelRateLimitError(err)) {
+                this.lmModelsBlockedUntil = Date.now() + 2 * 60 * 1000;
+            }
             console.warn('[RemoteCodeOnPC] VS Code LM request failed:', errorMessage);
-            throw new Error(`VS Code language model request failed: ${errorMessage}`);
+            throw new Error(`VS Code language model request failed: ${this.isLanguageModelRateLimitError(err) ? this.getLanguageModelBlockedMessage() : errorMessage}`);
         }
     }
 
@@ -3068,6 +3255,9 @@ export class RemoteServer {
         includeContext?: boolean,
         localAttachments: LocalAttachment[] = []
     ): Promise<string> {
+        if (this.activeChatCancellation && !this.activeChatCancellation.token.isCancellationRequested) {
+            throw new Error('Remote Code уже выполняет запрос. Дождитесь ответа или нажмите Stop перед новой отправкой.');
+        }
         let targetThreadId = threadId.trim() || this.currentRemoteThreadId;
         if (!targetThreadId) {
             targetThreadId = this.createRemoteCodeThread();
@@ -3106,7 +3296,7 @@ export class RemoteServer {
         this.refreshPcChatPanel();
         this.broadcast({ type: 'codex:message', message: userMessage, threadId: targetThreadId, timestamp: Date.now() });
         this.broadcast({ type: 'codex:sent', message: messageForAgent, model, reasoningEffort: effort, includeContext: this.selectedIncludeContext, threadId: targetThreadId, timestamp: Date.now() });
-        this.broadcast({ type: 'codex:threads-update', threads: this.getRemoteCodeThreads(), timestamp: Date.now() });
+        this.broadcast(this.getRemoteCodeThreadsUpdatePayload());
 
         this.answerInPcMirror(messageForAgent, targetThreadId, model, effort, this.selectedIncludeContext, attachmentFiles, priorHistory).catch(err => {
             const errorMessage: CodexChatMessage = {
@@ -3467,13 +3657,13 @@ export class RemoteServer {
 
     private openPcChatPanel(): void {
         if (this.pcChatPanel) {
-            this.pcChatPanel.reveal(vscode.ViewColumn.Beside, true);
+            this.pcChatPanel.reveal(vscode.ViewColumn.One, true);
             return;
         }
         this.pcChatPanel = vscode.window.createWebviewPanel(
             'remoteCodePcChat',
             'Remote Code',
-            vscode.ViewColumn.Beside,
+            vscode.ViewColumn.One,
             { enableScripts: true, retainContextWhenHidden: true }
         );
         this.pcChatPanel.webview.onDidReceiveMessage(async msg => {
@@ -3483,15 +3673,20 @@ export class RemoteServer {
                 if (!text && localAttachments.length === 0) return;
                 if (typeof msg.profile === 'string') this.selectedProfile = msg.profile;
                 if (typeof msg.workMode === 'string') this.selectedWorkMode = msg.workMode;
-                await this.enqueueRemoteCodeMessage(
-                    text,
-                    typeof msg.model === 'string' ? msg.model : this.selectedAgent,
-                    '',
-                    [],
-                    typeof msg.reasoningEffort === 'string' ? msg.reasoningEffort : this.selectedReasoningEffort,
-                    msg.includeContext !== false,
-                    localAttachments
-                );
+                try {
+                    await this.enqueueRemoteCodeMessage(
+                        text,
+                        typeof msg.model === 'string' ? msg.model : this.selectedAgent,
+                        '',
+                        [],
+                        typeof msg.reasoningEffort === 'string' ? msg.reasoningEffort : this.selectedReasoningEffort,
+                        msg.includeContext !== false,
+                        localAttachments
+                    );
+                } catch (err: any) {
+                    await vscode.window.setStatusBarMessage(`Remote Code: ${err?.message || String(err)}`, 3500);
+                    this.refreshPcChatPanel(true);
+                }
             } else if (msg?.type === 'action' && typeof msg.action === 'string') {
                 await this.handlePcChatAction(msg.action, msg);
             } else if (msg?.type === 'actionResponse' && typeof msg.actionId === 'string') {
@@ -3629,7 +3824,7 @@ export class RemoteServer {
                     this.currentRemoteThreadId = msg.threadId.trim();
                     this.saveRemoteCodeState();
                     this.refreshPcChatPanel();
-                    this.broadcast({ type: 'codex:threads-update', threads: this.getRemoteCodeThreads(), currentThreadId: this.currentRemoteThreadId, timestamp: Date.now() });
+                this.broadcast(this.getRemoteCodeThreadsUpdatePayload());
                 }
                 return;
             case 'deleteThread':
@@ -3651,6 +3846,12 @@ export class RemoteServer {
                 return;
             case 'openExtensions':
                 await vscode.commands.executeCommand('workbench.view.extensions');
+                return;
+            case 'openPlugins':
+                await vscode.commands.executeCommand('workbench.view.extensions');
+                return;
+            case 'openAutomations':
+                await vscode.window.showInformationMessage('Remote Code: автоматизации Codex пока доступны в основном приложении.');
                 return;
             case 'openCommandPalette':
                 await vscode.commands.executeCommand('workbench.action.showCommands');
@@ -3780,7 +3981,7 @@ export class RemoteServer {
         this.upsertRemoteCodeThread(this.currentRemoteThreadId, title, Date.now());
         this.saveRemoteCodeState(true);
         this.refreshPcChatPanel(true);
-        this.broadcast({ type: 'codex:threads-update', threads: this.getRemoteCodeThreads(), currentThreadId: this.currentRemoteThreadId, timestamp: Date.now() });
+        this.broadcast(this.getRemoteCodeThreadsUpdatePayload());
     }
 
     private async toggleCurrentThreadPinned(): Promise<void> {
@@ -3794,7 +3995,7 @@ export class RemoteServer {
         this.remoteCodeThreadsCache = undefined;
         this.saveRemoteCodeState(true);
         this.refreshPcChatPanel(true);
-        this.broadcast({ type: 'codex:threads-update', threads: this.getRemoteCodeThreads(), currentThreadId: this.currentRemoteThreadId, timestamp: Date.now() });
+        this.broadcast(this.getRemoteCodeThreadsUpdatePayload());
     }
 
     private async archiveCurrentThread(): Promise<void> {
@@ -3809,7 +4010,7 @@ export class RemoteServer {
         this.currentRemoteThreadId = next?.id || '';
         this.saveRemoteCodeState(true);
         this.refreshPcChatPanel(true);
-        this.broadcast({ type: 'codex:threads-update', threads: this.getRemoteCodeThreads(), currentThreadId: this.currentRemoteThreadId, timestamp: Date.now() });
+        this.broadcast(this.getRemoteCodeThreadsUpdatePayload());
         await vscode.window.setStatusBarMessage('Remote Code: чат архивирован', 1600);
     }
 
@@ -3869,12 +4070,7 @@ export class RemoteServer {
         this.upsertRemoteCodeThread(this.currentRemoteThreadId, 'Новый чат', Date.now());
         this.saveRemoteCodeState();
         this.refreshPcChatPanel(true);
-        this.broadcast({
-            type: 'codex:threads-update',
-            threads: this.getRemoteCodeThreads(),
-            currentThreadId: this.currentRemoteThreadId,
-            timestamp: Date.now()
-        });
+        this.broadcast(this.getRemoteCodeThreadsUpdatePayload());
     }
 
     private async deleteRemoteThread(threadId: string): Promise<void> {
@@ -3903,7 +4099,7 @@ export class RemoteServer {
         }
         this.saveRemoteCodeState(true);
         this.refreshPcChatPanel(true);
-        this.broadcast({ type: 'codex:threads-update', threads: this.getRemoteCodeThreads(), currentThreadId: this.currentRemoteThreadId, timestamp: Date.now() });
+        this.broadcast(this.getRemoteCodeThreadsUpdatePayload());
         await vscode.window.setStatusBarMessage('Remote Code: чат удалён из списка', 1600);
     }
 
@@ -3940,7 +4136,7 @@ export class RemoteServer {
     private async showLocalUsageStatus(): Promise<void> {
         let models: readonly vscode.LanguageModelChat[] = [];
         try {
-            models = await vscode.lm.selectChatModels({});
+            models = await this.getCachedLanguageModels();
         } catch {
             models = [];
         }
@@ -4512,6 +4708,7 @@ export class RemoteServer {
             command: this.webIcon('command'),
             pin: this.webIcon('pin'),
             archive: this.webIcon('archive'),
+            external: this.webIcon('external'),
             play: this.webIcon('play'),
             terminal: this.webIcon('terminal'),
             trash: this.webIcon('trash'),
@@ -4522,6 +4719,7 @@ export class RemoteServer {
             stop: this.webIcon('stop'),
             sparkle: this.webIcon('sparkle'),
             branch: this.webIcon('branch'),
+            folder: this.webIcon('folder'),
             laptop: this.webIcon('laptop'),
             globe: this.webIcon('globe'),
             lock: this.webIcon('lock'),
@@ -4533,44 +4731,63 @@ export class RemoteServer {
             panel: this.webIcon('panel'),
             vscode: '<svg class="vscode-icon" viewBox="0 0 24 24"><path d="M17.8 3 8.4 12l9.4 9 2.2-.9V3.9Z"/><path d="m8.4 12-4 3.2L2.5 14 6.4 12 2.5 10 4.4 8.8Z"/></svg>'
         };
-        const workspaceFolders = vscode.workspace.workspaceFolders || [];
-        const recentProjects = this.getRecentProjects()
-            .filter(project => !workspaceFolders.some(folder => path.resolve(folder.uri.fsPath).toLowerCase() === path.resolve(project.path).toLowerCase()))
-            .slice(0, 4);
-        const sidebarProjectRows = [
-            ...workspaceFolders.map(folder => ({ name: folder.name, path: folder.uri.fsPath, active: true })),
-            ...recentProjects.map(project => ({ name: project.name, path: project.path, active: false }))
-        ].map(project => `<div class="sidebar-project ${project.active ? 'active' : ''}">
-            <button class="sidebar-project-btn" type="button" data-action="openWorkspace" data-path="${this.escapeHtml(project.path)}" title="${this.escapeHtml(project.path)}">${icon.laptop}<span>${this.escapeHtml(project.name)}</span></button>
-        </div>`).join('');
-        const sidebarThreadRows = threadOptions.map(thread => {
+        const projectOptions = this.getRemoteCodeProjects(threadOptions);
+        const currentProjectId = this.getCurrentRemoteCodeProjectId(threadOptions);
+        const renderSidebarThreadRow = (thread: RemoteCodeThreadSummary) => {
             const selected = thread.id === this.currentRemoteThreadId;
             const pinned = this.pinnedThreadIds.has(thread.id);
             const age = this.formatThreadAge(thread.timestamp);
-            const projectLabel = thread.workspaceName || this.workspaceNameFromPath(thread.workspacePath);
+            const subtitle = this.getWorkspaceProjectName(thread.workspaceName, thread.workspacePath);
             return `<div class="sidebar-thread ${selected ? 'selected' : ''}">
                 <button class="sidebar-thread-btn" type="button" data-thread-id="${this.escapeHtml(thread.id)}" title="${this.escapeHtml(thread.title)}">
                     <span class="sidebar-thread-main">
                         <span class="sidebar-thread-title">${pinned ? '• ' : ''}${this.escapeHtml(thread.title)}</span>
                         <span class="sidebar-thread-age">${this.escapeHtml(age)}</span>
                     </span>
-                    ${projectLabel ? `<span class="sidebar-thread-project">${this.escapeHtml(projectLabel)}</span>` : ''}
+                    <span class="sidebar-thread-subtitle">${this.escapeHtml(subtitle)}</span>
                 </button>
                 <button class="sidebar-thread-delete" type="button" data-delete-thread-id="${this.escapeHtml(thread.id)}" title="Удалить чат">${icon.trash}</button>
             </div>`;
+        };
+        const sidebarProjectRows = projectOptions.map(project => {
+            const selected = project.id === currentProjectId;
+            const latestThread = project.threads[0];
+            const mainAttrs = latestThread
+                ? `data-thread-id="${this.escapeHtml(latestThread.id)}"`
+                : (project.path ? `data-action="openWorkspace" data-path="${this.escapeHtml(project.path)}"` : '');
+            const threadRows = project.threads.map(renderSidebarThreadRow).join('');
+            return `<section class="sidebar-project-group ${selected ? 'selected' : ''}">
+                <div class="sidebar-project ${project.active ? 'active' : ''}">
+                    <button class="sidebar-project-btn" type="button" ${mainAttrs} title="${this.escapeHtml(project.path || project.name)}">
+                        ${icon.folder}
+                        <span class="sidebar-project-text"><span>${this.escapeHtml(project.name)}</span></span>
+                    </button>
+                    ${project.path ? `<button class="sidebar-project-open" type="button" data-action="openWorkspace" data-path="${this.escapeHtml(project.path)}" title="Открыть проект">${icon.external}</button>` : ''}
+                </div>
+                <div class="sidebar-project-threads">${threadRows || '<div class="sidebar-empty compact">Нет чатов в проекте</div>'}</div>
+            </section>`;
         }).join('');
-        const sidebarHtml = `<aside class="wide-sidebar" aria-label="Навигация Remote Code">
+        const threadMenuRows = projectOptions.map(project => {
+            const rows = project.threads.map(thread => `<div class="thread-row ${thread.id === this.currentRemoteThreadId ? 'selected' : ''}">
+                <button class="thread-item" type="button" data-thread-id="${this.escapeHtml(thread.id)}">${this.escapeHtml(thread.title)}<small>${this.escapeHtml(thread.source === 'codex' ? 'Codex' : 'Remote Code')} · ${this.escapeHtml(new Date(thread.timestamp || Date.now()).toLocaleString())}</small></button>
+                <button class="thread-delete" type="button" data-delete-thread-id="${this.escapeHtml(thread.id)}" title="Удалить чат">${icon.trash}</button>
+            </div>`).join('');
+            if (!rows) return '';
+            return `<div class="thread-menu-project">
+                <div class="thread-menu-project-title">${icon.folder}<span>${this.escapeHtml(project.name)}</span></div>
+                ${rows}
+            </div>`;
+        }).join('');
+        const sidebarHtml = `<aside class="wide-sidebar" aria-label="Навигация Codex">
             <div class="sidebar-actions">
                 <button class="sidebar-action" type="button" data-action="newChat">${icon.edit}<span>Новый чат</span></button>
                 <button class="sidebar-action" type="button" data-action="openSearch">${icon.search}<span>Поиск</span></button>
+                <button class="sidebar-action" type="button" data-action="openPlugins">${icon.extensions}<span>Плагины</span></button>
+                <button class="sidebar-action" type="button" data-action="openAutomations">${this.webIcon('clock')}<span>Автоматизации</span></button>
             </div>
             <div class="sidebar-section-title">Проекты</div>
-            <div class="sidebar-projects">${sidebarProjectRows || '<div class="sidebar-empty">Нет открытых проектов</div>'}</div>
-            <div class="sidebar-section-title chat-title-row"><span>Чаты</span><button class="sidebar-mini-btn" type="button" data-action="newChat" title="Новый чат">${icon.plus}</button></div>
-            <div class="sidebar-threads">${sidebarThreadRows || '<div class="sidebar-empty">Нет чатов</div>'}</div>
+            <div class="sidebar-projects">${sidebarProjectRows || '<div class="sidebar-empty">Нет проектов с чатами</div>'}</div>
             <div class="sidebar-bottom">
-                <button class="sidebar-action" type="button" data-action="showConnectionSettings">${icon.globe}<span>Подключение</span></button>
-                <button class="sidebar-action" type="button" data-action="configureKeeneticRouter">${icon.globe}<span>Настроить Keenetic</span></button>
                 <button class="sidebar-action" type="button" data-action="openSettings">${icon.settings}<span>Настройки</span></button>
             </div>
         </aside>`;
@@ -4623,13 +4840,13 @@ export class RemoteServer {
 <meta charset="UTF-8">
 <style>
 html,body{height:100%}
-:root{--codex-bg:#181818;--codex-sidebar:#211f25;--codex-surface:#242424;--codex-surface-2:#2d2d2d;--codex-selected:#323039;--codex-chip:#232323;--codex-border:#303030;--codex-strong-border:#363636;--codex-text:#d9d9d9;--codex-bright:#fdfdfd;--codex-muted:#979797;--codex-green:#50cf8e;--codex-red:#ee7070;--codex-blue:#2ea8ff;--codex-font:-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;--codex-mono:var(--vscode-editor-font-family,"Cascadia Mono",Consolas,monospace);--chat-max:860px;--composer-max:900px;--bubble-max:690px}
-body{margin:0;background:var(--codex-bg);color:var(--codex-text);font:14.5px/1.5 var(--codex-font);display:flex;flex-direction:column;letter-spacing:0;-webkit-font-smoothing:antialiased;text-rendering:geometricPrecision}
+:root{--codex-bg:#181818;--codex-sidebar:#141c1a;--codex-sidebar-2:#17201d;--codex-surface:#242424;--codex-surface-2:#2b2b2b;--codex-selected:#303433;--codex-chip:#232323;--codex-border:#2c302f;--codex-strong-border:#363a39;--codex-text:#d8d8d8;--codex-bright:#f5f5f5;--codex-muted:#96999a;--codex-green:#50cf8e;--codex-red:#ee7070;--codex-blue:#5aa7ff;--codex-font:-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;--codex-mono:var(--vscode-editor-font-family,"Cascadia Mono",Consolas,monospace);--chat-max:850px;--composer-max:880px;--bubble-max:680px}
+body{margin:0;background:var(--codex-bg);color:var(--codex-text);font:14px/1.52 var(--codex-font);display:flex;flex-direction:column;letter-spacing:0;-webkit-font-smoothing:antialiased;text-rendering:geometricPrecision}
 button{font:inherit}
 svg{width:15px;height:15px;display:block;fill:none;stroke:currentColor;stroke-width:1.75;stroke-linecap:round;stroke-linejoin:round;shape-rendering:geometricPrecision}
-.top{height:46px;border-bottom:1px solid var(--codex-border);background:var(--codex-bg);display:flex;align-items:center;gap:7px;padding:0 min(3vw,32px)}
+.top{height:44px;border-bottom:1px solid var(--codex-border);background:var(--codex-bg);display:flex;align-items:center;gap:7px;padding:0 min(3vw,30px)}
 .edit-icon{color:#a5a6a8}
-.thread-title{font-size:14.5px;color:var(--codex-bright);font-weight:650;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:660px;line-height:1.2}
+.thread-title{font-size:14px;color:var(--codex-bright);font-weight:650;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:660px;line-height:1.2}
 .toolbar-spacer{flex:1}
 .icon-btn{width:26px;height:26px;border:0;border-radius:7px;background:transparent;color:#9ea0a4;display:inline-flex;align-items:center;justify-content:center;cursor:pointer;padding:0}
 .icon-btn svg{width:16px;height:16px;stroke-width:1.65}
@@ -4655,6 +4872,10 @@ svg{width:15px;height:15px;display:block;fill:none;stroke:currentColor;stroke-wi
 .icon-item{display:flex;align-items:center;gap:9px}
 .icon-item svg{width:15px;height:15px;flex:0 0 auto}
 .menu-separator{height:1px;background:var(--codex-border);margin:6px 4px}
+.thread-menu-project{display:flex;flex-direction:column;gap:2px;margin-bottom:6px}
+.thread-menu-project-title{display:flex;align-items:center;gap:7px;color:#8f8f8f;font-size:11.5px;font-weight:600;padding:5px 8px 3px}
+.thread-menu-project-title svg{width:13px;height:13px;flex:0 0 auto}
+.thread-menu-project-title span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .thread-row{display:flex;align-items:stretch;gap:4px;border-radius:8px;position:relative}
 .thread-row:hover{background:#2a292e}
 .thread-row.selected{background:var(--codex-selected);color:var(--codex-bright)}
@@ -4666,30 +4887,35 @@ svg{width:15px;height:15px;display:block;fill:none;stroke:currentColor;stroke-wi
 .thread-row:hover .thread-delete{opacity:1}
 .thread-delete:hover{background:#463033;color:#f2b0b0}
 .content-shell{flex:1;min-height:0;display:flex;overflow:hidden}
-.wide-sidebar{width:246px;flex:0 0 246px;background:var(--codex-sidebar);border-right:1px solid var(--codex-border);display:flex;flex-direction:column;min-height:0;color:#cfcfcf;padding:12px 9px 10px;box-sizing:border-box}
-.sidebar-actions{display:flex;flex-direction:column;gap:3px;margin-bottom:22px}
-.sidebar-action{width:100%;height:30px;border:0;background:transparent;color:#cfd0d2;border-radius:8px;display:flex;align-items:center;gap:10px;padding:0 10px;cursor:pointer;text-align:left;font:inherit;font-size:13.25px}
+.wide-sidebar{width:246px;flex:0 0 246px;background:var(--codex-sidebar);border-right:1px solid #25302d;display:flex;flex-direction:column;min-height:0;color:#cfcfcf;padding:11px 10px 10px;box-sizing:border-box}
+.sidebar-actions{display:flex;flex-direction:column;gap:2px;margin-bottom:20px}
+.sidebar-action{width:100%;height:32px;border:0;background:transparent;color:#cfd0d2;border-radius:8px;display:flex;align-items:center;gap:10px;padding:0 10px;cursor:pointer;text-align:left;font:inherit;font-size:13.25px}
 .sidebar-action:hover{background:rgba(255,255,255,.055);color:#fff}
 .sidebar-action svg{width:15px;height:15px;flex:0 0 auto;color:#aeb0b4}
-.sidebar-section-title{font-size:12.5px;color:#858585;margin:10px 8px 7px;display:flex;align-items:center;justify-content:space-between}
-.chat-title-row{margin-top:18px}
-.sidebar-projects,.sidebar-threads{display:flex;flex-direction:column;gap:2px;min-height:0}
-.sidebar-threads{overflow:auto;padding-right:2px}
+.sidebar-section-title{font-size:12.5px;color:#858585;margin:10px 8px 8px;display:flex;align-items:center;justify-content:space-between}
+.sidebar-projects{display:flex;flex-direction:column;gap:5px;min-height:0;overflow:auto;padding-right:2px}
+.sidebar-project-group{display:flex;flex-direction:column;gap:2px}
 .sidebar-project{display:flex;align-items:center;border-radius:8px}
-.sidebar-project.active{background:rgba(68,79,77,.22)}
-.sidebar-project-btn{width:100%;height:31px;border:0;background:transparent;color:#c9c9ca;border-radius:8px;display:flex;align-items:center;gap:9px;padding:0 8px;cursor:pointer;text-align:left;font:inherit;font-size:13.25px;min-width:0}
-.sidebar-project-btn:hover{background:rgba(255,255,255,.055);color:#fff}
+.sidebar-project.active,.sidebar-project-group.selected>.sidebar-project{background:rgba(255,255,255,.055)}
+.sidebar-project-btn{flex:1;min-width:0;min-height:34px;border:0;background:transparent;color:#c9c9ca;border-radius:8px;display:flex;align-items:center;gap:9px;padding:4px 8px;cursor:pointer;text-align:left;font:inherit;font-size:13.25px}
+.sidebar-project-btn:hover,.sidebar-project-open:hover{background:rgba(255,255,255,.055);color:#fff}
 .sidebar-project-btn svg{width:15px;height:15px;color:#9fa1a5;flex:0 0 auto}
-.sidebar-project-btn span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.sidebar-thread{min-height:41px;display:flex;align-items:center;gap:2px;border-radius:9px;position:relative}
-.sidebar-thread.selected{background:#34323a}
+.sidebar-project-text{display:flex;flex-direction:column;min-width:0;line-height:1.2}
+.sidebar-project-text span,.sidebar-project-text small{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.sidebar-project-text small{color:#85888e;font-size:11px;margin-top:2px;font-weight:400}
+.sidebar-project-open{width:27px;height:27px;border:0;background:transparent;color:#85878b;border-radius:7px;display:flex;align-items:center;justify-content:center;cursor:pointer;opacity:.55;padding:0;margin-right:3px}
+.sidebar-project-open svg{width:13px;height:13px}
+.sidebar-project:hover .sidebar-project-open{opacity:.9}
+.sidebar-project-threads{display:flex;flex-direction:column;gap:2px;margin:1px 0 8px 20px}
+.sidebar-thread{min-height:44px;display:flex;align-items:center;gap:2px;border-radius:9px;position:relative}
+.sidebar-thread.selected{background:#2e3331}
 .sidebar-thread.selected::before{content:'';position:absolute;left:0;top:8px;bottom:8px;width:2px;border-radius:999px;background:var(--codex-blue)}
-.sidebar-thread-btn{flex:1;min-width:0;min-height:41px;border:0;background:transparent;color:#d8d8d8;border-radius:9px;display:flex;flex-direction:column;justify-content:center;gap:2px;padding:4px 8px 4px 12px;cursor:pointer;text-align:left;font:inherit;font-size:13.25px}
+.sidebar-thread-btn{flex:1;min-width:0;min-height:44px;border:0;background:transparent;color:#d8d8d8;border-radius:9px;display:flex;flex-direction:column;justify-content:center;gap:2px;padding:4px 7px 5px 10px;cursor:pointer;text-align:left;font:inherit;font-size:13.1px}
 .sidebar-thread:not(.selected) .sidebar-thread-btn:hover{background:rgba(255,255,255,.05)}
 .sidebar-thread-main{width:100%;display:flex;align-items:center;gap:8px;min-width:0}
 .sidebar-thread-title{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .sidebar-thread-age{color:#8b8d91;font-size:12px;flex:0 0 auto}
-.sidebar-thread-project{width:100%;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#868a91;font-size:11.5px;line-height:1.2}
+.sidebar-thread-subtitle{display:block;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#85888e;font-size:11.5px;line-height:1.2}
 .sidebar-thread-delete{width:26px;height:26px;border:0;background:transparent;color:#7f8287;border-radius:7px;display:flex;align-items:center;justify-content:center;cursor:pointer;opacity:.35;padding:0;margin-right:3px}
 .sidebar-thread-delete svg{width:13px;height:13px}
 .sidebar-thread:hover .sidebar-thread-delete{opacity:.9}
@@ -4697,9 +4923,9 @@ svg{width:15px;height:15px;display:block;fill:none;stroke:currentColor;stroke-wi
 .sidebar-mini-btn{width:24px;height:24px;border:0;background:transparent;color:#9fa1a5;border-radius:7px;display:inline-flex;align-items:center;justify-content:center;padding:0;cursor:pointer}
 .sidebar-mini-btn:hover{background:rgba(255,255,255,.06);color:#fff}
 .sidebar-mini-btn svg{width:14px;height:14px}
-.sidebar-empty{font-size:12.5px;color:#777;padding:7px 10px}
-.sidebar-bottom{margin-top:auto;padding-top:10px;border-top:1px solid rgba(255,255,255,.06)}
-.messages{flex:1;min-width:0;overflow:auto;padding:22px clamp(18px,4vw,72px) 146px;scrollbar-gutter:stable}
+.sidebar-empty{font-size:12.5px;color:#777;padding:7px 10px}.sidebar-empty.compact{padding:3px 8px 6px;font-size:11.5px}
+.sidebar-bottom{margin-top:auto;padding-top:10px;border-top:1px solid rgba(255,255,255,.055)}
+.messages{flex:1;min-width:0;overflow:auto;padding:20px clamp(18px,4vw,70px) 146px;scrollbar-gutter:stable}
 .progress-panel{width:232px;max-width:18vw;align-self:flex-start;margin:18px min(1vw,14px) 18px 0;background:rgba(36,36,36,.96);border:1px solid var(--codex-border);border-radius:18px;padding:14px;box-shadow:0 16px 42px rgba(0,0,0,.32);max-height:calc(100% - 36px);overflow:auto;color:#cfcfcf}
 .progress-title{font-size:13.5px;font-weight:650;color:#9e9e9e;margin-bottom:9px}
 .progress-list,.progress-section{display:flex;flex-direction:column;gap:8px}
@@ -4717,8 +4943,13 @@ svg{width:15px;height:15px;display:block;fill:none;stroke:currentColor;stroke-wi
 .progress-muted{color:#9a9a9a}
 .progress-artifact span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .progress-empty{font-size:12.5px;color:#888}
-.msg{position:relative;padding:0;margin:0 auto 23px;background:transparent;border:0;max-width:var(--chat-max)}
-.msg.user{max-width:var(--chat-max);margin:0 auto 24px;color:var(--codex-bright);display:flex;justify-content:flex-end;flex-wrap:wrap}
+.work-summary-line{max-width:var(--chat-max);margin:0 auto 10px;display:flex;align-items:center;gap:8px;color:#8f9094;font-size:12.75px;line-height:1.35}
+.work-summary-line strong{font-weight:600;color:#a9aaad}
+.work-summary-line .work-dot{width:15px;height:15px;border:1.7px solid #8f9094;border-radius:999px;display:inline-flex;align-items:center;justify-content:center;flex:0 0 auto}
+.work-summary-line.done .work-dot::after{content:'✓';font-size:11px;line-height:1}
+.work-summary-line.running .work-dot{border-left-color:transparent;animation:spin .9s linear infinite}
+.msg{position:relative;padding:0;margin:0 auto 22px;background:transparent;border:0;max-width:var(--chat-max)}
+.msg.user{max-width:var(--chat-max);margin:0 auto 23px;color:var(--codex-bright);display:flex;justify-content:center;flex-wrap:wrap}
 .msg.user .role,.msg.user .meta{display:none}
 .msg.user .message-text{background:#2b2b2d;border:1px solid #313134;border-radius:17px;padding:10px 14px;color:var(--codex-bright);max-width:min(74%,var(--bubble-max));box-sizing:border-box}
 .msg.system .message-text{color:#aeb0b3}
@@ -4728,7 +4959,7 @@ svg{width:15px;height:15px;display:block;fill:none;stroke:currentColor;stroke-wi
 .assistant .role{color:var(--codex-text)}.system .role{color:#e8b66b}
 .msg.streaming .meta-bottom::before{content:'Думаю';display:inline-flex;margin-right:8px;color:var(--codex-muted)}
 .msg.streaming .meta-bottom::after{content:'';display:inline-block;width:6px;height:6px;margin-left:6px;border-radius:999px;background:var(--codex-muted);vertical-align:middle;animation:pulse 1.1s ease-in-out infinite}
-.message-text{margin:0;white-space:normal;word-wrap:break-word;font:inherit;color:var(--codex-text);font-size:14.75px;line-height:1.5}
+.message-text{margin:0;white-space:normal;word-wrap:break-word;font:inherit;color:var(--codex-text);font-size:14.25px;line-height:1.5}
 .message-text p{margin:0 0 11px}
 .message-text p:last-child,.message-text ul:last-child,.message-text ol:last-child{margin-bottom:0}
 .message-text ul,.message-text ol{margin:0 0 11px 1.3em;padding:0}
@@ -4738,7 +4969,7 @@ svg{width:15px;height:15px;display:block;fill:none;stroke:currentColor;stroke-wi
 .message-text code,.message-text .inline-chip{font-family:var(--codex-mono);font-size:.9em;background:var(--codex-chip);color:#e4e4e4;border-radius:6px;padding:1px 6px;white-space:break-spaces}
 .msg.user .message-text code,.msg.user .message-text .inline-chip{background:#303030}
 .attachments-list,.message-file-cards{display:flex;flex-direction:column;gap:8px;margin:12px 0 0;width:100%;max-width:var(--chat-max)}
-.msg.user .attachments-list,.msg.user .message-file-cards{max-width:min(74%,var(--bubble-max));margin-left:auto}
+.msg.user .attachments-list,.msg.user .message-file-cards{max-width:min(74%,var(--bubble-max));margin-left:auto;margin-right:auto}
 .attachment-card{border:1px solid var(--codex-strong-border);background:var(--codex-surface);color:#dcdcdc;border-radius:10px;padding:9px 10px;display:grid;grid-template-columns:34px minmax(0,1fr) auto;align-items:center;gap:10px;max-width:100%;text-align:left;font:inherit}
 .attachment-card.clickable{cursor:pointer}
 .attachment-card.clickable:hover{background:var(--codex-surface-2)}
@@ -4804,14 +5035,14 @@ pre{margin:0;white-space:pre-wrap;word-wrap:break-word;font:inherit}
 .action-buttons{display:flex;gap:8px;justify-content:flex-end;margin-top:10px}
 .action-buttons button{border:1px solid var(--codex-strong-border);background:var(--codex-selected);color:var(--codex-text);border-radius:8px;padding:6px 10px;cursor:pointer}
 .action-buttons button:hover{background:#3a3740}
-.composer-wrap{padding:9px clamp(18px,4vw,72px) 10px;background:var(--codex-bg)}
-.composer{max-width:var(--composer-max);margin:0 auto;border:1px solid var(--codex-strong-border);background:var(--codex-surface-2);border-radius:19px;padding:10px 12px 9px;display:flex;flex-direction:column;gap:6px;box-shadow:0 10px 26px rgba(0,0,0,.18)}
+.composer-wrap{padding:8px clamp(18px,4vw,72px) 10px;background:var(--codex-bg)}
+.composer{max-width:var(--composer-max);margin:0 auto;border:1px solid var(--codex-strong-border);background:#2d2d2d;border-radius:20px;padding:10px 12px 9px;display:flex;flex-direction:column;gap:6px;box-shadow:0 10px 26px rgba(0,0,0,.18)}
 .controls{display:flex;gap:8px;align-items:center;min-width:0}
 .controls-spacer{flex:1 1 auto;min-width:16px}
 .subcontrols{display:flex;gap:12px;align-items:center;margin:5px auto 0;max-width:var(--composer-max);color:#8e8e8e;font-size:12px}
 .plus{color:#c0c0c0;background:transparent;border:0;width:30px;height:30px;display:inline-flex;align-items:center;justify-content:center;padding:0;cursor:pointer;border-radius:8px;flex:0 0 auto}
 .plus:hover{background:var(--codex-selected);color:#ededed}
-textarea{width:100%;box-sizing:border-box;resize:none;min-height:56px;max-height:190px;overflow:hidden;border:0;background:transparent;color:#e9e9e9;padding:0;font:inherit;font-size:14.5px;outline:none;line-height:1.46}
+textarea{width:100%;box-sizing:border-box;resize:none;min-height:54px;max-height:190px;overflow:hidden;border:0;background:transparent;color:#e9e9e9;padding:0;font:inherit;font-size:14px;outline:none;line-height:1.46}
 textarea.scroll{overflow:auto}
 textarea::placeholder{color:#818389}
 .composer-attachments{display:none;flex-wrap:wrap;gap:6px;margin:-1px 0 2px}
@@ -4846,6 +5077,7 @@ button.send{border:0;border-radius:999px;background:#d9d9d9;color:#111;width:33p
 button.send:hover{background:#fff}
 button.send.stop{background:#f0f0f0;color:#111}
 button.send.stop:hover{background:#fff}
+button.send:disabled{opacity:.55;cursor:default}
 .link-btn{border:0;background:transparent;color:#8e8e8e;cursor:pointer;padding:3px 0;display:inline-flex;align-items:center;gap:5px}
 .link-btn:hover{color:#d0d0d0}
 .scroll-bottom{position:fixed;right:calc(min(4vw,42px) + var(--progress-offset,0px));bottom:calc(var(--composer-height, 132px) + 12px);z-index:4;width:34px;height:34px;border:1px solid var(--codex-strong-border);border-radius:999px;background:rgba(45,45,45,.78);color:#e2e2e2;display:inline-flex;align-items:center;justify-content:center;padding:0;cursor:pointer;box-shadow:0 10px 26px rgba(0,0,0,.32);backdrop-filter:blur(5px);opacity:1;transform:translateY(0);transition:opacity .15s ease,transform .15s ease,background .15s ease}
@@ -4854,9 +5086,11 @@ button.send.stop:hover{background:#fff}
 .scroll-bottom.hidden{opacity:0;pointer-events:none;transform:translateY(8px)}
 @keyframes pulse{0%,100%{opacity:.35;transform:scale(.82)}50%{opacity:1;transform:scale(1)}}
 @keyframes spin{to{transform:rotate(360deg)}}
-@media (min-width: 1120px){:root{--progress-offset:250px}.composer-wrap{margin-left:246px;margin-right:252px}.messages{padding-left:clamp(20px,3vw,64px);padding-right:clamp(20px,3vw,64px)}}
+@media (min-width: 760px){.composer-wrap{margin-left:246px}.messages{padding-left:clamp(20px,3vw,64px);padding-right:clamp(20px,3vw,64px)}}
+@media (min-width: 1120px){:root{--progress-offset:250px}.composer-wrap{margin-right:252px}.progress-panel{display:block}}
 @media (min-width: 1500px){:root{--chat-max:900px;--composer-max:940px}.progress-panel{width:246px}}
-@media (max-width: 1119px){.wide-sidebar{display:none}.content-shell{display:flex;overflow:hidden}.messages{height:auto;overflow:auto}.progress-panel{display:none}.scroll-bottom{display:none}}
+@media (max-width: 1119px){:root{--progress-offset:0}.progress-panel{display:none}}
+@media (max-width: 759px){.wide-sidebar{display:none}.content-shell{display:flex;overflow:hidden}.messages{height:auto;overflow:auto}.scroll-bottom{display:none}}
 @media (max-width: 680px){.top{padding:0 10px}.token-btn{width:26px;padding:0}.token-btn span{display:none}.messages{padding-left:14px;padding-right:14px;padding-bottom:132px}.composer-wrap{padding-left:8px;padding-right:8px}.controls{flex-wrap:wrap}button.send{margin-left:auto}.subcontrols{gap:8px;flex-wrap:wrap}.dropdown.profile{flex-basis:132px}.msg.user .message-text,.msg.user .attachments-list,.msg.user .message-file-cards{max-width:88%}}
 </style>
 </head>
@@ -4869,10 +5103,7 @@ button.send.stop:hover{background:#fff}
       <span class="chev">${icon.chevron}</span>
     </button>
     <div class="thread-menu" id="threadMenu">
-      ${threadOptions.map(thread => `<div class="thread-row ${thread.id === this.currentRemoteThreadId ? 'selected' : ''}">
-        <button class="thread-item" type="button" data-thread-id="${this.escapeHtml(thread.id)}">${this.escapeHtml(thread.title)}<small>${this.escapeHtml(thread.source === 'codex' ? 'Codex' : 'Remote Code')} · ${this.escapeHtml(new Date(thread.timestamp || Date.now()).toLocaleString())}</small></button>
-        <button class="thread-delete" type="button" data-delete-thread-id="${this.escapeHtml(thread.id)}" title="Удалить чат">${icon.trash}</button>
-      </div>`).join('')}
+      ${threadMenuRows || '<div class="sidebar-empty">Нет чатов</div>'}
     </div>
   </div>
   <div class="top-menu-wrap" id="topMoreDrop">
@@ -4956,6 +5187,7 @@ let selectedProfile = ${JSON.stringify(this.selectedProfile)};
 let attachedFiles = [];
 const isBusy = ${JSON.stringify(isBusy)};
 const includeContext = true;
+let submitLocked = false;
 function formatBytes(bytes) {
   if (!bytes || bytes < 1) return '';
   if (bytes < 1024) return bytes + ' B';
@@ -5152,6 +5384,7 @@ document.querySelectorAll('[data-dismiss-action-id]').forEach(button => {
   });
 });
 document.getElementById('topRun').addEventListener('click', () => {
+  if (submitLocked) return;
   if (isBusy) {
     vscode.postMessage({ type: 'action', action: 'stopGeneration' });
     return;
@@ -5291,12 +5524,16 @@ document.querySelectorAll('.change-action').forEach(button => {
 });
 form.addEventListener('submit', event => {
   event.preventDefault();
+  if (submitLocked) return;
   if (isBusy) {
     vscode.postMessage({ type: 'action', action: 'stopGeneration' });
     return;
   }
   const message = prompt.value.trim();
   if (!message && attachedFiles.length === 0) return;
+  submitLocked = true;
+  const sendButton = document.getElementById('send');
+  if (sendButton) sendButton.disabled = true;
   vscode.postMessage({ type: 'send', message, attachments: attachedFiles, model: selectedModel, reasoningEffort: selectedEffort, includeContext, profile: selectedProfile });
   prompt.value = '';
   attachedFiles = [];
@@ -5371,13 +5608,15 @@ prompt.addEventListener('keydown', event => {
     }
 
     private renderActionTimeline(actions: RemoteCodeActionEvent[]): string {
-        const recent = actions.slice(-18);
+        const recent = this.recentActionTimelineEvents(actions).slice(-18);
         if (recent.length === 0) return '';
         const completedCommands = recent.filter(event => event.type === 'command_approval' && event.status === 'completed');
+        const isRunning = recent.some(event => event.status === 'running' || event.status === 'approved');
         const visibleEvents = recent
             .filter(event => !(event.type === 'command_approval' && event.status === 'completed'))
             .slice(-8);
         const parts: string[] = [];
+        parts.push(`<div class="work-summary-line ${isRunning ? 'running' : 'done'}"><span class="work-dot"></span><strong>${this.escapeHtml(this.actionTimelineSummary(recent, completedCommands.length, isRunning))}</strong></div>`);
         if (completedCommands.length > 0) {
             const word = this.pluralRu(completedCommands.length, 'команда', 'команды', 'команд');
             const entries = completedCommands.slice(-6).map(event => {
@@ -5396,6 +5635,52 @@ prompt.addEventListener('keydown', event => {
             parts.push(`<div class="action-line ${this.escapeHtml(event.status)}">${this.webIcon(this.actionTimelineIcon(event))}<strong>${this.escapeHtml(label)}</strong>${detail ? `<span>${this.escapeHtml(detail)}</span>` : ''}</div>`);
         }
         return parts.length ? `<div class="action-timeline">${parts.join('')}</div>` : '';
+    }
+
+    private actionTimelineSummary(events: RemoteCodeActionEvent[], completedCommandCount: number, isRunning: boolean): string {
+        const timestamps = events
+            .map(event => Number(event.timestamp || 0))
+            .filter(timestamp => Number.isFinite(timestamp) && timestamp > 0);
+        const rawDuration = timestamps.length >= 2
+            ? Math.max(...timestamps) - Math.min(...timestamps)
+            : 0;
+        const maxSummaryDurationMs = 3 * 60 * 60 * 1000;
+        const duration = rawDuration > 0 && rawDuration <= maxSummaryDurationMs
+            ? this.formatWorkDuration(rawDuration)
+            : '';
+        const verb = isRunning ? 'Работает' : 'Работал';
+        const durationText = duration ? ` на протяжении ${duration}` : '';
+        const commandText = completedCommandCount > 0
+            ? `, выполнено ${completedCommandCount} ${this.pluralRu(completedCommandCount, 'команда', 'команды', 'команд')}`
+            : '';
+        return `${verb}${durationText}${commandText}`;
+    }
+
+    private recentActionTimelineEvents(events: RemoteCodeActionEvent[]): RemoteCodeActionEvent[] {
+        const sorted = events
+            .filter(event => Number.isFinite(Number(event.timestamp || 0)) && Number(event.timestamp || 0) > 0)
+            .slice()
+            .sort((a, b) => Number(a.timestamp || 0) - Number(b.timestamp || 0));
+        if (sorted.length <= 1) return sorted;
+
+        const idleGapMs = 30 * 60 * 1000;
+        let startIndex = sorted.length - 1;
+        for (let index = sorted.length - 1; index > 0; index--) {
+            const gap = Number(sorted[index].timestamp || 0) - Number(sorted[index - 1].timestamp || 0);
+            if (gap > idleGapMs) break;
+            startIndex = index - 1;
+        }
+        return sorted.slice(startIndex);
+    }
+
+    private formatWorkDuration(durationMs: number): string {
+        const totalSeconds = Math.max(0, Math.round(durationMs / 1000));
+        const minutes = Math.floor(totalSeconds / 60);
+        const seconds = totalSeconds % 60;
+        if (minutes > 0 && seconds > 0) return `${minutes}м ${seconds}с`;
+        if (minutes > 0) return `${minutes}м`;
+        if (seconds > 0) return `${seconds}с`;
+        return '';
     }
 
     private actionTimelineLabel(event: RemoteCodeActionEvent): string {
@@ -5779,7 +6064,7 @@ prompt.addEventListener('keydown', event => {
         return `<button type="button" class="change-row" data-path="${this.escapeHtml(change.path)}"><span class="change-path">${this.escapeHtml(change.path)}</span>${additions}${deletions}<span class="row-chev">${this.webIcon('chevronDown')}</span></button>`;
     }
 
-    private webIcon(name: 'archive' | 'branch' | 'chevronDown' | 'command' | 'copy' | 'edit' | 'expand' | 'extensions' | 'external' | 'file' | 'globe' | 'laptop' | 'lock' | 'more' | 'panel' | 'pin' | 'play' | 'plus' | 'scrollDown' | 'search' | 'send' | 'settings' | 'sparkle' | 'stop' | 'terminal' | 'thumbDown' | 'thumbUp' | 'trash' | 'undo' | 'x'): string {
+    private webIcon(name: 'archive' | 'branch' | 'chevronDown' | 'clock' | 'command' | 'copy' | 'edit' | 'expand' | 'extensions' | 'external' | 'file' | 'folder' | 'globe' | 'laptop' | 'lock' | 'more' | 'panel' | 'pin' | 'play' | 'plus' | 'scrollDown' | 'search' | 'send' | 'settings' | 'sparkle' | 'stop' | 'terminal' | 'thumbDown' | 'thumbUp' | 'trash' | 'undo' | 'x'): string {
         switch (name) {
             case 'archive':
                 return '<svg viewBox="0 0 16 16" aria-hidden="true"><rect x="2.5" y="3" width="11" height="3" rx="1"/><path d="M4 6v7h8V6"/><path d="M6.25 9h3.5"/></svg>';
@@ -5787,6 +6072,8 @@ prompt.addEventListener('keydown', event => {
                 return '<svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="4" cy="4" r="1.9"/><circle cx="12" cy="12" r="1.9"/><path d="M4 6v1.4A4.6 4.6 0 0 0 8.6 12H10"/></svg>';
             case 'chevronDown':
                 return '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4.25 6.25 8 10l3.75-3.75"/></svg>';
+            case 'clock':
+                return '<svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="5.75"/><path d="M8 4.7V8l2.25 1.5"/></svg>';
             case 'command':
                 return '<svg viewBox="0 0 16 16" aria-hidden="true"><rect x="2.75" y="2.75" width="4" height="4" rx="1.1"/><rect x="9.25" y="2.75" width="4" height="4" rx="1.1"/><rect x="2.75" y="9.25" width="4" height="4" rx="1.1"/><rect x="9.25" y="9.25" width="4" height="4" rx="1.1"/></svg>';
             case 'copy':
@@ -5801,6 +6088,8 @@ prompt.addEventListener('keydown', event => {
                 return '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M5 11 11 5"/><path d="M6.25 5H11v4.75"/></svg>';
             case 'file':
                 return '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4 2.5h5l3 3v8H4z"/><path d="M9 2.5v3h3"/><path d="M6 9h4"/><path d="M6 11h3"/></svg>';
+            case 'folder':
+                return '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2 5.25h4.2l1.15-1.5H14v8.75a1.5 1.5 0 0 1-1.5 1.5h-9A1.5 1.5 0 0 1 2 12.5Z"/><path d="M2 6.25h12"/></svg>';
             case 'globe':
                 return '<svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="5.75"/><path d="M2.5 8h11"/><path d="M8 2.25c1.55 1.6 2.25 3.5 2.25 5.75S9.55 12.15 8 13.75C6.45 12.15 5.75 10.25 5.75 8S6.45 3.85 8 2.25Z"/></svg>';
             case 'laptop':
@@ -6333,7 +6622,9 @@ prompt.addEventListener('keydown', event => {
         this.saveRemoteCodeState();
         this.refreshPcChatPanel();
         const messages = this.currentRemoteThreadId
-            ? this.getMessagesForRemoteThread(this.currentRemoteThreadId, 120).filter(m => m.role !== 'system')
+            ? this.dedupeAdjacentCodexMessages(
+                this.getMessagesForRemoteThread(this.currentRemoteThreadId, 120).filter(m => m.role !== 'system')
+            )
             : [];
         this.jsonResponse(res, 200, {
             threadId: this.currentRemoteThreadId,
@@ -6614,9 +6905,13 @@ prompt.addEventListener('keydown', event => {
 
     private async handleRemoteCodeThreads(_req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
         try {
+            const rawThreads = this.getRemoteCodeThreads();
+            const threads = this.getRemoteCodeThreadsWithProjectIds(rawThreads);
             this.jsonResponse(res, 200, {
-                threads: this.getRemoteCodeThreads(),
-                currentThreadId: this.currentRemoteThreadId
+                threads,
+                projects: this.getRemoteCodeProjects(threads),
+                currentThreadId: this.currentRemoteThreadId,
+                currentProjectId: this.getCurrentRemoteCodeProjectId(rawThreads)
             });
         } catch (err: any) {
             this.jsonResponse(res, 200, { threads: [], error: err.message });
@@ -6647,10 +6942,14 @@ prompt.addEventListener('keydown', event => {
                 return;
             }
             await this.deleteRemoteThread(threadId);
+            const rawThreads = this.getRemoteCodeThreads();
+            const threads = this.getRemoteCodeThreadsWithProjectIds(rawThreads);
             this.jsonResponse(res, 200, {
                 success: true,
                 currentThreadId: this.currentRemoteThreadId,
-                threads: this.getRemoteCodeThreads()
+                currentProjectId: this.getCurrentRemoteCodeProjectId(rawThreads),
+                threads,
+                projects: this.getRemoteCodeProjects(threads)
             });
         } catch (err: any) {
             this.jsonResponse(res, 500, { success: false, error: err.message });
@@ -7198,7 +7497,12 @@ prompt.addEventListener('keydown', event => {
                     continue;
                 }
 
-                if (item.type === 'event_msg' && payload.type === 'agent_message' && payload.message) {
+                if (
+                    item.type === 'event_msg' &&
+                    payload.type === 'agent_message' &&
+                    payload.message &&
+                    this.shouldShowCodexAssistantMessage(payload)
+                ) {
                     messages.push({
                         id: `codex_assistant_${messages.length}_${itemTime}`,
                         role: 'assistant',
@@ -7210,6 +7514,12 @@ prompt.addEventListener('keydown', event => {
                 }
 
                 if (item.type === 'response_item' && payload.type === 'message' && (payload.role === 'user' || payload.role === 'assistant')) {
+                    if (payload.role === 'user') {
+                        continue;
+                    }
+                    if (payload.role === 'assistant' && !this.shouldShowCodexAssistantMessage(payload)) {
+                        continue;
+                    }
                     const content = this.extractResponseItemContent(payload);
                     if (content.trim()) {
                         messages.push({
@@ -7233,10 +7543,16 @@ prompt.addEventListener('keydown', event => {
                 title = firstUser ? firstUser.content.replace(/\s+/g, ' ').slice(0, 80) : 'Codex';
             }
 
-            return { id, title, timestamp: Math.round(timestamp), messages, filePath };
+            return { id, title, timestamp: Math.round(timestamp), messages: this.dedupeAdjacentCodexMessages(messages), filePath };
         } catch {
             return null;
         }
+    }
+
+    private shouldShowCodexAssistantMessage(payload: any): boolean {
+        const phase = typeof payload?.phase === 'string' ? payload.phase.toLowerCase() : '';
+        if (!phase) return true;
+        return phase === 'final_answer';
     }
 
     private extractResponseItemContent(payload: any): string {

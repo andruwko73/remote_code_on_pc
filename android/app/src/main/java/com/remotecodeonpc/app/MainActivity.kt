@@ -2,10 +2,11 @@ package com.remotecodeonpc.app
 
 import android.content.Intent
 import android.content.Context
+import android.content.pm.PackageInfo
+import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
-import android.provider.Settings
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -52,16 +53,15 @@ import com.remotecodeonpc.app.network.ConnectionUrl
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.io.File
+import java.security.MessageDigest
 import kotlin.system.exitProcess
 import java.util.concurrent.TimeUnit
 
 class MainActivity : ComponentActivity() {
     private val publicUpdateUrl = "https://raw.githubusercontent.com/andruwko73/remote_code_on_pc/main/apk/app-debug.apk"
+    private val publicUpdateSha256Url = "$publicUpdateUrl.sha256"
     private val crashPrefsName = "remote_code_crash_recovery"
     private val appPrefsName = "remote_code_prefs"
-    private var pendingUpdateApk: File? = null
-    private var pendingUpdateConfig: ServerConfig? = null
-    private var waitingForInstallPermission = false
     private var isUpdateInProgress = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -107,22 +107,6 @@ class MainActivity : ComponentActivity() {
                         )
                     }
                 }
-            }
-        }
-    }
-
-    override fun onResume() {
-        super.onResume()
-        if (
-            waitingForInstallPermission &&
-            (Build.VERSION.SDK_INT < Build.VERSION_CODES.O || packageManager.canRequestPackageInstalls())
-        ) {
-            waitingForInstallPermission = false
-            val apk = pendingUpdateApk?.takeIf { it.exists() && it.length() >= 1024 * 1024 }
-            if (apk != null) {
-                installApk(apk)
-            } else {
-                pendingUpdateConfig?.let { downloadAndInstallUpdate(it) }
             }
         }
     }
@@ -229,17 +213,6 @@ class MainActivity : ComponentActivity() {
             return
         }
 
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && !packageManager.canRequestPackageInstalls()) {
-            pendingUpdateConfig = config
-            pendingUpdateApk = null
-            waitingForInstallPermission = true
-            Toast.makeText(this, "Разрешите установку из приложения и вернитесь сюда", Toast.LENGTH_LONG).show()
-            startActivity(Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES).apply {
-                data = Uri.parse("package:$packageName")
-            })
-            return
-        }
-
         val updateUrls = buildUpdateUrls(config)
         if (updateUrls.isEmpty()) {
             Toast.makeText(this, "Сначала укажите адрес подключения", Toast.LENGTH_LONG).show()
@@ -247,7 +220,6 @@ class MainActivity : ComponentActivity() {
         }
 
         isUpdateInProgress = true
-        pendingUpdateConfig = config
         Toast.makeText(this, "Загружаю обновление...", Toast.LENGTH_SHORT).show()
         Thread {
             try {
@@ -285,10 +257,15 @@ class MainActivity : ComponentActivity() {
                             if (apkFile.length() < 1024 * 1024) {
                                 throw IllegalStateException("Файл обновления слишком маленький")
                             }
-                            pendingUpdateApk = apkFile
+                            if (apkFile.length() > 120L * 1024L * 1024L) {
+                                throw IllegalStateException("Файл обновления слишком большой")
+                            }
+                            val expectedSha256 = resolveExpectedUpdateSha256(client, updateUrl, response.headers["X-Remote-Code-Apk-Sha256"])
+                                ?: throw IllegalStateException("Источник обновления не отдал SHA-256 для проверки APK")
+                            validateDownloadedApk(apkFile, expectedSha256)
                             runOnUiThread {
                                 isUpdateInProgress = false
-                                installApk(apkFile)
+                                openVerifiedUpdateApk(apkFile)
                             }
                             return@Thread
                         }
@@ -324,25 +301,133 @@ class MainActivity : ComponentActivity() {
         return urls.distinct()
     }
 
-    private fun installApk(apkFile: File) {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && !packageManager.canRequestPackageInstalls()) {
-            pendingUpdateApk = apkFile
-            waitingForInstallPermission = true
-            isUpdateInProgress = false
-            Toast.makeText(this, "Разрешите установку из приложения и вернитесь сюда", Toast.LENGTH_LONG).show()
-            startActivity(Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES).apply {
-                data = Uri.parse("package:$packageName")
-            })
-            return
+    private fun resolveExpectedUpdateSha256(client: OkHttpClient, updateUrl: String, headerValue: String?): String? {
+        normalizeSha256(headerValue)?.let { return it }
+        if (!updateUrl.startsWith(publicUpdateUrl)) return null
+        val shaUrl = "$publicUpdateSha256Url?ts=${System.currentTimeMillis()}"
+        val request = Request.Builder()
+            .url(shaUrl)
+            .header("Cache-Control", "no-cache")
+            .build()
+        return runCatching {
+            client.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) return@use null
+                normalizeSha256(response.body?.string())
+            }
+        }.getOrNull()
+    }
+
+    private fun validateDownloadedApk(apkFile: File, expectedSha256: String) {
+        val actualSha256 = sha256Hex(apkFile)
+        if (!actualSha256.equals(expectedSha256, ignoreCase = true)) {
+            throw IllegalStateException("SHA-256 APK не совпал")
         }
 
+        val archiveInfo = readPackageInfo(apkFile.absolutePath)
+            ?: throw IllegalStateException("Скачанный APK не читается как Android package")
+        if (archiveInfo.packageName != packageName) {
+            throw IllegalStateException("APK предназначен для другого пакета: ${archiveInfo.packageName}")
+        }
+        val archiveVersion = packageVersionCode(archiveInfo)
+        if (archiveVersion < BuildConfig.VERSION_CODE) {
+            throw IllegalStateException("APK старее установленной версии")
+        }
+
+        val installedInfo = readInstalledPackageInfo()
+            ?: throw IllegalStateException("Не удалось прочитать подпись установленного приложения")
+        val installedSigners = signingCertificateDigests(installedInfo)
+        val archiveSigners = signingCertificateDigests(archiveInfo)
+        if (installedSigners.isNotEmpty() && archiveSigners.isNotEmpty() && installedSigners != archiveSigners) {
+            throw IllegalStateException("Подпись APK не совпадает с установленным приложением")
+        }
+    }
+
+    @Suppress("DEPRECATION")
+    private fun readPackageInfo(apkPath: String): PackageInfo? {
+        val flags = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            PackageManager.GET_SIGNING_CERTIFICATES
+        } else {
+            PackageManager.GET_SIGNATURES
+        }
+        return packageManager.getPackageArchiveInfo(apkPath, flags)
+    }
+
+    @Suppress("DEPRECATION")
+    private fun readInstalledPackageInfo(): PackageInfo? {
+        val flags = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            PackageManager.GET_SIGNING_CERTIFICATES
+        } else {
+            PackageManager.GET_SIGNATURES
+        }
+        return packageManager.getPackageInfo(packageName, flags)
+    }
+
+    @Suppress("DEPRECATION")
+    private fun packageVersionCode(info: PackageInfo): Long {
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            info.longVersionCode
+        } else {
+            info.versionCode.toLong()
+        }
+    }
+
+    @Suppress("DEPRECATION")
+    private fun signingCertificateDigests(info: PackageInfo): Set<String> {
+        val signatures = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            info.signingInfo?.apkContentsSigners
+        } else {
+            info.signatures
+        } ?: return emptySet()
+        return signatures
+            .map { signature -> sha256Hex(signature.toByteArray()) }
+            .toSet()
+    }
+
+    private fun normalizeSha256(value: String?): String? {
+        return Regex("""\b[a-fA-F0-9]{64}\b""")
+            .find(value.orEmpty())
+            ?.value
+            ?.lowercase()
+    }
+
+    private fun sha256Hex(file: File): String {
+        val digest = MessageDigest.getInstance("SHA-256")
+        file.inputStream().use { input ->
+            val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+            while (true) {
+                val read = input.read(buffer)
+                if (read <= 0) break
+                digest.update(buffer, 0, read)
+            }
+        }
+        return digest.digest().joinToString("") { "%02x".format(it) }
+    }
+
+    private fun sha256Hex(bytes: ByteArray): String {
+        return MessageDigest.getInstance("SHA-256")
+            .digest(bytes)
+            .joinToString("") { "%02x".format(it) }
+    }
+
+    private fun openVerifiedUpdateApk(apkFile: File) {
         val uri = FileProvider.getUriForFile(this, "$packageName.fileprovider", apkFile)
         val intent = Intent(Intent.ACTION_VIEW).apply {
             setDataAndType(uri, "application/vnd.android.package-archive")
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         }
-        startActivity(intent)
+        try {
+            startActivity(intent)
+            Toast.makeText(this, "APK проверен. Завершите установку в системном окне.", Toast.LENGTH_LONG).show()
+        } catch (e: Exception) {
+            CrashLogger.w("MainActivity", "Package installer did not accept update APK: ${e.message}")
+            val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                type = "application/vnd.android.package-archive"
+                putExtra(Intent.EXTRA_STREAM, uri)
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+            startActivity(Intent.createChooser(shareIntent, "Открыть APK обновления"))
+        }
     }
 }
 

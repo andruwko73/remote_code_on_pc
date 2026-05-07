@@ -51,6 +51,7 @@ import com.remotecodeonpc.app.CodexChatMessage
 import com.remotecodeonpc.app.CodexActionEvent
 import com.remotecodeonpc.app.CodexChangeFile
 import com.remotecodeonpc.app.CodexChangeSummary
+import com.remotecodeonpc.app.CodexProject
 import com.remotecodeonpc.app.CodexThread
 import com.remotecodeonpc.app.FileContent
 import com.remotecodeonpc.app.FileTreeItem
@@ -76,6 +77,7 @@ fun CodexScreen(
     actionEvents: List<CodexActionEvent>,
     sendResult: CodexSendResponse?,
     threads: List<CodexThread>,
+    projects: List<CodexProject>,
     currentThreadId: String,
     isLoading: Boolean,
     error: String?,
@@ -103,103 +105,382 @@ fun CodexScreen(
     onGoUp: () -> Unit,
     onNavigateToSettings: () -> Unit = {}
 ) {
-    var selectedTab by remember { mutableStateOf(0) }
-    BackHandler(enabled = selectedTab != 0) {
-        selectedTab = 0
+    val drawerState = rememberDrawerState(DrawerValue.Closed)
+    val scope = rememberCoroutineScope()
+    BackHandler(enabled = drawerState.isOpen) {
+        scope.launch { drawerState.close() }
+    }
+
+    fun closeDrawerThen(action: () -> Unit) {
+        scope.launch {
+            drawerState.close()
+            action()
+        }
+    }
+
+    ModalNavigationDrawer(
+        drawerState = drawerState,
+        drawerContent = {
+            ModalDrawerSheet(
+                drawerContainerColor = DarkSurface,
+                drawerContentColor = TextPrimary,
+                modifier = Modifier
+                    .fillMaxHeight()
+                    .width(332.dp)
+            ) {
+                CodexNavigationPanel(
+                    projects = projects,
+                    threads = threads,
+                    currentThreadId = currentThreadId,
+                    onNewThread = { closeDrawerThen(onNewThread) },
+                    onSwitchThread = { threadId -> closeDrawerThen { onSwitchThread(threadId) } },
+                    onOpenFolder = { path -> closeDrawerThen { onOpenFolder(path) } },
+                    onNavigateToSettings = { closeDrawerThen(onNavigateToSettings) }
+                )
+            }
+        }
+    ) {
+        CodexChatTab(
+            models = models,
+            selectedModel = selectedModel,
+            selectedReasoningEffort = selectedReasoningEffort,
+            selectedProfile = selectedProfile,
+            includeContext = includeContext,
+            chatHistory = chatHistory,
+            actionEvents = actionEvents,
+            sendResult = sendResult,
+            threads = threads,
+            projects = projects,
+            currentThreadId = currentThreadId,
+            isLoading = isLoading,
+            error = error,
+            onOpenNavigation = {
+                onLoadThreads()
+                scope.launch { drawerState.open() }
+            },
+            onSendMessage = onSendMessage,
+            onSelectModel = onSelectModel,
+            onSelectReasoningEffort = onSelectReasoningEffort,
+            onSelectProfile = onSelectProfile,
+            onToggleContext = onToggleContext,
+            onNewThread = onNewThread,
+            onLoadThreads = onLoadThreads,
+            onSwitchThread = onSwitchThread,
+            onDeleteThread = onDeleteThread,
+            onStopGeneration = onStopGeneration,
+            onRespondToAction = onRespondToAction,
+            onNavigateToSettings = onNavigateToSettings,
+            onOpenFile = onOpenFile
+        )
+    }
+}
+
+@Composable
+private fun CodexNavigationPanel(
+    projects: List<CodexProject>,
+    threads: List<CodexThread>,
+    currentThreadId: String,
+    onNewThread: () -> Unit,
+    onSwitchThread: (String) -> Unit,
+    onOpenFolder: (String) -> Unit,
+    onNavigateToSettings: () -> Unit
+) {
+    val projectGroups = remember(projects, threads) {
+        projects.ifEmpty { buildMobileCodexProjects(threads) }
     }
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .imePadding()
-            .background(DarkBackground)
+            .background(DarkSurface)
+            .padding(horizontal = 10.dp, vertical = 10.dp)
     ) {
-        Surface(
-            color = DarkSurface,
-            shadowElevation = 1.dp
+        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            CodexDrawerAction(
+                icon = Icons.Outlined.Edit,
+                label = "Новый чат",
+                onClick = onNewThread
+            )
+            CodexDrawerAction(
+                icon = Icons.Outlined.Search,
+                label = "Поиск",
+                enabled = false,
+                onClick = {}
+            )
+            CodexDrawerAction(
+                icon = Icons.Outlined.Extension,
+                label = "Плагины",
+                enabled = false,
+                onClick = {}
+            )
+            CodexDrawerAction(
+                icon = Icons.Outlined.Schedule,
+                label = "Автоматизации",
+                enabled = false,
+                onClick = {}
+            )
+        }
+
+        Text(
+            "Проекты",
+            color = TextSecondary,
+            fontSize = 12.sp,
+            modifier = Modifier.padding(start = 10.dp, top = 18.dp, bottom = 7.dp)
+        )
+
+        LazyColumn(
+            modifier = Modifier
+                .weight(1f)
+                .fillMaxWidth(),
+            verticalArrangement = Arrangement.spacedBy(2.dp),
+            contentPadding = PaddingValues(bottom = 64.dp)
         ) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(46.dp)
-                    .padding(horizontal = 8.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                TextButton(
-                    onClick = { selectedTab = 0 },
-                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp)
-                ) {
+            if (projectGroups.isEmpty()) {
+                item {
                     Text(
-                        "CODEX",
-                        color = if (selectedTab == 0) AccentBlue else TextBright,
+                        "Чаты появятся внутри проекта после первого запроса.",
+                        color = TextSecondary,
                         fontSize = 13.sp,
-                        fontWeight = FontWeight.SemiBold
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp)
                     )
                 }
-                TextButton(
-                    onClick = { selectedTab = 1 },
-                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp)
-                ) {
-                    Text(
-                        "\u041F\u0420\u041E\u0415\u041A\u0422\u042B",
-                        color = if (selectedTab == 1) TextBright else TextSecondary,
-                        fontSize = 13.sp
+            }
+            projectGroups.forEach { project ->
+                item(key = "drawer-project-${project.id}") {
+                    CodexDrawerProjectRow(
+                        project = project,
+                        selected = project.threads.any { it.id == currentThreadId },
+                        onClick = { project.threads.firstOrNull()?.id?.let(onSwitchThread) },
+                        onOpenFolder = onOpenFolder
                     )
                 }
-                Spacer(modifier = Modifier.weight(1f))
-                IconButton(onClick = onNavigateToSettings, modifier = Modifier.size(38.dp)) {
-                    Icon(
-                        Icons.Outlined.Settings,
-                        contentDescription = "\u041D\u0430\u0441\u0442\u0440\u043E\u0439\u043A\u0438",
-                        tint = TextSecondary,
-                        modifier = Modifier.size(22.dp)
+                items(project.threads, key = { "drawer-thread-${it.id}" }) { thread ->
+                    CodexDrawerThreadRow(
+                        thread = thread,
+                        selected = thread.id == currentThreadId,
+                        onClick = { onSwitchThread(thread.id) }
                     )
                 }
             }
         }
 
-        // Content
-        when (selectedTab) {
-            0 -> CodexChatTab(
-                models = models,
-                selectedModel = selectedModel,
-                selectedReasoningEffort = selectedReasoningEffort,
-                selectedProfile = selectedProfile,
-                includeContext = includeContext,
-                chatHistory = chatHistory,
-                actionEvents = actionEvents,
-                sendResult = sendResult,
-                threads = threads,
-                currentThreadId = currentThreadId,
-                isLoading = isLoading,
-                error = error,
-                onSendMessage = onSendMessage,
-                onSelectModel = onSelectModel,
-                onSelectReasoningEffort = onSelectReasoningEffort,
-                onSelectProfile = onSelectProfile,
-                onToggleContext = onToggleContext,
-                onNewThread = onNewThread,
-                onLoadThreads = onLoadThreads,
-                onSwitchThread = onSwitchThread,
-                onDeleteThread = onDeleteThread,
-                onStopGeneration = onStopGeneration,
-                onRespondToAction = onRespondToAction,
-                onNavigateToSettings = onNavigateToSettings,
-                onOpenFile = {
-                    onOpenFile(it)
-                    selectedTab = 1
+        HorizontalDivider(color = DividerColor.copy(alpha = 0.55f))
+        CodexDrawerAction(
+            icon = Icons.Outlined.Settings,
+            label = "Настройки",
+            modifier = Modifier.padding(top = 7.dp),
+            onClick = onNavigateToSettings
+        )
+    }
+}
+
+@Composable
+private fun CodexDrawerAction(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    label: String,
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true,
+    onClick: () -> Unit
+) {
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .height(32.dp)
+            .background(Color.Transparent, RoundedCornerShape(8.dp))
+            .clickable(enabled = enabled, onClick = onClick)
+            .padding(horizontal = 10.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Icon(icon, contentDescription = null, tint = if (enabled) TextSecondary else TextSecondary.copy(alpha = 0.42f), modifier = Modifier.size(17.dp))
+        Spacer(modifier = Modifier.width(10.dp))
+        Text(label, color = if (enabled) TextPrimary else TextSecondary.copy(alpha = 0.42f), fontSize = 13.5.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+    }
+}
+
+@Composable
+private fun CodexDrawerProjectRow(
+    project: CodexProject,
+    selected: Boolean,
+    onClick: () -> Unit,
+    onOpenFolder: (String) -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .heightIn(min = 34.dp)
+            .background(if (selected) Color(0xFF2A302E) else Color.Transparent, RoundedCornerShape(8.dp))
+            .clickable(enabled = project.threads.isNotEmpty(), onClick = onClick)
+            .padding(start = 9.dp, end = 2.dp, top = 5.dp, bottom = 5.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Icon(Icons.Outlined.Folder, contentDescription = null, tint = if (selected) AccentBlue else TextSecondary, modifier = Modifier.size(17.dp))
+        Spacer(modifier = Modifier.width(9.dp))
+        Text(project.name.ifBlank { "Без проекта" }, color = TextPrimary, fontSize = 13.5.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+        project.path?.takeIf { it.isNotBlank() }?.let { path ->
+            IconButton(onClick = { onOpenFolder(path) }, modifier = Modifier.size(30.dp)) {
+                Icon(Icons.Default.NorthEast, contentDescription = "Открыть проект", tint = TextSecondary, modifier = Modifier.size(15.dp))
+            }
+        }
+    }
+}
+
+@Composable
+private fun CodexDrawerThreadRow(
+    thread: CodexThread,
+    selected: Boolean,
+    onClick: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(start = 25.dp)
+            .background(if (selected) Color(0xFF323039) else Color.Transparent, RoundedCornerShape(8.dp))
+            .clickable(onClick = onClick)
+            .padding(horizontal = 8.dp, vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Box(
+            modifier = Modifier
+                .size(width = 3.dp, height = 24.dp)
+                .background(if (selected) AccentBlue else Color.Transparent, RoundedCornerShape(999.dp))
+        )
+        Spacer(modifier = Modifier.width(8.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            Text(threadDisplayTitle(thread), color = if (selected) TextBright else TextPrimary, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(threadSourceLabel(thread), color = TextSecondary, fontSize = 10.5.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        }
+    }
+}
+
+@Composable
+private fun CodexProjectsTab(
+    projects: List<CodexProject>,
+    threads: List<CodexThread>,
+    currentThreadId: String,
+    onSwitchThread: (String) -> Unit,
+    onNewThread: () -> Unit,
+    onOpenFolder: (String) -> Unit
+) {
+    val projectGroups = remember(projects, threads) {
+        projects.ifEmpty { buildMobileCodexProjects(threads) }
+    }
+
+    LazyColumn(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(DarkBackground)
+            .padding(horizontal = 14.dp),
+        contentPadding = PaddingValues(top = 14.dp, bottom = 18.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        item {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    "Проекты",
+                    color = TextBright,
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.weight(1f)
+                )
+                IconButton(onClick = onNewThread, modifier = Modifier.size(36.dp)) {
+                    Icon(Icons.Outlined.Edit, contentDescription = "Новый чат", tint = TextSecondary, modifier = Modifier.size(19.dp))
                 }
-            )
-            1 -> FilesScreen(
-                folders = folders,
-                currentFiles = currentFiles,
-                fileContent = fileContent,
-                isLoading = isLoadingFiles,
-                onNavigateToDir = onNavigateToDir,
-                onOpenFile = onOpenFile,
-                onOpenFolder = onOpenFolder,
-                onGoUp = onGoUp,
-                onBack = { selectedTab = 0 }
-            )
+            }
+        }
+        if (projectGroups.isEmpty()) {
+            item {
+                Text(
+                    "Чаты появятся внутри проекта после первого запроса.",
+                    color = TextSecondary,
+                    fontSize = 14.sp,
+                    modifier = Modifier.padding(top = 18.dp)
+                )
+            }
+        }
+        projectGroups.forEach { project ->
+            item(key = "project-${project.id}") {
+                MobileProjectHeader(
+                    project = project,
+                    selected = project.threads.any { it.id == currentThreadId },
+                    onClick = { project.threads.firstOrNull()?.id?.let(onSwitchThread) },
+                    onOpenFolder = onOpenFolder
+                )
+            }
+            items(
+                items = project.threads,
+                key = { "thread-${it.id}" }
+            ) { thread ->
+                MobileProjectThreadRow(
+                    thread = thread,
+                    selected = thread.id == currentThreadId,
+                    onClick = { onSwitchThread(thread.id) }
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun MobileProjectHeader(
+    project: CodexProject,
+    selected: Boolean,
+    onClick: () -> Unit,
+    onOpenFolder: (String) -> Unit
+) {
+    Surface(
+        color = if (selected) Color(0xFF26302D) else Color(0xFF242424),
+        shape = RoundedCornerShape(10.dp),
+        border = BorderStroke(1.dp, if (selected) AccentBlue.copy(alpha = 0.22f) else Color(0xFF303030)),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable(onClick = onClick)
+                .padding(start = 12.dp, end = 6.dp, top = 10.dp, bottom = 10.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(Icons.Outlined.Folder, contentDescription = null, tint = if (selected) AccentBlue else TextSecondary, modifier = Modifier.size(20.dp))
+            Spacer(modifier = Modifier.width(10.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(project.name.ifBlank { "Без проекта" }, color = TextBright, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(mobileProjectSubtitle(project), color = TextSecondary, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
+            project.path?.takeIf { it.isNotBlank() }?.let { path ->
+                IconButton(onClick = { onOpenFolder(path) }, modifier = Modifier.size(34.dp)) {
+                    Icon(Icons.Default.NorthEast, contentDescription = "Открыть проект", tint = TextSecondary, modifier = Modifier.size(17.dp))
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun MobileProjectThreadRow(
+    thread: CodexThread,
+    selected: Boolean,
+    onClick: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(start = 24.dp)
+            .background(if (selected) Color(0xFF323039) else Color.Transparent, RoundedCornerShape(9.dp))
+            .clickable(onClick = onClick)
+            .padding(horizontal = 10.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Box(
+            modifier = Modifier
+                .size(width = 3.dp, height = 28.dp)
+                .background(if (selected) AccentBlue else Color.Transparent, RoundedCornerShape(999.dp))
+        )
+        Spacer(modifier = Modifier.width(9.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            Text(threadDisplayTitle(thread), color = if (selected) TextBright else TextPrimary, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(threadSourceLabel(thread), color = TextSecondary, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
     }
 }
@@ -215,9 +496,11 @@ fun CodexChatTab(
     actionEvents: List<CodexActionEvent>,
     sendResult: CodexSendResponse?,
     threads: List<CodexThread>,
+    projects: List<CodexProject>,
     currentThreadId: String,
     isLoading: Boolean,
     error: String?,
+    onOpenNavigation: () -> Unit = {},
     onSendMessage: (String, List<MessageAttachment>) -> Unit,
     onSelectModel: (String) -> Unit,
     onSelectReasoningEffort: (String) -> Unit,
@@ -295,7 +578,7 @@ fun CodexChatTab(
         )
     }
     val currentModel = displayModels.find { it.id == selectedModel }
-    val modelLabel = currentModel?.name ?: selectedModel.ifBlank { "GPT-5.5" }
+    val modelLabel = shortMobileModelName(currentModel?.name ?: selectedModel.ifBlank { "GPT-5.5" })
     val reasoningOptions = listOf(
         "low" to "\u041D\u0438\u0437\u043A\u0438\u0439",
         "medium" to "\u0421\u0440\u0435\u0434\u043D\u0438\u0439",
@@ -310,7 +593,12 @@ fun CodexChatTab(
     val reasoningLabel = reasoningOptions.firstOrNull { it.first == selectedReasoningEffort }?.second ?: "\u0421\u0440\u0435\u0434\u043D\u0438\u0439"
     val profileLabel = profileOptions.firstOrNull { it.first == selectedProfile }?.second ?: "\u041F\u043E\u043B\u044C\u0437."
     val currentThread = threads.find { it.id == currentThreadId }
-    val visibleChatHistory = chatHistory.filterNot { isMobileActionResultMessage(it.content) }
+    val projectGroups = remember(projects, threads) { projects.ifEmpty { buildMobileCodexProjects(threads) } }
+    val currentProjectLabel = currentThread?.let { threadProjectName(it) }
+        ?: projectGroups.firstOrNull { project -> project.threads.any { it.id == currentThreadId } }?.name
+    val visibleChatHistory = remember(chatHistory) {
+        dedupeMobileChatMessages(chatHistory.filterNot { isMobileActionResultMessage(it.content) })
+    }
     val timelineActionEvents = actionEvents
         .filterNot { it.actionable && it.status == "pending" }
         .takeLast(10)
@@ -333,14 +621,15 @@ fun CodexChatTab(
         approvalActionEvents.size,
         approvalActionEvents.lastOrNull()?.status
     ) {
-        val statusRows = if (sendResult?.success == true) 1 else 0
-        val timelineRows = if (timelineActionEvents.isNotEmpty()) 1 else 0
-        val emptyRows = if (chatHistory.isEmpty() && sendResult == null && actionEvents.isEmpty()) 1 else 0
-        val targetIndex = statusRows + visibleChatHistory.size + timelineRows + approvalActionEvents.size + emptyRows
-        if (targetIndex >= 0) {
-            delay(16)
-            listState.scrollToItem(targetIndex)
-            delay(80)
+        repeat(4) {
+            delay(120)
+            val targetIndex = (listState.layoutInfo.totalItemsCount - 1).coerceAtLeast(0)
+            if (targetIndex > 0) {
+                listState.scrollToItem(targetIndex)
+            }
+        }
+        val targetIndex = (listState.layoutInfo.totalItemsCount - 1).coerceAtLeast(0)
+        if (targetIndex > 0) {
             listState.animateScrollToItem(targetIndex)
         }
     }
@@ -349,30 +638,46 @@ fun CodexChatTab(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(46.dp)
-                .padding(horizontal = 14.dp),
+                .height(52.dp)
+                .padding(start = 6.dp, end = 14.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Row(
+            IconButton(onClick = onOpenNavigation, modifier = Modifier.size(40.dp)) {
+                Icon(Icons.Default.Menu, contentDescription = "Навигация", tint = TextSecondary, modifier = Modifier.size(22.dp))
+            }
+            Spacer(modifier = Modifier.width(2.dp))
+            Column(
                 modifier = Modifier
                     .weight(1f)
                     .clickable {
                         onLoadThreads()
                         showThreads = true
                     },
-                verticalAlignment = Alignment.CenterVertically
+                verticalArrangement = Arrangement.Center
             ) {
-                Text(
-                    currentThread?.let { threadDisplayTitle(it) } ?: "\u0414\u043E\u0440\u0430\u0431\u043E\u0442\u0430\u0442\u044C \u0443\u0434\u0430\u043B\u0451\u043D\u043D\u044B\u0439 \u0434\u043E\u0441\u0442\u0443\u043F",
-                    color = TextBright,
-                    fontSize = 15.sp,
-                    lineHeight = 18.sp,
-                    fontWeight = FontWeight.Bold,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f)
-                )
-                Icon(Icons.Default.ArrowDropDown, contentDescription = null, tint = TextSecondary, modifier = Modifier.size(18.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        currentThread?.let { threadDisplayTitle(it) } ?: "\u0414\u043E\u0440\u0430\u0431\u043E\u0442\u0430\u0442\u044C \u0443\u0434\u0430\u043B\u0451\u043D\u043D\u044B\u0439 \u0434\u043E\u0441\u0442\u0443\u043F",
+                        color = TextBright,
+                        fontSize = 15.sp,
+                        lineHeight = 18.sp,
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f)
+                    )
+                    Icon(Icons.Default.ArrowDropDown, contentDescription = null, tint = TextSecondary, modifier = Modifier.size(18.dp))
+                }
+                currentProjectLabel?.takeIf { it.isNotBlank() }?.let { label ->
+                    Text(
+                        label,
+                        color = TextSecondary,
+                        fontSize = 11.sp,
+                        lineHeight = 13.sp,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
             }
             Box {
                 IconButton(onClick = { showCurrentThreadMenu = true }, modifier = Modifier.size(34.dp)) {
@@ -435,55 +740,67 @@ fun CodexChatTab(
                         modifier = Modifier.fillMaxWidth().heightIn(max = 480.dp),
                         verticalArrangement = Arrangement.spacedBy(4.dp)
                     ) {
-                        if (threads.isEmpty()) item { Text("\u041D\u0435\u0442 \u0430\u043A\u0442\u0438\u0432\u043D\u044B\u0445 \u0447\u0430\u0442\u043E\u0432", color = TextSecondary) }
-                        else items(threads) { thread ->
-                            val selected = thread.id == currentThreadId
-                            Surface(
-                                color = if (selected) Color(0xFF323039) else Color.Transparent,
-                                shape = RoundedCornerShape(10.dp),
-                                border = BorderStroke(1.dp, if (selected) AccentBlue.copy(alpha = 0.28f) else Color.Transparent),
-                                modifier = Modifier.fillMaxWidth()
-                            ) {
+                        if (projectGroups.isEmpty()) item { Text("\u041D\u0435\u0442 \u0430\u043A\u0442\u0438\u0432\u043D\u044B\u0445 \u0447\u0430\u0442\u043E\u0432", color = TextSecondary) }
+                        projectGroups.forEach { project ->
+                            item(key = "dialog-project-${project.id}") {
                                 Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .clickable {
-                                            onSwitchThread(thread.id)
-                                            showThreads = false
-                                        }
-                                        .padding(start = 12.dp, end = 4.dp, top = 9.dp, bottom = 9.dp)
+                                    modifier = Modifier.fillMaxWidth().padding(top = 4.dp, bottom = 2.dp),
+                                    verticalAlignment = Alignment.CenterVertically
                                 ) {
-                                    Box(
+                                    Icon(Icons.Outlined.Folder, contentDescription = null, tint = TextSecondary, modifier = Modifier.size(15.dp))
+                                    Spacer(modifier = Modifier.width(7.dp))
+                                    Text(project.name.ifBlank { "Без проекта" }, color = TextSecondary, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                }
+                            }
+                            items(project.threads, key = { "dialog-thread-${it.id}" }) { thread ->
+                                val selected = thread.id == currentThreadId
+                                Surface(
+                                    color = if (selected) Color(0xFF323039) else Color.Transparent,
+                                    shape = RoundedCornerShape(10.dp),
+                                    border = BorderStroke(1.dp, if (selected) AccentBlue.copy(alpha = 0.28f) else Color.Transparent),
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
                                         modifier = Modifier
-                                            .size(width = 3.dp, height = 34.dp)
-                                            .background(if (selected) AccentBlue else Color.Transparent, RoundedCornerShape(999.dp))
-                                    )
-                                    Spacer(modifier = Modifier.width(9.dp))
-                                    Column(modifier = Modifier.weight(1f).padding(end = 10.dp)) {
-                                        Text(
-                                            threadDisplayTitle(thread),
-                                            color = if (selected) TextBright else TextPrimary,
-                                            fontSize = 14.sp,
-                                            lineHeight = 18.sp,
-                                            fontWeight = FontWeight.SemiBold,
-                                            maxLines = 2,
-                                            overflow = TextOverflow.Ellipsis,
-                                            modifier = Modifier.fillMaxWidth()
+                                            .fillMaxWidth()
+                                            .clickable {
+                                                onSwitchThread(thread.id)
+                                                showThreads = false
+                                            }
+                                            .padding(start = 12.dp, end = 4.dp, top = 9.dp, bottom = 9.dp)
+                                    ) {
+                                        Box(
+                                            modifier = Modifier
+                                                .size(width = 3.dp, height = 34.dp)
+                                                .background(if (selected) AccentBlue else Color.Transparent, RoundedCornerShape(999.dp))
                                         )
-                                        Spacer(modifier = Modifier.height(2.dp))
-                                        Text(
-                                            threadDisplaySubtitle(thread),
-                                            color = TextSecondary,
-                                            fontSize = 11.sp,
-                                            lineHeight = 13.sp,
-                                            maxLines = 1,
-                                            overflow = TextOverflow.Ellipsis,
-                                            modifier = Modifier.fillMaxWidth()
-                                        )
-                                    }
-                                    IconButton(onClick = { pendingDeleteThread = thread }, modifier = Modifier.size(40.dp)) {
-                                        Icon(Icons.Outlined.Delete, contentDescription = "Удалить чат", tint = TextSecondary, modifier = Modifier.size(18.dp))
+                                        Spacer(modifier = Modifier.width(9.dp))
+                                        Column(modifier = Modifier.weight(1f).padding(end = 10.dp)) {
+                                            Text(
+                                                threadDisplayTitle(thread),
+                                                color = if (selected) TextBright else TextPrimary,
+                                                fontSize = 14.sp,
+                                                lineHeight = 18.sp,
+                                                fontWeight = FontWeight.SemiBold,
+                                                maxLines = 2,
+                                                overflow = TextOverflow.Ellipsis,
+                                                modifier = Modifier.fillMaxWidth()
+                                            )
+                                            Spacer(modifier = Modifier.height(2.dp))
+                                            Text(
+                                                threadSourceLabel(thread),
+                                                color = TextSecondary,
+                                                fontSize = 11.sp,
+                                                lineHeight = 13.sp,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis,
+                                                modifier = Modifier.fillMaxWidth()
+                                            )
+                                        }
+                                        IconButton(onClick = { pendingDeleteThread = thread }, modifier = Modifier.size(40.dp)) {
+                                            Icon(Icons.Outlined.Delete, contentDescription = "Удалить чат", tint = TextSecondary, modifier = Modifier.size(18.dp))
+                                        }
                                     }
                                 }
                             }
@@ -528,10 +845,15 @@ fun CodexChatTab(
         if (error != null) Text(error, color = ErrorRed, fontSize = 13.sp, modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp))
 
         Box(modifier = Modifier.fillMaxWidth().weight(1f)) {
-            LazyColumn(state = listState, modifier = Modifier.fillMaxSize().padding(horizontal = 14.dp), verticalArrangement = Arrangement.spacedBy(7.dp), contentPadding = PaddingValues(top = 14.dp, bottom = 10.dp)) {
-                if (sendResult?.success == true) item { DesktopStatusLine("\u041E\u0442\u043F\u0440\u0430\u0432\u043B\u0435\u043D\u043E", AccentGreen) }
-                items(visibleChatHistory) { msg -> CodexMessageBubble(msg, onOpenFile) }
-                if (timelineActionEvents.isNotEmpty()) item { MobileActionTimeline(timelineActionEvents) }
+            LazyColumn(state = listState, modifier = Modifier.fillMaxSize().padding(horizontal = 14.dp), verticalArrangement = Arrangement.spacedBy(6.dp), contentPadding = PaddingValues(top = 10.dp, bottom = 8.dp)) {
+                val timelineInsertIndex = visibleChatHistory.indexOfLast { it.role == "assistant" }
+                visibleChatHistory.forEachIndexed { index, msg ->
+                    if (timelineActionEvents.isNotEmpty() && index == timelineInsertIndex) {
+                        item(key = "action-timeline") { MobileActionTimeline(timelineActionEvents) }
+                    }
+                    item(key = msg.id.ifBlank { "msg-$index" }) { CodexMessageBubble(msg, onOpenFile) }
+                }
+                if (timelineActionEvents.isNotEmpty() && timelineInsertIndex < 0) item { MobileActionTimeline(timelineActionEvents) }
                 items(approvalActionEvents) { event -> DesktopToolBlock(event, onRespondToAction) }
                 if (chatHistory.isEmpty() && sendResult == null && actionEvents.isEmpty()) item {
                     Column(modifier = Modifier.padding(top = 32.dp)) {
@@ -558,8 +880,8 @@ fun CodexChatTab(
             }
         }
 
-        Surface(modifier = Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 10.dp), color = Color(0xFF2D2D2D), shape = RoundedCornerShape(22.dp), border = BorderStroke(1.dp, Color(0xFF363636))) {
-            Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp)) {
+        Surface(modifier = Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 8.dp), color = Color(0xFF2D2D2D), shape = RoundedCornerShape(21.dp), border = BorderStroke(1.dp, Color(0xFF363636))) {
+            Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
                 if (attachments.isNotEmpty()) {
                     LazyColumn(modifier = Modifier.heightIn(max = 90.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                         items(attachments) { attachment ->
@@ -578,8 +900,8 @@ fun CodexChatTab(
                     onValueChange = { messageText = it },
                     placeholder = { Text("\u0417\u0430\u043F\u0440\u043E\u0441\u0438\u0442\u0435 \u0432\u043D\u0435\u0441\u0435\u043D\u0438\u0435 \u0434\u043E\u043F\u043E\u043B\u043D\u0438\u0442\u0435\u043B\u044C\u043D\u044B\u0445 \u0438\u0437\u043C\u0435\u043D\u0435\u043D\u0438\u0439", color = TextSecondary.copy(alpha = 0.62f)) },
                     modifier = Modifier.fillMaxWidth(),
-                    minLines = 2,
-                    maxLines = 5,
+                    minLines = 1,
+                    maxLines = 4,
                     colors = OutlinedTextFieldDefaults.colors(focusedTextColor = TextPrimary, unfocusedTextColor = TextPrimary, focusedBorderColor = Color.Transparent, unfocusedBorderColor = Color.Transparent, focusedContainerColor = Color.Transparent, unfocusedContainerColor = Color.Transparent, cursorColor = TextPrimary),
                     keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
                     keyboardActions = KeyboardActions(onSend = { if (!isLoading) submitMessage() })
@@ -587,14 +909,14 @@ fun CodexChatTab(
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .heightIn(min = 44.dp),
+                        .heightIn(min = 40.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     IconButton(
                         onClick = { attachmentPicker.launch("*/*") },
-                        modifier = Modifier.size(36.dp)
+                        modifier = Modifier.size(34.dp)
                     ) {
-                        Icon(Icons.Default.Add, contentDescription = "\u0414\u043E\u0431\u0430\u0432\u0438\u0442\u044C", tint = TextSecondary, modifier = Modifier.size(21.dp))
+                        Icon(Icons.Default.Add, contentDescription = "\u0414\u043E\u0431\u0430\u0432\u0438\u0442\u044C", tint = TextSecondary, modifier = Modifier.size(20.dp))
                     }
                     Box {
                         TextButton(
@@ -658,20 +980,20 @@ fun CodexChatTab(
                         }
                     }
                     Spacer(modifier = Modifier.weight(1f))
-                    IconButton(onClick = onToggleContext, modifier = Modifier.size(36.dp)) {
+                    IconButton(onClick = onToggleContext, modifier = Modifier.size(34.dp)) {
                         Icon(
                             Icons.Default.AutoAwesome,
                             contentDescription = "\u041A\u043E\u043D\u0442\u0435\u043A\u0441\u0442 IDE",
                             tint = if (includeContext) AccentBlue else TextSecondary,
-                            modifier = Modifier.size(20.dp)
+                            modifier = Modifier.size(19.dp)
                         )
                     }
-                    IconButton(onClick = { startVoiceInput() }, modifier = Modifier.size(36.dp)) {
+                    IconButton(onClick = { startVoiceInput() }, modifier = Modifier.size(34.dp)) {
                         Icon(
                             Icons.Default.Mic,
                             contentDescription = "\u0413\u043E\u043B\u043E\u0441\u043E\u0432\u043E\u0439 \u0432\u0432\u043E\u0434",
                             tint = TextSecondary,
-                            modifier = Modifier.size(20.dp)
+                            modifier = Modifier.size(19.dp)
                         )
                     }
                     FilledIconButton(
@@ -679,7 +1001,7 @@ fun CodexChatTab(
                         enabled = isLoading || messageText.isNotBlank() || attachments.isNotEmpty(),
                         shape = CircleShape,
                         colors = IconButtonDefaults.filledIconButtonColors(containerColor = Color(0xFFD9D9D9), disabledContainerColor = Color(0xFF414141)),
-                        modifier = Modifier.size(42.dp)
+                        modifier = Modifier.size(40.dp)
                     ) {
                         if (isLoading) {
                             Icon(Icons.Default.Stop, contentDescription = "Остановить", tint = Color.Black)
@@ -700,6 +1022,27 @@ private fun threadDisplayTitle(thread: CodexThread): String {
     if (rawTitle.startsWith("codex-file:", ignoreCase = true)) return "\u0421\u0435\u0441\u0441\u0438\u044F Codex"
     if (rawTitle.startsWith("remote-code-", ignoreCase = true)) return "\u041D\u043E\u0432\u044B\u0439 \u0447\u0430\u0442"
     return rawTitle.replace(Regex("\\s+"), " ")
+}
+
+private fun shortMobileModelName(value: String): String {
+    return value
+        .replace(Regex("^gpt-", RegexOption.IGNORE_CASE), "")
+        .replace(Regex("^GPT-", RegexOption.IGNORE_CASE), "")
+        .replace("Codex-Spark", "Spark", ignoreCase = true)
+        .replace("Codex", "Codex", ignoreCase = true)
+        .trim()
+        .ifBlank { "5.5" }
+}
+
+private fun threadProjectName(thread: CodexThread): String? {
+    return thread.workspaceName
+        ?.trim()
+        ?.takeIf { it.isNotBlank() }
+        ?: thread.workspacePath
+            ?.replace("\\", "/")
+            ?.trimEnd('/')
+            ?.substringAfterLast('/')
+            ?.takeIf { it.isNotBlank() }
 }
 
 private fun threadDisplaySubtitle(thread: CodexThread): String {
@@ -723,9 +1066,78 @@ private fun threadDisplaySubtitle(thread: CodexThread): String {
     return listOfNotNull(project, source, rolloutDate).joinToString(" · ")
 }
 
+private fun threadSourceLabel(thread: CodexThread): String {
+    return when {
+        thread.id.startsWith("codex-file:", ignoreCase = true) -> "Codex Desktop"
+        thread.id.startsWith("remote-code-", ignoreCase = true) -> "Remote Code"
+        else -> "Чат"
+    }
+}
+
+private fun mobileProjectSubtitle(project: CodexProject): String {
+    val count = "${project.threadCount.coerceAtLeast(project.threads.size)} ${pluralRu(project.threadCount.coerceAtLeast(project.threads.size), "чат", "чата", "чатов")}"
+    val active = if (project.active) "открыт" else null
+    val path = project.path
+        ?.replace("\\", "/")
+        ?.trimEnd('/')
+        ?.takeIf { it.isNotBlank() }
+    return listOfNotNull(count, active, path).joinToString(" · ")
+}
+
+private fun buildMobileCodexProjects(threads: List<CodexThread>): List<CodexProject> {
+    return threads
+        .groupBy { mobileProjectKey(it.workspaceName, it.workspacePath) }
+        .map { (id, groupedThreads) ->
+            val sortedThreads = groupedThreads.sortedByDescending { it.timestamp }
+            val first = sortedThreads.firstOrNull()
+            CodexProject(
+                id = id,
+                name = first?.workspaceName?.trim()?.takeIf { it.isNotBlank() }
+                    ?: first?.workspacePath
+                        ?.replace("\\", "/")
+                        ?.trimEnd('/')
+                        ?.substringAfterLast('/')
+                        ?.takeIf { it.isNotBlank() }
+                    ?: "Без проекта",
+                path = first?.workspacePath,
+                threadCount = sortedThreads.size,
+                timestamp = sortedThreads.maxOfOrNull { it.timestamp } ?: 0,
+                threads = sortedThreads
+            )
+        }
+        .sortedByDescending { it.timestamp }
+}
+
+private fun mobileProjectKey(workspaceName: String?, workspacePath: String?): String {
+    val path = workspacePath
+        ?.trim()
+        ?.replace('\\', '/')
+        ?.trimEnd('/')
+        ?.takeIf { it.isNotBlank() }
+    if (path != null) return "path:${path.lowercase()}"
+    val name = workspaceName?.trim()?.takeIf { it.isNotBlank() }
+    return name?.let { "name:${it.lowercase()}" } ?: "unassigned"
+}
+
 private fun isMobileActionResultMessage(content: String): Boolean {
     val text = content.trimStart()
     return text.startsWith("Действие выполнено:") || text.startsWith("Действие завершилось ошибкой:")
+}
+
+private fun dedupeMobileChatMessages(messages: List<CodexChatMessage>): List<CodexChatMessage> {
+    val result = mutableListOf<CodexChatMessage>()
+    messages.forEach { message ->
+        val previous = result.lastOrNull()
+        if (previous != null && mobileMessageDedupeKey(previous) == mobileMessageDedupeKey(message)) {
+            return@forEach
+        }
+        result += message
+    }
+    return result
+}
+
+private fun mobileMessageDedupeKey(message: CodexChatMessage): String {
+    return message.role + "\u0000" + message.content.replace(Regex("\\s+"), " ").trim()
 }
 
 @Composable
@@ -836,41 +1248,55 @@ private fun MobileActionTimeline(events: List<CodexActionEvent>) {
     val otherEvents = events
         .filterNot { it.status == "completed" && it.type.contains("command") }
         .takeLast(6)
-    var expanded by remember(completedCommands.map { it.id }) { mutableStateOf(false) }
+    val visibleEvents = (otherEvents + completedCommands.takeLast(5)).takeLast(8)
+    var expanded by remember(events.map { it.id to it.status }) { mutableStateOf(false) }
+    val running = events.any { it.status == "running" || it.status == "approved" }
+    val summary = remember(events, running) { mobileWorkSummary(events, running) }
 
     Column(
-        modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
+        modifier = Modifier.fillMaxWidth().padding(vertical = 5.dp),
         verticalArrangement = Arrangement.spacedBy(3.dp)
     ) {
-        if (completedCommands.isNotEmpty()) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clickable { expanded = !expanded }
-                    .padding(horizontal = 2.dp, vertical = 2.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Icon(Icons.Default.Terminal, contentDescription = null, tint = TextSecondary, modifier = Modifier.size(15.dp))
-                Spacer(modifier = Modifier.width(8.dp))
-                Text(
-                    "Выполнено ${completedCommands.size} ${pluralRu(completedCommands.size, "команда", "команды", "команд")}",
-                    color = TextSecondary,
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.Medium
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable { expanded = !expanded }
+                .padding(horizontal = 2.dp, vertical = 5.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            if (running) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(14.dp),
+                    strokeWidth = 2.dp,
+                    color = TextSecondary
                 )
-                Icon(
-                    if (expanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
-                    contentDescription = null,
-                    tint = TextSecondary,
-                    modifier = Modifier.size(17.dp)
-                )
+            } else {
+                Icon(Icons.Default.CheckCircle, contentDescription = null, tint = TextSecondary, modifier = Modifier.size(15.dp))
             }
-            AnimatedVisibility(visible = expanded) {
-                Column(
-                    modifier = Modifier.padding(start = 24.dp, end = 4.dp, bottom = 2.dp),
-                    verticalArrangement = Arrangement.spacedBy(3.dp)
-                ) {
-                    completedCommands.takeLast(5).forEach { event ->
+            Spacer(modifier = Modifier.width(8.dp))
+            Text(
+                summary,
+                color = TextSecondary,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Medium,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f)
+            )
+            Icon(
+                if (expanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
+                contentDescription = null,
+                tint = TextSecondary,
+                modifier = Modifier.size(17.dp)
+            )
+        }
+        AnimatedVisibility(visible = expanded) {
+            Column(
+                modifier = Modifier.padding(start = 23.dp, end = 4.dp, bottom = 2.dp),
+                verticalArrangement = Arrangement.spacedBy(3.dp)
+            ) {
+                visibleEvents.forEach { event ->
+                    if (event.status == "completed" && event.type.contains("command")) {
                         Text(
                             compactActionText(event),
                             color = TextSecondary,
@@ -880,13 +1306,73 @@ private fun MobileActionTimeline(events: List<CodexActionEvent>) {
                             maxLines = 2,
                             overflow = TextOverflow.Ellipsis
                         )
+                    } else {
+                        MobileActionLine(event)
                     }
+                }
+                if (visibleEvents.isEmpty()) {
+                    Text(
+                        "Подробностей пока нет",
+                        color = TextSecondary.copy(alpha = 0.72f),
+                        fontSize = 11.sp
+                    )
                 }
             }
         }
-        otherEvents.forEach { event ->
-            MobileActionLine(event)
-        }
+    }
+}
+
+private const val MOBILE_WORK_SUMMARY_IDLE_GAP_MS = 30L * 60L * 1000L
+private const val MOBILE_WORK_SUMMARY_MAX_MS = 3L * 60L * 60L * 1000L
+
+private fun mobileWorkSummary(events: List<CodexActionEvent>, running: Boolean): String {
+    val activeEvents = recentMobileWorkEvents(events)
+    val timestamps = activeEvents.map { it.timestamp }.filter { it > 0 }
+    val rawDuration = if (timestamps.size >= 2) {
+        (timestamps.maxOrNull() ?: 0) - (timestamps.minOrNull() ?: 0)
+    } else {
+        0
+    }
+    val duration = if (rawDuration in 1..MOBILE_WORK_SUMMARY_MAX_MS) {
+        formatMobileDuration(rawDuration)
+    } else {
+        ""
+    }
+    val verb = if (running) "Работает" else "Работал"
+    val workLabel = if (duration.isBlank()) verb else "$verb на протяжении $duration"
+    val completedCommandCount = activeEvents.count { it.status == "completed" && it.type.contains("command") }
+    val commandLabel = if (completedCommandCount > 0) {
+        ", выполнено $completedCommandCount ${pluralRu(completedCommandCount, "команда", "команды", "команд")}"
+    } else {
+        ""
+    }
+    return "$workLabel$commandLabel"
+}
+
+private fun recentMobileWorkEvents(events: List<CodexActionEvent>): List<CodexActionEvent> {
+    val sorted = events
+        .filter { it.timestamp > 0 }
+        .sortedBy { it.timestamp }
+    if (sorted.size <= 1) return sorted
+
+    var startIndex = sorted.lastIndex
+    for (index in sorted.lastIndex downTo 1) {
+        val gap = sorted[index].timestamp - sorted[index - 1].timestamp
+        if (gap > MOBILE_WORK_SUMMARY_IDLE_GAP_MS) break
+        startIndex = index - 1
+    }
+    return sorted.drop(startIndex)
+}
+
+private fun formatMobileDuration(durationMs: Long): String {
+    val totalSeconds = (durationMs / 1000).coerceAtLeast(0)
+    val minutes = totalSeconds / 60
+    val seconds = totalSeconds % 60
+    return when {
+        minutes > 0 && seconds > 0 -> "${minutes}м ${seconds}с"
+        minutes > 0 -> "${minutes}м"
+        seconds > 0 -> "${seconds}с"
+        else -> ""
     }
 }
 
@@ -1053,19 +1539,19 @@ private fun CodexMessageBubble(
             .padding(vertical = 1.dp)
     ) {
         if (isUser) {
-            Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.CenterEnd) {
+            Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
                 Surface(
                     color = Color(0xFF242424),
-                    shape = RoundedCornerShape(18.dp),
+                    shape = RoundedCornerShape(17.dp),
                     border = BorderStroke(1.dp, Color(0xFF2F2F2F)),
-                    modifier = Modifier.widthIn(max = 520.dp)
+                    modifier = Modifier.widthIn(max = 330.dp)
                 ) {
                     Column {
                         Text(
                             highlightedText(cleanedContent.ifBlank { "..." }),
                             color = TextBright,
-                            fontSize = 14.sp,
-                            lineHeight = 20.sp,
+                            fontSize = 13.sp,
+                            lineHeight = 19.sp,
                             modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
                         )
                         if (message.attachments.isNotEmpty()) {
@@ -1093,10 +1579,6 @@ private fun CodexMessageBubble(
             if (message.attachments.isNotEmpty()) {
                 Spacer(modifier = Modifier.height(8.dp))
                 MobileMessageAttachments(message.attachments)
-            }
-            message.model?.takeIf { it.isNotBlank() }?.let {
-                Spacer(modifier = Modifier.height(7.dp))
-                Text(it, color = TextSecondary, fontSize = 11.sp)
             }
             if (changeSummary != null) {
                 Spacer(modifier = Modifier.height(10.dp))
@@ -1163,12 +1645,101 @@ private fun formatAttachmentSize(size: Long): String {
 
 @Composable
 private fun HighlightedMessageText(text: String) {
-    Text(
-        highlightedText(text),
-        color = TextPrimary,
-        fontSize = 14.sp,
-        lineHeight = 20.sp
-    )
+    val blocks = remember(text) { mobileTextBlocks(text) }
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        blocks.forEach { block ->
+            when (block.kind) {
+                MobileTextBlockKind.Bullet -> MobileBulletList(block.lines, ordered = false)
+                MobileTextBlockKind.Ordered -> MobileBulletList(block.lines, ordered = true)
+                else -> Text(
+                    highlightedText(block.lines.joinToString("\n")),
+                    color = TextPrimary,
+                    fontSize = 13.sp,
+                    lineHeight = 20.sp
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun MobileBulletList(lines: List<String>, ordered: Boolean) {
+    Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
+        lines.forEachIndexed { index, line ->
+            Row(verticalAlignment = Alignment.Top) {
+                Text(
+                    if (ordered) "${index + 1}." else "•",
+                    color = TextSecondary,
+                    fontSize = 13.sp,
+                    lineHeight = 20.sp,
+                    modifier = Modifier.width(20.dp)
+                )
+                Text(
+                    highlightedText(line),
+                    color = TextPrimary,
+                    fontSize = 13.sp,
+                    lineHeight = 20.sp,
+                    modifier = Modifier.weight(1f)
+                )
+            }
+        }
+    }
+}
+
+private enum class MobileTextBlockKind { Paragraph, Bullet, Ordered }
+
+private data class MobileTextBlock(
+    val kind: MobileTextBlockKind,
+    val lines: List<String>
+)
+
+private fun mobileTextBlocks(text: String): List<MobileTextBlock> {
+    val blocks = mutableListOf<MobileTextBlock>()
+    val paragraph = mutableListOf<String>()
+    fun flushParagraph() {
+        val clean = paragraph.map { it.trimEnd() }.filter { it.isNotBlank() }
+        if (clean.isNotEmpty()) blocks += MobileTextBlock(MobileTextBlockKind.Paragraph, clean)
+        paragraph.clear()
+    }
+    var index = 0
+    val lines = text.replace("\r\n", "\n").lines()
+    while (index < lines.size) {
+        val raw = lines[index]
+        val bullet = Regex("""^\s*[-*•]\s+(.+)$""").find(raw)
+        val ordered = Regex("""^\s*\d+[.)]\s+(.+)$""").find(raw)
+        when {
+            raw.isBlank() -> {
+                flushParagraph()
+                index++
+            }
+            bullet != null -> {
+                flushParagraph()
+                val items = mutableListOf<String>()
+                while (index < lines.size) {
+                    val match = Regex("""^\s*[-*•]\s+(.+)$""").find(lines[index]) ?: break
+                    items += match.groupValues[1].trim()
+                    index++
+                }
+                blocks += MobileTextBlock(MobileTextBlockKind.Bullet, items)
+            }
+            ordered != null -> {
+                flushParagraph()
+                val items = mutableListOf<String>()
+                while (index < lines.size) {
+                    val match = Regex("""^\s*\d+[.)]\s+(.+)$""").find(lines[index]) ?: break
+                    items += match.groupValues[1].trim()
+                    index++
+                }
+                blocks += MobileTextBlock(MobileTextBlockKind.Ordered, items)
+            }
+            else -> {
+                paragraph += raw
+                index++
+            }
+        }
+    }
+    flushParagraph()
+    return blocks.ifEmpty { listOf(MobileTextBlock(MobileTextBlockKind.Paragraph, listOf(text))) }
 }
 
 @Composable
@@ -1263,27 +1834,51 @@ private fun ChangeFileRow(
 }
 
 private fun highlightedText(text: String): AnnotatedString {
-    val tokenRegex = Regex("""(`[^`]+`|C:\\[^\s`]+|(?:[\w.-]+[\\/])+[\w.@%+\-()]+|\b\d+\.\d+\.\d+\b|\b[0-9a-f]{7,40}\b|\b(?:npm run compile|vsce package|assembleDebug|lintDebug|Developer: Reload Window|200 OK)\b)""", RegexOption.IGNORE_CASE)
+    val displayText = text.replace(Regex("""\[([^\]]+)]\(([^)]+)\)""")) { match ->
+        match.groupValues[1].ifBlank { match.groupValues[2] }
+    }
+    val boldRegex = Regex("""\*\*(.+?)\*\*""", setOf(RegexOption.DOT_MATCHES_ALL))
     return buildAnnotatedString {
         var index = 0
-        tokenRegex.findAll(text).forEach { match ->
-            append(text.substring(index, match.range.first))
-            val raw = match.value.trim('`')
-            val start = length
-            append(raw)
-            addStyle(
-                SpanStyle(
-                    color = TextPrimary,
-                    background = Color(0xFF232323),
-                    fontFamily = FontFamily.Monospace,
-                    fontSize = 13.sp
-                ),
-                start,
-                length
-            )
+        boldRegex.findAll(displayText).forEach { match ->
+            appendHighlightedSegment(displayText.substring(index, match.range.first), bold = false)
+            appendHighlightedSegment(match.groupValues[1], bold = true)
             index = match.range.last + 1
         }
-        append(text.substring(index))
+        appendHighlightedSegment(displayText.substring(index), bold = false)
+    }
+}
+
+private fun AnnotatedString.Builder.appendHighlightedSegment(segment: String, bold: Boolean) {
+    val tokenRegex = Regex("""(`[^`]+`|C:\\[^\s`]+|(?:[\w.-]+[\\/])+[\w.@%+\-()]+|\b\d+\.\d+\.\d+\b|\b[0-9a-f]{7,40}\b|\b(?:npm run compile|npm test|vsce package|assembleDebug|testDebugUnitTest|lintDebug|Developer: Reload Window|200 OK|NO-SOURCE)\b)""", RegexOption.IGNORE_CASE)
+    var index = 0
+    tokenRegex.findAll(segment).forEach { match ->
+        appendStyledPlain(segment.substring(index, match.range.first), bold)
+        val raw = match.value.trim('`')
+        val start = length
+        append(raw)
+        addStyle(
+            SpanStyle(
+                color = TextPrimary,
+                background = Color(0xFF232323),
+                fontFamily = FontFamily.Monospace,
+                fontSize = 13.sp,
+                fontWeight = if (bold) FontWeight.Bold else null
+            ),
+            start,
+            length
+        )
+        index = match.range.last + 1
+    }
+    appendStyledPlain(segment.substring(index), bold)
+}
+
+private fun AnnotatedString.Builder.appendStyledPlain(value: String, bold: Boolean) {
+    if (value.isEmpty()) return
+    val start = length
+    append(value)
+    if (bold) {
+        addStyle(SpanStyle(fontWeight = FontWeight.Bold, color = TextBright), start, length)
     }
 }
 
@@ -1294,6 +1889,11 @@ private fun cleanMobileMessageContent(content: String): String {
     while (index < lines.size) {
         val trimmed = lines[index].trim()
         if (isGitDirectiveLine(trimmed)) {
+            index++
+            continue
+        }
+        if (trimmed.startsWith("::code-comment{")) {
+            codeCommentTitle(trimmed)?.let { cleaned += "• $it" }
             index++
             continue
         }
@@ -1313,6 +1913,16 @@ private fun cleanMobileMessageContent(content: String): String {
         .replace(Regex("(?m)^\\s*[-*]\\s+"), "• ")
         .replace(Regex("\n{3,}"), "\n\n")
         .trimEnd()
+}
+
+private fun codeCommentTitle(line: String): String? {
+    return Regex("title=\\\"([^\\\"]+)\\\"")
+        .find(line)
+        ?.groupValues
+        ?.getOrNull(1)
+        ?.replace("\\\"", "\"")
+        ?.trim()
+        ?.takeIf { it.isNotBlank() }
 }
 
 private fun parseMobileChangeSummary(content: String): CodexChangeSummary? {
