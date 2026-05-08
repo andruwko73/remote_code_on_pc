@@ -218,16 +218,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 if (response.isSuccessful) {
                     val status = response.body()
                     CrashLogger.i("ViewModel", "Connected! status: version=${status?.version}")
-                    val authError = tokenRequiredError(status)
-                    applyConnectionStatus(status, authError == null, authError)
-                    if (authError != null) return@launch
-                    connectWebSocket()
-                    loadFolders()
-                    // Heavy history scans are loaded on demand to keep first paint fast.
-                    loadDiagnostics()
-                    loadCodexStatus()
-                    loadCodexModels()
-                    loadCodexThreads(loadCurrent = true)
+                    finishSuccessfulConnection(config, status)
                 } else {
                     CrashLogger.w("ViewModel", "getStatus failed: code=${response.code()}, message=${response.message()}")
                     val errorText = if (response.code() == 401) {
@@ -245,20 +236,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     )
                 }
             } catch (e: Exception) {
+                if (tryKeeneticHttpFallback(config, e)) return@launch
                 CrashLogger.e("ViewModel", "connect() exception, trying simple HTTP fallback", e)
                 try {
                     val status = withContext(Dispatchers.IO) { SimpleHttpClient.getStatus(config) }
                     CrashLogger.i("ViewModel", "Connected with simple HTTP fallback: version=${status.version}")
-                    val authError = tokenRequiredError(status)
-                    applyConnectionStatus(status, authError == null, authError)
-                    if (authError != null) return@launch
-                    connectWebSocket()
-                    loadFolders()
-                    // Heavy history scans are loaded on demand to keep first paint fast.
-                    loadDiagnostics()
-                    loadCodexStatus()
-                    loadCodexModels()
-                    loadCodexThreads(loadCurrent = true)
+                    finishSuccessfulConnection(config, status)
                 } catch (fallbackError: Exception) {
                     CrashLogger.e("ViewModel", "simple HTTP fallback failed", fallbackError)
                     val errorText = formatConnectionError(config, fallbackError.message ?: e.message ?: "connection failed")
@@ -272,6 +255,41 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     )
                 }
             }
+        }
+    }
+
+    private fun finishSuccessfulConnection(effectiveConfig: ServerConfig, status: StatusResponse?) {
+        if (effectiveConfig != _uiState.value.serverConfig) {
+            _uiState.value = _uiState.value.copy(serverConfig = effectiveConfig)
+            saveConfig(effectiveConfig)
+            ApiClient.reset()
+        }
+        val authError = tokenRequiredError(status)
+        applyConnectionStatus(status, authError == null, authError)
+        if (authError != null) return
+        connectWebSocket()
+        loadFolders()
+        // Heavy history scans are loaded on demand to keep first paint fast.
+        loadDiagnostics()
+        loadCodexStatus()
+        loadCodexModels()
+        loadCodexThreads(loadCurrent = true)
+    }
+
+    private suspend fun tryKeeneticHttpFallback(config: ServerConfig, cause: Throwable): Boolean {
+        val fallbackConfig = buildKeeneticHttpFallbackConfig(config, cause) ?: return false
+        CrashLogger.w("ViewModel", "HTTPS Keenetic connection closed; retrying over HTTP fallback")
+        ApiClient.reset()
+        return try {
+            val response = getStatusWithRetries(fallbackConfig)
+            if (!response.isSuccessful) return false
+            val status = response.body()
+            CrashLogger.i("ViewModel", "Connected with Keenetic HTTP fallback: version=${status?.version}")
+            finishSuccessfulConnection(fallbackConfig, status)
+            true
+        } catch (fallbackError: Exception) {
+            CrashLogger.e("ViewModel", "Keenetic HTTP fallback failed", fallbackError)
+            false
         }
     }
 
@@ -289,6 +307,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 lastResponse = response
             } catch (e: Exception) {
                 lastError = e
+                if (buildKeeneticHttpFallbackConfig(config, e) != null) {
+                    throw e
+                }
             }
             if (index < attempts - 1) {
                 delay(if (index < 2) 1200 else 2200)
@@ -318,11 +339,57 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    private fun buildKeeneticHttpFallbackConfig(config: ServerConfig, cause: Throwable): ServerConfig? {
+        if (!config.useTunnel || !isTlsClosedError(cause)) return null
+        val raw = config.tunnelUrl.trim()
+        if (!raw.startsWith("https://", ignoreCase = true)) return null
+        if (!isKeeneticExternalHost(raw)) return null
+        val fallbackUrl = raw.replaceFirst(Regex("^https://", RegexOption.IGNORE_CASE), "http://")
+        return config.copy(tunnelUrl = fallbackUrl)
+    }
+
+    private fun isKeeneticExternalHost(raw: String): Boolean {
+        return try {
+            val withScheme = when {
+                raw.startsWith("http://", ignoreCase = true) ||
+                    raw.startsWith("https://", ignoreCase = true) -> raw
+                raw.startsWith("//") -> "http:$raw"
+                else -> "http://$raw"
+            }
+            val host = java.net.URI(withScheme).host?.lowercase().orEmpty()
+            host.endsWith(".netcraze.pro") ||
+                host.endsWith(".keenetic.link") ||
+                host.endsWith(".keenetic.name") ||
+                host.endsWith(".keenetic.pro") ||
+                host.endsWith(".keenetic.io") ||
+                host.endsWith(".keenetic.net")
+        } catch (_: Exception) {
+            false
+        }
+    }
+
+    private fun isTlsClosedError(error: Throwable): Boolean {
+        var current: Throwable? = error
+        while (current != null) {
+            val marker = "${current::class.java.simpleName} ${current.message.orEmpty()}".lowercase()
+            if ("sslhandshakeexception" in marker ||
+                "eofexception" in marker ||
+                "connection closed" in marker ||
+                "unexpected end of stream" in marker
+            ) {
+                return true
+            }
+            current = current.cause
+        }
+        return false
+    }
+
     private fun formatConnectionError(config: ServerConfig, raw: String, code: Int? = null): String {
         if (!config.useTunnel) return "Connection error: $raw"
         val lower = raw.lowercase()
         return when {
-            "unexpected end of stream" in lower || "failed to connect" in lower ||
+            "sslhandshakeexception" in lower || "connection closed" in lower ||
+                "unexpected end of stream" in lower || "failed to connect" in lower ||
                 "connection reset" in lower || "timeout" in lower || "timed out" in lower ->
                 "Публичный URL не дал HTTP-ответ. Это не ошибка токена: проверьте KeenDNS/HTTPS-прокси или проброс TCP на IP ПК; затем повторите подключение."
             code == 530 || "http 530" in lower || "status code 530" in lower || "ошибка 530" in lower || "error 530" in lower ->
