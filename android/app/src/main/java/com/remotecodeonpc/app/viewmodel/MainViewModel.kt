@@ -2,6 +2,8 @@ package com.remotecodeonpc.app.viewmodel
 
 import android.app.Application
 import android.content.Context
+import android.net.ConnectivityManager
+import android.net.NetworkCapabilities
 import com.google.gson.JsonParser
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
@@ -9,6 +11,7 @@ import com.remotecodeonpc.app.CrashLogger
 import com.remotecodeonpc.app.*
 import com.remotecodeonpc.app.network.ApiClient
 import com.remotecodeonpc.app.network.ConnectionUrl
+import com.remotecodeonpc.app.network.KeeneticCloudDns
 import com.remotecodeonpc.app.network.SimpleHttpClient
 import com.remotecodeonpc.app.network.WebSocketClient
 import com.remotecodeonpc.app.network.WebSocketListener
@@ -237,12 +240,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 }
             } catch (e: Exception) {
                 if (tryKeeneticHttpFallback(config, e)) return@launch
+                if (tryKeeneticProxyIpFallback(config, e)) return@launch
                 CrashLogger.e("ViewModel", "connect() exception, trying simple HTTP fallback", e)
                 try {
                     val status = withContext(Dispatchers.IO) { SimpleHttpClient.getStatus(config) }
                     CrashLogger.i("ViewModel", "Connected with simple HTTP fallback: version=${status.version}")
                     finishSuccessfulConnection(config, status)
                 } catch (fallbackError: Exception) {
+                    if (tryKeeneticProxyIpFallback(config, fallbackError)) return@launch
                     CrashLogger.e("ViewModel", "simple HTTP fallback failed", fallbackError)
                     val errorText = formatConnectionError(config, fallbackError.message ?: e.message ?: "connection failed")
                     _uiState.value = _uiState.value.copy(
@@ -258,10 +263,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    private fun finishSuccessfulConnection(effectiveConfig: ServerConfig, status: StatusResponse?) {
+    private fun finishSuccessfulConnection(effectiveConfig: ServerConfig, status: StatusResponse?, persistConfig: Boolean = true) {
         if (effectiveConfig != _uiState.value.serverConfig) {
             _uiState.value = _uiState.value.copy(serverConfig = effectiveConfig)
-            saveConfig(effectiveConfig)
+            if (persistConfig) {
+                saveConfig(effectiveConfig)
+            }
             ApiClient.reset()
         }
         val authError = tokenRequiredError(status)
@@ -289,6 +296,26 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             true
         } catch (fallbackError: Exception) {
             CrashLogger.e("ViewModel", "Keenetic HTTP fallback failed", fallbackError)
+            false
+        }
+    }
+
+    private suspend fun tryKeeneticProxyIpFallback(config: ServerConfig, cause: Throwable): Boolean {
+        if (!config.useTunnel || !isTlsClosedError(cause) || !isKeeneticExternalHost(config.tunnelUrl)) return false
+        val originalHost = externalHost(config.tunnelUrl) ?: return false
+        val directConfig = config.copy(
+            tunnelUrl = "http://${KeeneticCloudDns.CLOUD_PROXY_IP}",
+            hostHeader = originalHost
+        )
+        CrashLogger.w("ViewModel", "Keenetic direct cloud proxy fallback: ${directConfig.tunnelUrl} with Host=$originalHost")
+        ApiClient.reset()
+        return try {
+            val status = withContext(Dispatchers.IO) { SimpleHttpClient.getStatus(directConfig) }
+            CrashLogger.i("ViewModel", "Connected with Keenetic direct cloud proxy fallback: version=${status.version}")
+            finishSuccessfulConnection(directConfig, status, persistConfig = false)
+            true
+        } catch (directError: Exception) {
+            CrashLogger.e("ViewModel", "Keenetic direct cloud proxy fallback failed", directError)
             false
         }
     }
@@ -350,13 +377,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private fun isKeeneticExternalHost(raw: String): Boolean {
         return try {
-            val withScheme = when {
-                raw.startsWith("http://", ignoreCase = true) ||
-                    raw.startsWith("https://", ignoreCase = true) -> raw
-                raw.startsWith("//") -> "http:$raw"
-                else -> "http://$raw"
-            }
-            val host = java.net.URI(withScheme).host?.lowercase().orEmpty()
+            val host = externalHost(raw)?.lowercase().orEmpty()
             host.endsWith(".netcraze.pro") ||
                 host.endsWith(".keenetic.link") ||
                 host.endsWith(".keenetic.name") ||
@@ -366,6 +387,16 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         } catch (_: Exception) {
             false
         }
+    }
+
+    private fun externalHost(raw: String): String? {
+        val withScheme = when {
+            raw.startsWith("http://", ignoreCase = true) ||
+                raw.startsWith("https://", ignoreCase = true) -> raw
+            raw.startsWith("//") -> "http:$raw"
+            else -> "http://$raw"
+        }
+        return java.net.URI(withScheme).host
     }
 
     private fun isTlsClosedError(error: Throwable): Boolean {
@@ -387,11 +418,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private fun formatConnectionError(config: ServerConfig, raw: String, code: Int? = null): String {
         if (!config.useTunnel) return "Connection error: $raw"
         val lower = raw.lowercase()
+        val vpnHint = activeVpnHint()
         return when {
             "sslhandshakeexception" in lower || "connection closed" in lower ||
                 "unexpected end of stream" in lower || "failed to connect" in lower ||
                 "connection reset" in lower || "timeout" in lower || "timed out" in lower ->
-                "Публичный URL не дал HTTP-ответ. Это не ошибка токена: проверьте KeenDNS/HTTPS-прокси или проброс TCP на IP ПК; затем повторите подключение."
+                "Публичный URL не дал HTTP-ответ. Это не ошибка токена: проверьте KeenDNS/HTTPS-прокси или проброс TCP на IP ПК; затем повторите подключение.$vpnHint"
             code == 530 || "http 530" in lower || "status code 530" in lower || "ошибка 530" in lower || "error 530" in lower ->
                 "Публичный Keenetic URL доступен, но не доходит до ПК. Проверьте KeenDNS/HTTPS-прокси, IP ПК и что расширение запущено."
             code == 503 || code == 502 || "503" in lower || "bad gateway" in lower ->
@@ -399,6 +431,28 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             "unable to resolve host" in lower || "no address associated" in lower || "failed to resolve" in lower ->
                 "Публичный URL не резолвится DNS. Проверьте KeenDNS/DDNS адрес или вставьте полный HTTPS URL из расширения."
             else -> "Ошибка внешнего подключения: $raw"
+        }
+    }
+
+    private fun activeVpnHint(): String {
+        return if (isVpnActive()) {
+            " На телефоне активен VPN: отключите его для проверки, он может закрывать соединение с Keenetic Cloud."
+        } else {
+            ""
+        }
+    }
+
+    private fun isVpnActive(): Boolean {
+        return try {
+            val manager = getApplication<Application>()
+                .getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
+                ?: return false
+            manager.allNetworks.any { network ->
+                manager.getNetworkCapabilities(network)
+                    ?.hasTransport(NetworkCapabilities.TRANSPORT_VPN) == true
+            }
+        } catch (_: Exception) {
+            false
         }
     }
 

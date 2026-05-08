@@ -7,7 +7,7 @@ import java.net.UnknownHostException
 import java.util.Locale
 
 object KeeneticCloudDns : Dns {
-    private const val KEENETIC_CLOUD_PROXY_IP = "78.47.125.180"
+    const val CLOUD_PROXY_IP = "78.47.125.180"
 
     override fun lookup(hostname: String): List<InetAddress> {
         val systemError = runCatching { Dns.SYSTEM.lookup(hostname) }
@@ -22,7 +22,7 @@ object KeeneticCloudDns : Dns {
         }
 
         val fallback = runCatching {
-            listOf(InetAddress.getByName(KEENETIC_CLOUD_PROXY_IP))
+            listOf(InetAddress.getByName(CLOUD_PROXY_IP))
         }.getOrDefault(emptyList())
 
         if (fallback.isNotEmpty()) {

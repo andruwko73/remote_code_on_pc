@@ -28,6 +28,9 @@ object SimpleHttpClient {
             .header("Cache-Control", "no-cache")
             .header("Connection", "close")
             .apply {
+                if (config.hostHeader.isNotBlank()) {
+                    header("Host", config.hostHeader)
+                }
                 if (config.authToken.isNotBlank()) {
                     header("Authorization", "Bearer ${config.authToken}")
                 }

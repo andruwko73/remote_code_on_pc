@@ -138,10 +138,13 @@ object ApiClient {
             .connectionPool(ConnectionPool(0, 1, TimeUnit.NANOSECONDS))
             .addInterceptor(logging)
             .addInterceptor { chain ->
-                val request = chain.request().newBuilder()
+                val requestBuilder = chain.request().newBuilder()
                     .header("Connection", "close")
                     .header("Cache-Control", "no-cache")
-                    .build()
+                if (config.hostHeader.isNotBlank()) {
+                    requestBuilder.header("Host", config.hostHeader)
+                }
+                val request = requestBuilder.build()
                 chain.proceed(request)
             }
             .connectTimeout(8, TimeUnit.SECONDS)

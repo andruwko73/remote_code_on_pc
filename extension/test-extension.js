@@ -335,7 +335,7 @@ assert(
     'APK downloads must be verified before install'
 );
 assert(androidManifest.includes('REQUEST_INSTALL_PACKAGES') && mainActivity.includes('canRequestPackageInstalls') && mainActivity.includes('ACTION_MANAGE_UNKNOWN_APP_SOURCES'), 'Android updater declares and gates APK install permission', 'PackageInstaller requires REQUEST_INSTALL_PACKAGES and an unknown-source settings gate');
-assert(androidBuildGradle.includes('versionCode = 92') && androidBuildGradle.includes('versionName = "1.0.91"') && androidBuildGradle.includes('signingConfig = signingConfigs.getByName("debug")'), 'Android release artifact can update existing sideload installs', 'release APK should be version-bumped and signed for sideload updates');
+assert(androidBuildGradle.includes('versionCode = 93') && androidBuildGradle.includes('versionName = "1.0.92"') && androidBuildGradle.includes('signingConfig = signingConfigs.getByName("debug")'), 'Android release artifact can update existing sideload installs', 'release APK should be version-bumped and signed for sideload updates');
 assert(mainActivity.includes('UpdateReadyDialog') && mainActivity.includes('UpdateStatusDialog') && mainActivity.includes('onStatus("Скачивание обновления') && mainActivity.includes('onStatus("Проверка APK') && mainActivity.includes('PendingVerifiedApk') && mainActivity.includes('onReadyDialogFinished = { pendingVerifiedApk = null }') && mainActivity.includes('onInstallPermissionRequired = { pendingVerifiedApk = update }') && mainActivity.includes('Handler(Looper.getMainLooper()).post') && mainActivity.includes('Intent.ACTION_VIEW') && mainActivity.includes('Intent.ACTION_INSTALL_PACKAGE') && mainActivity.includes('Intent.EXTRA_RETURN_RESULT') && mainActivity.includes('startActivityForResult(intent, updateInstallRequestCode)') && mainActivity.includes('startActivityForResult(installIntent, updateInstallRequestCode)') && !mainActivity.includes('Intent.FLAG_ACTIVITY_NEW_TASK'), 'Android updater uses the old Package Installer handoff style', 'verified APK should open through ACTION_VIEW with return-result mode and keep ACTION_INSTALL_PACKAGE as fallback');
 assert(mainActivity.includes('onInstallPermissionRequired()') && mainActivity.includes('ACTION_MANAGE_UNKNOWN_APP_SOURCES') && mainActivity.indexOf('onInstallPermissionRequired()') > mainActivity.indexOf('startActivity(settingsIntent)'), 'Android updater preserves APK after unknown-source permission handoff', 'permission settings should keep the verified APK ready for a second install tap');
 assert(codexScreen.includes('CodexNavigationPanel') && codexScreen.includes('CodexDrawerProjectRow') && codexScreen.includes('buildMobileCodexProjects') && modelsFile.includes('workspaceName'), 'Android exposes projects in Codex chat list', 'project drawer/thread workspace metadata should be visible to Android');
@@ -353,14 +353,20 @@ assert(
 );
 assert(
     mainVm.includes('tryKeeneticHttpFallback') &&
+    mainVm.includes('tryKeeneticProxyIpFallback') &&
     mainVm.includes('buildKeeneticHttpFallbackConfig') &&
     mainVm.includes('replaceFirst(Regex("^https://"') &&
     mainVm.includes('isTlsClosedError') &&
     mainVm.includes('connection closed') &&
     mainVm.includes('Connected with Keenetic HTTP fallback') &&
-    mainVm.includes('saveConfig(effectiveConfig)'),
+    mainVm.includes('KeeneticCloudDns.CLOUD_PROXY_IP') &&
+    mainVm.includes('hostHeader = originalHost') &&
+    apiClient.includes('config.hostHeader') &&
+    simpleHttpClient.includes('config.hostHeader') &&
+    webSocketClient.includes('config.hostHeader') &&
+    mainVm.includes('activeVpnHint()'),
     'Android retries Keenetic TLS-close failures over HTTP',
-    'Keenetic Cloud can close TLS on some mobile networks; Android should retry http:// and keep API/WebSocket on the effective URL'
+    'Keenetic Cloud can close TLS on some mobile networks; Android should retry http://, then direct cloud IP with Host header, and warn when VPN is active'
 );
 assert(mainVm.includes('isUnsupportedExternalUrl') && mainVm.includes('Расширение вернуло служебный адрес'), 'Android rejects unsupported service public URLs', 'Android should reject service URLs before connecting');
 assert(codexScreen.includes('item(key = "bottom-anchor")'), 'Android chat scrolls to a true bottom anchor', 'bottom anchor missing');

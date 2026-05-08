@@ -58,6 +58,9 @@ class WebSocketClient(private val config: ServerConfig) {
             .url(wsUrl)
             .header("Cache-Control", "no-cache")
             .apply {
+                if (config.hostHeader.isNotBlank()) {
+                    header("Host", config.hostHeader)
+                }
                 if (config.authToken.isNotBlank()) {
                     addHeader("Authorization", "Bearer ${config.authToken}")
                 }
