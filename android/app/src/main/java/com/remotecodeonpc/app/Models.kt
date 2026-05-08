@@ -7,8 +7,7 @@ data class ServerConfig(
     val port: Int = 8799,
     val authToken: String = "",
     val useTunnel: Boolean = false,
-    val tunnelUrl: String = "",
-    val hostHeader: String = ""
+    val tunnelUrl: String = ""
 )
 
 data class WorkspaceStatus(

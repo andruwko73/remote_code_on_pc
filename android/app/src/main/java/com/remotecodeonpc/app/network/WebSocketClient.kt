@@ -29,7 +29,6 @@ class WebSocketClient(private val config: ServerConfig) {
 
     private val client = OkHttpClient.Builder()
         .protocols(listOf(Protocol.HTTP_1_1))
-        .dns(KeeneticCloudDns)
         .readTimeout(0, TimeUnit.MILLISECONDS)
         .connectTimeout(8, TimeUnit.SECONDS)
         .retryOnConnectionFailure(false)
@@ -58,9 +57,6 @@ class WebSocketClient(private val config: ServerConfig) {
             .url(wsUrl)
             .header("Cache-Control", "no-cache")
             .apply {
-                if (config.hostHeader.isNotBlank()) {
-                    header("Host", config.hostHeader)
-                }
                 if (config.authToken.isNotBlank()) {
                     addHeader("Authorization", "Bearer ${config.authToken}")
                 }

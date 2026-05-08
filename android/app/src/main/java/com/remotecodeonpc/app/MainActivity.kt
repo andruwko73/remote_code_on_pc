@@ -56,7 +56,6 @@ import com.remotecodeonpc.app.ui.theme.RemoteCodeTheme
 import com.remotecodeonpc.app.ui.theme.TextBright
 import com.remotecodeonpc.app.ui.theme.TextSecondary
 import com.remotecodeonpc.app.network.ConnectionUrl
-import com.remotecodeonpc.app.network.KeeneticCloudDns
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.io.File
@@ -267,7 +266,6 @@ class MainActivity : ComponentActivity() {
         Thread {
             try {
                 val client = OkHttpClient.Builder()
-                    .dns(KeeneticCloudDns)
                     .connectTimeout(30, TimeUnit.SECONDS)
                     .readTimeout(120, TimeUnit.SECONDS)
                     .build()

@@ -134,17 +134,13 @@ object ApiClient {
 
         val client = OkHttpClient.Builder()
             .protocols(listOf(Protocol.HTTP_1_1))
-            .dns(KeeneticCloudDns)
             .connectionPool(ConnectionPool(0, 1, TimeUnit.NANOSECONDS))
             .addInterceptor(logging)
             .addInterceptor { chain ->
-                val requestBuilder = chain.request().newBuilder()
+                val request = chain.request().newBuilder()
                     .header("Connection", "close")
                     .header("Cache-Control", "no-cache")
-                if (config.hostHeader.isNotBlank()) {
-                    requestBuilder.header("Host", config.hostHeader)
-                }
-                val request = requestBuilder.build()
+                    .build()
                 chain.proceed(request)
             }
             .connectTimeout(8, TimeUnit.SECONDS)
