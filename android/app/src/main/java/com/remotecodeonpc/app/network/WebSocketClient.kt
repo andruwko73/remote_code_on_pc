@@ -29,6 +29,7 @@ class WebSocketClient(private val config: ServerConfig) {
 
     private val client = OkHttpClient.Builder()
         .protocols(listOf(Protocol.HTTP_1_1))
+        .dns(KeeneticCloudDns)
         .readTimeout(0, TimeUnit.MILLISECONDS)
         .connectTimeout(8, TimeUnit.SECONDS)
         .retryOnConnectionFailure(false)

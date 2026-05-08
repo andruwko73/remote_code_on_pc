@@ -4,48 +4,45 @@ import com.google.gson.Gson
 import com.remotecodeonpc.app.CrashLogger
 import com.remotecodeonpc.app.ServerConfig
 import com.remotecodeonpc.app.StatusResponse
-import java.io.BufferedReader
-import java.io.InputStreamReader
-import java.net.HttpURLConnection
-import java.net.URL
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import java.util.concurrent.TimeUnit
 
 object SimpleHttpClient {
     private val gson = Gson()
+    private val client = OkHttpClient.Builder()
+        .dns(KeeneticCloudDns)
+        .connectTimeout(8, TimeUnit.SECONDS)
+        .readTimeout(12, TimeUnit.SECONDS)
+        .build()
 
     fun getStatus(config: ServerConfig): StatusResponse {
         val baseUrl = ConnectionUrl.httpBase(config)
-        val url = URL("$baseUrl/api/status")
+        val url = "$baseUrl/api/status"
         CrashLogger.d("SimpleHTTP", "GET $url")
 
-        val connection = (url.openConnection() as HttpURLConnection).apply {
-            requestMethod = "GET"
-            connectTimeout = 8000
-            readTimeout = 12000
-            useCaches = false
-            instanceFollowRedirects = false
-            setRequestProperty("Accept", "application/json")
-            setRequestProperty("Accept-Encoding", "identity")
-            setRequestProperty("Cache-Control", "no-cache")
-            setRequestProperty("Connection", "close")
-            if (config.authToken.isNotBlank()) {
-                setRequestProperty("Authorization", "Bearer ${config.authToken}")
+        val request = Request.Builder()
+            .url(url)
+            .header("Accept", "application/json")
+            .header("Accept-Encoding", "identity")
+            .header("Cache-Control", "no-cache")
+            .header("Connection", "close")
+            .apply {
+                if (config.authToken.isNotBlank()) {
+                    header("Authorization", "Bearer ${config.authToken}")
+                }
             }
-        }
+            .build()
 
-        try {
-            val code = connection.responseCode
+        client.newCall(request).execute().use { response ->
+            val code = response.code
             CrashLogger.d("SimpleHTTP", "Status code=$code")
-            val stream = if (code in 200..299) connection.inputStream else connection.errorStream
-            val body = stream?.use { input ->
-                BufferedReader(InputStreamReader(input, Charsets.UTF_8)).use { it.readText() }
-            }.orEmpty()
+            val body = response.body?.string().orEmpty()
             CrashLogger.d("SimpleHTTP", "Body ${body.take(300)}")
-            if (code !in 200..299) {
+            if (!response.isSuccessful) {
                 throw IllegalStateException("HTTP $code: ${body.take(200)}")
             }
             return gson.fromJson(body, StatusResponse::class.java)
-        } finally {
-            connection.disconnect()
         }
     }
 }

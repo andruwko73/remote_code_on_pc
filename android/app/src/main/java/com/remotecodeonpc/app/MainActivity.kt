@@ -56,6 +56,7 @@ import com.remotecodeonpc.app.ui.theme.RemoteCodeTheme
 import com.remotecodeonpc.app.ui.theme.TextBright
 import com.remotecodeonpc.app.ui.theme.TextSecondary
 import com.remotecodeonpc.app.network.ConnectionUrl
+import com.remotecodeonpc.app.network.KeeneticCloudDns
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.io.File
@@ -266,6 +267,7 @@ class MainActivity : ComponentActivity() {
         Thread {
             try {
                 val client = OkHttpClient.Builder()
+                    .dns(KeeneticCloudDns)
                     .connectTimeout(30, TimeUnit.SECONDS)
                     .readTimeout(120, TimeUnit.SECONDS)
                     .build()
@@ -348,22 +350,16 @@ class MainActivity : ComponentActivity() {
     private fun buildUpdateUrls(config: ServerConfig): List<String> {
         val ts = System.currentTimeMillis()
         val urls = mutableListOf<String>()
-        var hasConfiguredSource = false
         if (config.useTunnel && config.tunnelUrl.isNotBlank()) {
-            hasConfiguredSource = true
             urls += "${ConnectionUrl.httpBase(config).trimEnd('/')}/api/app/apk?ts=$ts"
         }
         if (config.tunnelUrl.isNotBlank()) {
-            hasConfiguredSource = true
             urls += "${ConnectionUrl.httpBase(config.copy(useTunnel = true)).trimEnd('/')}/api/app/apk?ts=$ts"
         }
         if (config.host.isNotBlank()) {
-            hasConfiguredSource = true
             urls += "${ConnectionUrl.httpBase(config.copy(useTunnel = false)).trimEnd('/')}/api/app/apk?ts=$ts"
         }
-        if (!hasConfiguredSource) {
-            urls += "$publicUpdateUrl?ts=$ts"
-        }
+        urls += "$publicUpdateUrl?ts=$ts"
         return urls.distinct()
     }
 

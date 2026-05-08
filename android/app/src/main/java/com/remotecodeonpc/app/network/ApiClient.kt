@@ -134,6 +134,7 @@ object ApiClient {
 
         val client = OkHttpClient.Builder()
             .protocols(listOf(Protocol.HTTP_1_1))
+            .dns(KeeneticCloudDns)
             .connectionPool(ConnectionPool(0, 1, TimeUnit.NANOSECONDS))
             .addInterceptor(logging)
             .addInterceptor { chain ->

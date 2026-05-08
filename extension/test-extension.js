@@ -296,6 +296,7 @@ const androidFiles = [
     'app/src/main/java/com/remotecodeonpc/app/RemoteCodeApp.kt',
     'app/src/main/java/com/remotecodeonpc/app/viewmodel/MainViewModel.kt',
     'app/src/main/java/com/remotecodeonpc/app/network/ApiClient.kt',
+    'app/src/main/java/com/remotecodeonpc/app/network/KeeneticCloudDns.kt',
     'app/src/main/java/com/remotecodeonpc/app/network/WebSocketClient.kt',
     'app/src/main/java/com/remotecodeonpc/app/ui/screens/VSCodeScreen.kt',
     'app/src/main/java/com/remotecodeonpc/app/ui/screens/CodexScreen.kt',
@@ -309,6 +310,9 @@ const androidFiles = [
 const remoteCodeApp = fs.readFileSync(path.join(androidBase, 'app', 'src', 'main', 'java', 'com', 'remotecodeonpc', 'app', 'RemoteCodeApp.kt'), 'utf-8');
 const codexScreen = fs.readFileSync(path.join(androidBase, 'app', 'src', 'main', 'java', 'com', 'remotecodeonpc', 'app', 'ui', 'screens', 'CodexScreen.kt'), 'utf-8');
 const apiClient = fs.readFileSync(path.join(androidBase, 'app', 'src', 'main', 'java', 'com', 'remotecodeonpc', 'app', 'network', 'ApiClient.kt'), 'utf-8');
+const keeneticCloudDns = fs.readFileSync(path.join(androidBase, 'app', 'src', 'main', 'java', 'com', 'remotecodeonpc', 'app', 'network', 'KeeneticCloudDns.kt'), 'utf-8');
+const simpleHttpClient = fs.readFileSync(path.join(androidBase, 'app', 'src', 'main', 'java', 'com', 'remotecodeonpc', 'app', 'network', 'SimpleHttpClient.kt'), 'utf-8');
+const webSocketClient = fs.readFileSync(path.join(androidBase, 'app', 'src', 'main', 'java', 'com', 'remotecodeonpc', 'app', 'network', 'WebSocketClient.kt'), 'utf-8');
 const connectionUrl = fs.readFileSync(path.join(androidBase, 'app', 'src', 'main', 'java', 'com', 'remotecodeonpc', 'app', 'network', 'ConnectionUrl.kt'), 'utf-8');
 const mainVm = fs.readFileSync(path.join(androidBase, 'app', 'src', 'main', 'java', 'com', 'remotecodeonpc', 'app', 'viewmodel', 'MainViewModel.kt'), 'utf-8');
 const modelsFile = fs.readFileSync(path.join(androidBase, 'app', 'src', 'main', 'java', 'com', 'remotecodeonpc', 'app', 'Models.kt'), 'utf-8');
@@ -331,12 +335,22 @@ assert(
     'APK downloads must be verified before install'
 );
 assert(androidManifest.includes('REQUEST_INSTALL_PACKAGES') && mainActivity.includes('canRequestPackageInstalls') && mainActivity.includes('ACTION_MANAGE_UNKNOWN_APP_SOURCES'), 'Android updater declares and gates APK install permission', 'PackageInstaller requires REQUEST_INSTALL_PACKAGES and an unknown-source settings gate');
-assert(androidBuildGradle.includes('versionCode = 90') && androidBuildGradle.includes('versionName = "1.0.89"') && androidBuildGradle.includes('signingConfig = signingConfigs.getByName("debug")'), 'Android release artifact can update existing sideload installs', 'release APK should be version-bumped and signed for sideload updates');
+assert(androidBuildGradle.includes('versionCode = 91') && androidBuildGradle.includes('versionName = "1.0.90"') && androidBuildGradle.includes('signingConfig = signingConfigs.getByName("debug")'), 'Android release artifact can update existing sideload installs', 'release APK should be version-bumped and signed for sideload updates');
 assert(mainActivity.includes('UpdateReadyDialog') && mainActivity.includes('UpdateStatusDialog') && mainActivity.includes('onStatus("Скачивание обновления') && mainActivity.includes('onStatus("Проверка APK') && mainActivity.includes('PendingVerifiedApk') && mainActivity.includes('onReadyDialogFinished = { pendingVerifiedApk = null }') && mainActivity.includes('onInstallPermissionRequired = { pendingVerifiedApk = update }') && mainActivity.includes('Handler(Looper.getMainLooper()).post') && mainActivity.includes('Intent.ACTION_VIEW') && mainActivity.includes('Intent.ACTION_INSTALL_PACKAGE') && mainActivity.includes('Intent.EXTRA_RETURN_RESULT') && mainActivity.includes('startActivityForResult(intent, updateInstallRequestCode)') && mainActivity.includes('startActivityForResult(installIntent, updateInstallRequestCode)') && !mainActivity.includes('Intent.FLAG_ACTIVITY_NEW_TASK'), 'Android updater uses the old Package Installer handoff style', 'verified APK should open through ACTION_VIEW with return-result mode and keep ACTION_INSTALL_PACKAGE as fallback');
 assert(mainActivity.includes('onInstallPermissionRequired()') && mainActivity.includes('ACTION_MANAGE_UNKNOWN_APP_SOURCES') && mainActivity.indexOf('onInstallPermissionRequired()') > mainActivity.indexOf('startActivity(settingsIntent)'), 'Android updater preserves APK after unknown-source permission handoff', 'permission settings should keep the verified APK ready for a second install tap');
 assert(codexScreen.includes('CodexNavigationPanel') && codexScreen.includes('CodexDrawerProjectRow') && codexScreen.includes('buildMobileCodexProjects') && modelsFile.includes('workspaceName'), 'Android exposes projects in Codex chat list', 'project drawer/thread workspace metadata should be visible to Android');
 assert(codexScreen.includes('Icons.Outlined.Extension') && codexScreen.includes('Icons.Outlined.Schedule') && codexScreen.includes('Плагины') && codexScreen.includes('Автоматизации') && codexScreen.includes('PaddingValues(bottom = 64.dp)'), 'Android drawer mirrors Codex navigation actions', 'drawer should expose Codex-like plugins and automations entries');
 assert(connectionUrl.includes('trimmed.startsWith("//")') && connectionUrl.includes('"http:$trimmed"'), 'Android normalizes protocol-relative public URLs', 'protocol-relative public URL should become http://host');
+assert(
+    keeneticCloudDns.includes('78.47.125.180') &&
+    keeneticCloudDns.includes('host.endsWith(".netcraze.pro")') &&
+    apiClient.includes('.dns(KeeneticCloudDns)') &&
+    simpleHttpClient.includes('.dns(KeeneticCloudDns)') &&
+    webSocketClient.includes('.dns(KeeneticCloudDns)') &&
+    mainActivity.includes('.dns(KeeneticCloudDns)'),
+    'Android uses Keenetic cloud DNS fallback',
+    'HTTP, WebSocket, simple fallback, and updater clients should survive broken public DNS for Keenetic/DDNS hosts'
+);
 assert(mainVm.includes('isUnsupportedExternalUrl') && mainVm.includes('Расширение вернуло служебный адрес'), 'Android rejects unsupported service public URLs', 'Android should reject service URLs before connecting');
 assert(codexScreen.includes('item(key = "bottom-anchor")'), 'Android chat scrolls to a true bottom anchor', 'bottom anchor missing');
 assert(codexScreen.includes('showCurrentThreadMenu') && codexScreen.includes('pendingDeleteThread') && codexScreen.includes('onNavigateToSettings()'), 'Android current-chat menu buttons work', 'current chat menu wiring missing');
