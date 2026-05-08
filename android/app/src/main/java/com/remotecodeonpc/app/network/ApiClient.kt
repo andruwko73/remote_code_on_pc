@@ -140,6 +140,7 @@ object ApiClient {
                 val request = chain.request().newBuilder()
                     .header("Connection", "close")
                     .header("Cache-Control", "no-cache")
+                    .header("bypass-tunnel-reminder", "true")
                     .build()
                 chain.proceed(request)
             }

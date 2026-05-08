@@ -56,6 +56,7 @@ class WebSocketClient(private val config: ServerConfig) {
         val request = Request.Builder()
             .url(wsUrl)
             .header("Cache-Control", "no-cache")
+            .header("bypass-tunnel-reminder", "true")
             .apply {
                 if (config.authToken.isNotBlank()) {
                     addHeader("Authorization", "Bearer ${config.authToken}")

@@ -279,6 +279,7 @@ class MainActivity : ComponentActivity() {
                         val request = Request.Builder()
                             .url(updateUrl)
                             .header("Cache-Control", "no-cache")
+                            .header("bypass-tunnel-reminder", "true")
                             .apply {
                                 if (config.authToken.isNotBlank() && !updateUrl.startsWith(publicUpdateUrl)) {
                                     header("Authorization", "Bearer ${config.authToken}")
@@ -368,6 +369,7 @@ class MainActivity : ComponentActivity() {
         val request = Request.Builder()
             .url(shaUrl)
             .header("Cache-Control", "no-cache")
+            .header("bypass-tunnel-reminder", "true")
             .build()
         return runCatching {
             client.newCall(request).execute().use { response ->

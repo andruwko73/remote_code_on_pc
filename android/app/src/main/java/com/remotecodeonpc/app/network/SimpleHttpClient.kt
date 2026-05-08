@@ -27,6 +27,7 @@ object SimpleHttpClient {
             setRequestProperty("Accept-Encoding", "identity")
             setRequestProperty("Cache-Control", "no-cache")
             setRequestProperty("Connection", "close")
+            setRequestProperty("bypass-tunnel-reminder", "true")
             if (config.authToken.isNotBlank()) {
                 setRequestProperty("Authorization", "Bearer ${config.authToken}")
             }
