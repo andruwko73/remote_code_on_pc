@@ -2,7 +2,7 @@
   "name": "remote-code-on-pc",
   "displayName": "Remote Code on PC",
   "description": "HTTP/WebSocket сервер для удаленного управления VS Code с Android-приложения",
-  "version": "1.1.96",
+  "version": "1.1.97",
   "publisher": "remote-code-on-pc",
   "license": "MIT",
   "engines": {
@@ -86,7 +86,10 @@
         },
         "remoteCodeOnPC.keeneticScheme": {
           "type": "string",
-          "enum": ["http", "https"],
+          "enum": [
+            "http",
+            "https"
+          ],
           "default": "http",
           "description": "Схема для автоматически сформированного Keenetic URL. Для прямого проброса порта к HTTP-серверу расширения обычно нужен http."
         },
@@ -113,6 +116,7 @@
     "typescript": "^5.9.3"
   },
   "dependencies": {
+    "qrcode": "^1.5.4",
     "ws": "^8.16.0"
   }
 }

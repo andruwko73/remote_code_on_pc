@@ -10,6 +10,10 @@ import * as vscode from 'vscode';
 import { WebSocketServer, WebSocket } from 'ws';
 import { spawn, spawnSync, execSync } from 'child_process';
 
+const QRCode = require('qrcode') as {
+    toString(value: string, options?: Record<string, unknown>): Promise<string>;
+};
+
 interface ChatAgent {
     name: string;
     displayName: string;
@@ -3532,7 +3536,8 @@ export class RemoteServer {
             : 'Создаст токен для внешней сети и скопирует его в буфер обмена.';
         const items: Array<vscode.QuickPickItem & { action: string }> = [
             { label: tokenLabel, description: tokenState, detail: tokenDetail, action: 'tokenMenu' },
-            { label: 'Copy Android pairing payload', description: publicUrl || localUrl, detail: 'Copies URL and token as one remote-code-pair string.', action: 'copyPairingPayload' },
+            { label: 'Show Android QR code', description: publicUrl || localUrl, detail: 'Opens a QR code for the Android app and copies the same pairing code to clipboard.', action: 'showPairingQr' },
+            { label: 'Copy Android pairing code', description: publicUrl || localUrl, detail: 'Copies URL and token as one remote-code-pair string.', action: 'copyPairingPayload' },
             { label: 'Скопировать локальный URL', description: localUrl, action: 'copyLocal' },
             { label: 'Сформировать Keenetic URL', description: publicUrl || keeneticHost || 'my.keenetic.net / name.keenetic.link', detail: publicUrl ? `Сохранено: ${publicUrl}` : 'Соберет адрес из KeenDNS-имени или попробует найти его через my.keenetic.net', action: 'autoPublic' },
             { label: 'Открыть порт на роутере (UPnP)', description: `TCP ${this._port} -> ${this._localIp || 'IP ПК'}:${this._port}`, detail: 'Попросит Keenetic/роутер автоматически создать проброс порта. Для внешней сети токен должен быть включен.', action: 'openUpnpPort' },
@@ -3556,6 +3561,9 @@ export class RemoteServer {
         });
         if (!picked) return;
         switch (picked.action) {
+            case 'showPairingQr':
+                await this.showPairingQr();
+                return;
             case 'copyPairingPayload':
                 await this.copyPairingPayload();
                 return;
@@ -3860,8 +3868,17 @@ export class RemoteServer {
         return this._authToken;
     }
 
-    public async copyPairingPayload(): Promise<string> {
-        const token = await this.createOrCopyAuthToken(false);
+    private async ensurePairingToken(): Promise<string> {
+        if (this._authToken) return this._authToken;
+        const token = crypto.randomBytes(24).toString('hex');
+        await vscode.workspace.getConfiguration('remoteCodeOnPC').update('authToken', token, vscode.ConfigurationTarget.Global);
+        this._authToken = token;
+        this.refreshPcChatPanel();
+        await vscode.window.showInformationMessage('Remote Code: token created for Android pairing.');
+        return token;
+    }
+
+    private buildPairingPayload(token: string): string {
         const localUrl = `http://${this._localIp || '127.0.0.1'}:${this._port}`;
         const publicUrl = this.getPublicUrl() || '';
         const payload = {
@@ -3873,10 +3890,83 @@ export class RemoteServer {
             token
         };
         const encoded = Buffer.from(JSON.stringify(payload), 'utf8').toString('base64url');
-        const value = `remote-code-pair:${encoded}`;
+        return `remote-code-pair:${encoded}`;
+    }
+
+    private async getPairingPayload(): Promise<string> {
+        return this.buildPairingPayload(await this.ensurePairingToken());
+    }
+
+    public async copyPairingPayload(): Promise<string> {
+        const value = await this.getPairingPayload();
         await vscode.env.clipboard.writeText(value);
-        await vscode.window.setStatusBarMessage('Remote Code: pairing payload copied', 2200);
+        await vscode.window.setStatusBarMessage('Remote Code: Android pairing code copied', 2200);
         return value;
+    }
+
+    public async showPairingQr(): Promise<void> {
+        const value = await this.getPairingPayload();
+        await vscode.env.clipboard.writeText(value);
+        const localUrl = `http://${this._localIp || '127.0.0.1'}:${this._port}`;
+        const publicUrl = this.getPublicUrl() || '';
+        const targetUrl = publicUrl || localUrl;
+        const qrSvg = await QRCode.toString(value, {
+            type: 'svg',
+            margin: 1,
+            width: 320,
+            color: { dark: '#111827', light: '#ffffff' }
+        });
+        const panel = vscode.window.createWebviewPanel(
+            'remoteCodePairingQr',
+            'Remote Code Android QR',
+            vscode.ViewColumn.Beside,
+            { enableScripts: false, retainContextWhenHidden: false }
+        );
+        panel.webview.html = this.renderPairingQrHtml(qrSvg, value, targetUrl, publicUrl ? 'External URL' : 'Local URL');
+        await vscode.window.setStatusBarMessage('Remote Code: Android QR opened and pairing code copied', 2600);
+    }
+
+    private renderPairingQrHtml(qrSvg: string, pairingCode: string, targetUrl: string, urlLabel: string): string {
+        const safeCode = this.escapeHtml(pairingCode);
+        const safeUrl = this.escapeHtml(targetUrl);
+        const safeLabel = this.escapeHtml(urlLabel);
+        return `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<style>
+body{margin:0;padding:28px;background:var(--vscode-editor-background);color:var(--vscode-foreground);font-family:var(--vscode-font-family);line-height:1.45}
+.wrap{max-width:720px;margin:0 auto}
+h1{font-size:24px;margin:0 0 8px}
+p{color:var(--vscode-descriptionForeground);font-size:14px;margin:8px 0}
+.panel{margin-top:18px;padding:18px;border:1px solid var(--vscode-panel-border);border-radius:8px;background:var(--vscode-sideBar-background)}
+.qr{display:flex;justify-content:center;margin:12px 0 18px}.qr svg{width:min(320px,72vw);height:auto;background:#fff;border-radius:8px;padding:14px}
+.meta{display:grid;gap:8px;margin-top:14px}.label{font-size:12px;color:var(--vscode-descriptionForeground);text-transform:uppercase;letter-spacing:.04em}
+code{display:block;white-space:pre-wrap;word-break:break-all;padding:10px;border-radius:6px;background:var(--vscode-textCodeBlock-background);font-family:var(--vscode-editor-font-family);font-size:12px}
+ol{padding-left:20px}li{margin:6px 0}.note{margin-top:12px;font-size:13px;color:var(--vscode-descriptionForeground)}
+</style>
+</head>
+<body>
+<main class="wrap">
+<h1>Android pairing QR</h1>
+<p>Open the Android app, tap <strong>Scan QR</strong>, and point the camera at this code.</p>
+<section class="panel">
+<div class="qr">${qrSvg}</div>
+<ol>
+<li>In the Android app choose external network if you connect from outside Wi-Fi.</li>
+<li>Tap <strong>Scan QR</strong>. The app fills URL and token automatically.</li>
+<li>If scanning is unavailable, tap <strong>Paste code</strong> in the app and paste the copied code below.</li>
+</ol>
+<div class="meta">
+<div><div class="label">${safeLabel}</div><code>${safeUrl}</code></div>
+<div><div class="label">Pairing code copied to clipboard</div><code>${safeCode}</code></div>
+</div>
+<p class="note">The QR contains the connection URL and access token. Do not share it publicly.</p>
+</section>
+</main>
+</body>
+</html>`;
     }
 
     private openPcChatPanel(): void {
@@ -4105,6 +4195,9 @@ export class RemoteServer {
                 return;
             case 'createOrCopyToken':
                 await this.showAuthTokenMenu();
+                return;
+            case 'showPairingQr':
+                await this.showPairingQr();
                 return;
             case 'copyPairingPayload':
                 await this.copyPairingPayload();
@@ -5066,6 +5159,7 @@ export class RemoteServer {
             globe: this.webIcon('globe'),
             lock: this.webIcon('lock'),
             copy: this.webIcon('copy'),
+            qr: this.webIcon('qr'),
             up: this.webIcon('thumbUp'),
             down: this.webIcon('thumbDown'),
             scrollDown: this.webIcon('scrollDown'),
@@ -5480,7 +5574,8 @@ button.send:disabled{opacity:.55;cursor:default}
   </div>
   <div class="toolbar-spacer"></div>
   <button class="icon-btn token-btn" type="button" data-action="createOrCopyToken" title="${this._authToken ? '&#1052;&#1077;&#1085;&#1102; &#1090;&#1086;&#1082;&#1077;&#1085;&#1072;: &#1089;&#1082;&#1086;&#1087;&#1080;&#1088;&#1086;&#1074;&#1072;&#1090;&#1100; &#1080;&#1083;&#1080; &#1089;&#1086;&#1079;&#1076;&#1072;&#1090;&#1100; &#1085;&#1086;&#1074;&#1099;&#1081;' : '&#1057;&#1086;&#1079;&#1076;&#1072;&#1090;&#1100; &#1090;&#1086;&#1082;&#1077;&#1085; &#1076;&#1086;&#1089;&#1090;&#1091;&#1087;&#1072;'}">${icon.lock}<span>&#1058;&#1086;&#1082;&#1077;&#1085;</span></button>
-  <button class="icon-btn token-btn" type="button" data-action="copyPairingPayload" title="Copy Android pairing payload">${icon.copy}<span>Pair</span></button>
+  <button class="icon-btn token-btn" type="button" data-action="showPairingQr" title="Show Android pairing QR">${icon.qr}<span>QR</span></button>
+  <button class="icon-btn token-btn" type="button" data-action="copyPairingPayload" title="Copy Android pairing code">${icon.copy}<span>Code</span></button>
   <button class="icon-btn" type="button" id="topRun" title="${isBusy ? '&#1054;&#1089;&#1090;&#1072;&#1085;&#1086;&#1074;&#1080;&#1090;&#1100;' : '&#1054;&#1090;&#1087;&#1088;&#1072;&#1074;&#1080;&#1090;&#1100;'}">${isBusy ? icon.stop : icon.play}</button>
   <div class="connector-menu-wrap" id="connectorDrop">
     <button class="connector-btn" type="button" id="connectorBtn" title="VS Code">${icon.vscode}<span>VS Code</span><span class="chev">${icon.chevron}</span></button>
@@ -6438,7 +6533,7 @@ prompt.addEventListener('keydown', event => {
         return `<button type="button" class="change-row" data-path="${this.escapeHtml(change.path)}"><span class="change-path">${this.escapeHtml(change.path)}</span>${additions}${deletions}<span class="row-chev">${this.webIcon('chevronDown')}</span></button>`;
     }
 
-    private webIcon(name: 'archive' | 'branch' | 'chevronDown' | 'clock' | 'command' | 'copy' | 'edit' | 'expand' | 'extensions' | 'external' | 'file' | 'folder' | 'globe' | 'laptop' | 'lock' | 'more' | 'panel' | 'pin' | 'play' | 'plus' | 'scrollDown' | 'search' | 'send' | 'settings' | 'sparkle' | 'stop' | 'terminal' | 'thumbDown' | 'thumbUp' | 'trash' | 'undo' | 'x'): string {
+    private webIcon(name: 'archive' | 'branch' | 'chevronDown' | 'clock' | 'command' | 'copy' | 'edit' | 'expand' | 'extensions' | 'external' | 'file' | 'folder' | 'globe' | 'laptop' | 'lock' | 'more' | 'panel' | 'pin' | 'play' | 'plus' | 'qr' | 'scrollDown' | 'search' | 'send' | 'settings' | 'sparkle' | 'stop' | 'terminal' | 'thumbDown' | 'thumbUp' | 'trash' | 'undo' | 'x'): string {
         switch (name) {
             case 'archive':
                 return '<svg viewBox="0 0 16 16" aria-hidden="true"><rect x="2.5" y="3" width="11" height="3" rx="1"/><path d="M4 6v7h8V6"/><path d="M6.25 9h3.5"/></svg>';
@@ -6480,6 +6575,8 @@ prompt.addEventListener('keydown', event => {
                 return '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M5.5 3.75 12 8l-6.5 4.25Z"/></svg>';
             case 'plus':
                 return '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 3.25v9.5"/><path d="M3.25 8h9.5"/></svg>';
+            case 'qr':
+                return '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2.5 2.5h4v4h-4z"/><path d="M9.5 2.5h4v4h-4z"/><path d="M2.5 9.5h4v4h-4z"/><path d="M9.5 9.5h1.5"/><path d="M12.5 9.5h1"/><path d="M9.5 12.5h4"/><path d="M12.5 10.5v3"/></svg>';
             case 'scrollDown':
                 return '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 3v9"/><path d="m4.5 8.5 3.5 3.5 3.5-3.5"/></svg>';
             case 'search':

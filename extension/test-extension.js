@@ -202,6 +202,7 @@ assert(
 );
 assert(serverContent.includes('data-action="createOrCopyToken"') && serverContent.includes("case 'createOrCopyToken'") && serverContent.includes('showAuthTokenMenu'), 'Visible token button works', 'token button missing in webview');
 assert(serverContent.includes('copyPairingPayload') && serverContent.includes('remote-code-pair:') && serverContent.includes('data-action="copyPairingPayload"'), 'Extension can copy Android pairing payload', 'pairing payload copy action missing');
+assert(serverContent.includes('showPairingQr') && serverContent.includes("require('qrcode')") && serverContent.includes('data-action="showPairingQr"') && serverContent.includes('Android pairing QR'), 'Extension shows Android pairing QR', 'pairing QR panel/action missing');
 assert(serverContent.includes('Создать новый токен') && serverContent.includes('forceNew') && serverContent.includes('token-btn'), 'Token can be regenerated explicitly', 'token regeneration/menu label missing');
 assert(serverContent.includes('liveDraftThreadIds'), 'Пустые чаты не закрепляются навсегда', 'liveDraftThreadIds не найден');
 assert(serverContent.includes("private currentRemoteThreadId: string = '';"), 'Нет скрытого default-чата при старте', 'currentRemoteThreadId не должен стартовать с remote-code-default');
@@ -290,6 +291,7 @@ const pkgRaw = fs.readFileSync(path.join(__dirname, 'package.json'), 'utf-8');
 assert(!!pkg.name, 'name поле', 'Отсутствует');
 assert(!!pkg.contributes?.commands, 'commands в contributes', 'Отсутствуют');
 assert(pkg.scripts?.['install:local']?.includes('install-local-extension.ps1'), 'Local extension install script is wired', 'package.json should expose a local install script for the VS Code extension copy');
+assert(pkg.dependencies?.qrcode, 'QR code dependency is declared', 'extension package should include qrcode for Android pairing QR panels');
 assert(!/[\u0080-\u009f\ufffd]/.test(pkgRaw), 'package.json has no mojibake control characters', 'package metadata should be valid UTF-8 without C1 controls');
 assert(pkg.contributes?.configuration?.properties?.['remoteCodeOnPC.keeneticHost']?.description?.startsWith('Имя KeenDNS'), 'Keenetic host setting description is readable', 'keeneticHost description is corrupted');
 const cmds = pkg.contributes.commands.map(c => c.command);
@@ -345,7 +347,7 @@ assert(
     'APK downloads must be verified before install'
 );
 assert(androidManifest.includes('REQUEST_INSTALL_PACKAGES') && mainActivity.includes('canRequestPackageInstalls') && mainActivity.includes('ACTION_MANAGE_UNKNOWN_APP_SOURCES'), 'Android updater declares and gates APK install permission', 'PackageInstaller requires REQUEST_INSTALL_PACKAGES and an unknown-source settings gate');
-assert(androidBuildGradle.includes('versionCode = 99') && androidBuildGradle.includes('versionName = "1.0.99"') && androidBuildGradle.includes('signingConfig = signingConfigs.getByName("debug")'), 'Android release artifact can update existing sideload installs', 'release APK should be version-bumped and signed for sideload updates');
+assert(androidBuildGradle.includes('versionCode = 100') && androidBuildGradle.includes('versionName = "1.0.100"') && androidBuildGradle.includes('signingConfig = signingConfigs.getByName("debug")'), 'Android release artifact can update existing sideload installs', 'release APK should be version-bumped and signed for sideload updates');
 assert(mainActivity.includes('UpdateReadyDialog') && mainActivity.includes('UpdateStatusDialog') && mainActivity.includes('onStatus("Скачивание обновления') && mainActivity.includes('onStatus("Проверка APK') && mainActivity.includes('PendingVerifiedApk') && mainActivity.includes('onReadyDialogFinished = { pendingVerifiedApk = null }') && mainActivity.includes('onInstallPermissionRequired = { pendingVerifiedApk = update }') && mainActivity.includes('Handler(Looper.getMainLooper()).post') && mainActivity.includes('Intent.ACTION_VIEW') && mainActivity.includes('Intent.ACTION_INSTALL_PACKAGE') && !mainActivity.includes('Intent.EXTRA_RETURN_RESULT') && mainActivity.includes('startActivityForResult(intent, updateInstallRequestCode)') && mainActivity.includes('startActivityForResult(installIntent, updateInstallRequestCode)') && !mainActivity.includes('Intent.FLAG_ACTIVITY_NEW_TASK'), 'Android updater uses the Package Installer handoff style without forced return-result', 'verified APK should open through ACTION_VIEW and keep ACTION_INSTALL_PACKAGE as fallback without forcing result mode');
 assert(mainActivity.includes('onInstallPermissionRequired()') && mainActivity.includes('ACTION_MANAGE_UNKNOWN_APP_SOURCES') && mainActivity.indexOf('onInstallPermissionRequired()') > mainActivity.indexOf('startActivity(settingsIntent)'), 'Android updater preserves APK after unknown-source permission handoff', 'permission settings should keep the verified APK ready for a second install tap');
 assert(codexScreen.includes('CodexNavigationPanel') && codexScreen.includes('CodexDrawerProjectRow') && codexScreen.includes('buildMobileCodexProjects') && modelsFile.includes('workspaceName'), 'Android exposes projects in Codex chat list', 'project drawer/thread workspace metadata should be visible to Android');
@@ -362,7 +364,9 @@ assert(codexScreen.includes('LocalConfiguration.current.screenWidthDp >= 840') &
 assert(
     remoteCodeApp.includes('parsePairingPayload') &&
     remoteCodeApp.includes('remote-code-pair:') &&
-    remoteCodeApp.includes('Pairing payload') &&
+    remoteCodeApp.includes('Код подключения') &&
+    remoteCodeApp.includes('Text("Код"') &&
+    remoteCodeApp.includes('Show Android QR code') &&
     remoteCodeApp.includes('Base64.URL_SAFE') &&
     remoteCodeApp.includes('scanPairingQrBitmap') &&
     remoteCodeApp.includes('QrCodeScanner') &&

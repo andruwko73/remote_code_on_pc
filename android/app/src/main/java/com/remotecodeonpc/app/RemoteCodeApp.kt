@@ -117,11 +117,11 @@ private fun scanPairingQrBitmap(
             if (payload != null) {
                 onPayload(payload)
             } else {
-                onError("QR payload is not recognized")
+                onError("QR не распознан")
             }
         }
         .addOnFailureListener { error ->
-            onError(error.message ?: "QR scan failed")
+            onError(error.message ?: "Не удалось прочитать QR")
         }
 }
 
@@ -329,7 +329,7 @@ private fun ConnectionScreen(
     fun applyPairingPayload(rawPayload: String) {
         val parsed = parsePairingPayload(rawPayload)
         if (parsed == null || !isTunnelUrlInputValid(parsed.url)) {
-            pairingError = "Invalid pairing payload"
+            pairingError = "Неверный код подключения"
             return
         }
         useTunnel = true
@@ -346,7 +346,7 @@ private fun ConnectionScreen(
 
     val qrPreviewLauncher = rememberLauncherForActivityResult(ActivityResultContracts.TakePicturePreview()) { bitmap ->
         if (bitmap == null) {
-            pairingError = "QR scan cancelled"
+            pairingError = "Сканирование QR отменено"
             return@rememberLauncherForActivityResult
         }
         scanPairingQrBitmap(
@@ -354,7 +354,7 @@ private fun ConnectionScreen(
             onPayload = { payload ->
                 pairingPayload = payload
                 applyPairingPayload(payload)
-                Toast.makeText(context, "Pairing applied", Toast.LENGTH_SHORT).show()
+                Toast.makeText(context, "Код подключения применен", Toast.LENGTH_SHORT).show()
             },
             onError = { message ->
                 pairingError = message
@@ -367,7 +367,7 @@ private fun ConnectionScreen(
         if (granted) {
             qrPreviewLauncher.launch(null)
         } else {
-            pairingError = "Camera permission is required to scan QR"
+            pairingError = "Для сканирования QR нужна камера"
             showPairingInput = true
         }
     }
@@ -547,7 +547,7 @@ private fun ConnectionScreen(
             ) {
                 Icon(Icons.Default.Link, contentDescription = null, modifier = Modifier.size(16.dp))
                 Spacer(modifier = Modifier.width(6.dp))
-                Text("Pairing", maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text("Код", maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
             OutlinedButton(
                 onClick = { startQrScan() },
@@ -555,7 +555,7 @@ private fun ConnectionScreen(
             ) {
                 Icon(Icons.Default.QrCodeScanner, contentDescription = null, modifier = Modifier.size(16.dp))
                 Spacer(modifier = Modifier.width(6.dp))
-                Text("Scan QR", maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text("Скан QR", maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
             TextButton(
                 onClick = {
@@ -564,7 +564,7 @@ private fun ConnectionScreen(
                 },
                 enabled = pairingPayload.isNotBlank()
             ) {
-                Text("Clear")
+                Text("Очистить")
             }
         }
 
@@ -579,7 +579,7 @@ private fun ConnectionScreen(
                         pairingPayload = it
                         pairingError = null
                     },
-                    label = { Text("Pairing payload", color = TextSecondary, fontSize = 12.sp) },
+                    label = { Text("Код подключения", color = TextSecondary, fontSize = 12.sp) },
                     placeholder = { Text("remote-code-pair:...", color = TextSecondary.copy(alpha = 0.5f)) },
                     minLines = 2,
                     maxLines = 3,
@@ -591,7 +591,7 @@ private fun ConnectionScreen(
                 )
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
-                        pairingError ?: "Paste from VS Code connection menu",
+                        pairingError ?: "В VS Code откройте Remote Code on PC: Подключение -> Show Android QR code или Copy Android pairing code",
                         color = pairingError?.let { ErrorRed } ?: TextSecondary,
                         fontSize = 11.sp,
                         modifier = Modifier.weight(1f),
@@ -604,7 +604,7 @@ private fun ConnectionScreen(
                         },
                         enabled = pairingPayload.isNotBlank()
                     ) {
-                        Text("Apply")
+                        Text("Применить")
                     }
                 }
             }
