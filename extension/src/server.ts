@@ -5438,7 +5438,8 @@ svg{width:15px;height:15px;display:block;fill:none;stroke:currentColor;stroke-wi
 .inline-file-link:hover{background:var(--codex-selected);color:#fff}
 .change-card{margin:10px 0 13px;background:var(--codex-surface);border:1px solid var(--codex-border);border-radius:8px;overflow:hidden;color:var(--codex-text);white-space:normal;box-shadow:0 10px 24px rgba(0,0,0,.12)}
 .change-head{display:flex;align-items:center;justify-content:space-between;gap:14px;min-height:40px;padding:0 11px 0 13px;background:var(--codex-surface-2);border-bottom:1px solid var(--codex-border);font-weight:600;line-height:1.2;white-space:normal}
-.change-summary{display:flex;align-items:center;gap:7px;min-width:0;color:var(--codex-text);font-size:14px;white-space:normal}
+.change-summary{display:flex;align-items:center;gap:10px;min-width:0;flex:1 1 auto;color:var(--codex-text);font-size:14px;white-space:normal}
+.change-title{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .change-actions{display:flex;align-items:center;gap:14px;color:#999;font-weight:500;white-space:normal;flex:0 0 auto}
 .change-action{border:0;background:transparent;color:#9b9b9b;height:28px;padding:0 1px;border-radius:6px;cursor:pointer;font:inherit;font-size:13px;line-height:1;display:inline-flex;align-items:center;justify-content:center;gap:5px;opacity:.9}
 .change-action svg{width:14px;height:14px;stroke-width:1.7}
@@ -6632,19 +6633,42 @@ prompt.addEventListener('keydown', event => {
     }
 
     private renderExplicitChangeCard(header: string, changes: Array<{ path: string; plus?: string; minus?: string }>): string {
+        const totals = this.parseChangeHeaderTotals(header, changes);
         const rows = changes.map(change => this.renderChangeRow({
             path: change.path,
             additions: this.parseDelta(change.plus),
             deletions: Math.abs(this.parseDelta(change.minus))
         })).join('');
-        return `<div class="change-card collapsed"><div class="change-head"><span class="change-summary">${this.renderInlineContent(header)}</span><span class="change-actions"><button type="button" class="change-action" data-change-action="undo" title="Открыть Source Control для отмены изменений"><span>Отменить</span>${this.webIcon('undo')}</button><button type="button" class="change-action" data-change-action="review"><span>Проверить</span>${this.webIcon('external')}</button><button type="button" class="change-action icon-only" data-change-action="toggle" title="Свернуть/развернуть">${this.webIcon('expand')}</button></span></div>${rows}</div>`;
+        return `<div class="change-card collapsed"><div class="change-head">${this.renderChangeHeader(totals.fileCount, totals.additions, totals.deletions)}<span class="change-actions"><button type="button" class="change-action" data-change-action="undo" title="Открыть Source Control для отмены изменений"><span>Отменить</span>${this.webIcon('undo')}</button><button type="button" class="change-action" data-change-action="review"><span>Проверить</span>${this.webIcon('external')}</button><button type="button" class="change-action icon-only" data-change-action="toggle" title="Свернуть/развернуть">${this.webIcon('expand')}</button></span></div>${rows}</div>`;
     }
 
     private renderGitChangeCard(summary: GitChangeSummary): string {
-        const fileWord = this.pluralRu(summary.files.length, 'файл', 'файла', 'файлов');
-        const header = `Изменено ${summary.files.length} ${fileWord} <span class="delta plus">+${summary.additions}</span> <span class="delta minus">-${summary.deletions}</span>`;
+        const header = this.renderChangeHeader(summary.files.length, summary.additions, summary.deletions);
         const rows = summary.files.map(file => this.renderChangeRow(file)).join('');
-        return `<div class="change-card collapsed" data-commit="${this.escapeHtml(summary.commit || '')}" data-cwd="${this.escapeHtml(summary.cwd || '')}"><div class="change-head"><span class="change-summary">${header}</span><span class="change-actions"><button type="button" class="change-action" data-change-action="undo" title="Открыть Source Control для отмены изменений"><span>Отменить</span>${this.webIcon('undo')}</button><button type="button" class="change-action" data-change-action="review"><span>Проверить</span>${this.webIcon('external')}</button><button type="button" class="change-action icon-only" data-change-action="toggle" title="Свернуть/развернуть">${this.webIcon('expand')}</button></span></div>${rows}</div>`;
+        return `<div class="change-card collapsed" data-commit="${this.escapeHtml(summary.commit || '')}" data-cwd="${this.escapeHtml(summary.cwd || '')}"><div class="change-head">${header}<span class="change-actions"><button type="button" class="change-action" data-change-action="undo" title="Открыть Source Control для отмены изменений"><span>Отменить</span>${this.webIcon('undo')}</button><button type="button" class="change-action" data-change-action="review"><span>Проверить</span>${this.webIcon('external')}</button><button type="button" class="change-action icon-only" data-change-action="toggle" title="Свернуть/развернуть">${this.webIcon('expand')}</button></span></div>${rows}</div>`;
+    }
+
+    private renderChangeHeader(fileCount: number, additions: number, deletions: number): string {
+        const fileWord = this.pluralRu(fileCount, 'файл', 'файла', 'файлов');
+        return `<span class="change-summary"><span class="change-title">Изменено ${this.escapeHtml(String(fileCount))} ${fileWord}</span><span class="delta plus">+${this.escapeHtml(String(additions))}</span><span class="delta minus">-${this.escapeHtml(String(deletions))}</span></span>`;
+    }
+
+    private parseChangeHeaderTotals(header: string, changes: Array<{ plus?: string; minus?: string }>): { fileCount: number; additions: number; deletions: number } {
+        const fallback = {
+            fileCount: changes.length,
+            additions: changes.reduce((sum, change) => sum + this.parseDelta(change.plus), 0),
+            deletions: changes.reduce((sum, change) => sum + Math.abs(this.parseDelta(change.minus)), 0)
+        };
+        const match = header.match(/Изменено\s+(\d+)\s+файл\S*\s+\+(\d+)\s+-(\d+)/i);
+        if (!match) return fallback;
+        const fileCount = Number(match[1]);
+        const additions = Number(match[2]);
+        const deletions = Number(match[3]);
+        return {
+            fileCount: Number.isFinite(fileCount) ? fileCount : fallback.fileCount,
+            additions: Number.isFinite(additions) ? additions : fallback.additions,
+            deletions: Number.isFinite(deletions) ? deletions : fallback.deletions
+        };
     }
 
     private renderChangeRow(change: GitChangeFile): string {
@@ -6785,8 +6809,9 @@ prompt.addEventListener('keydown', event => {
                 const parts = line.split('\t');
                 if (parts.length < 3) continue;
                 const binary = parts[0] === '-' || parts[1] === '-';
-                const additions = binary ? 0 : Number(parts[0]);
-                const deletions = binary ? 0 : Number(parts[1]);
+                if (binary) continue;
+                const additions = Number(parts[0]);
+                const deletions = Number(parts[1]);
                 const filePath = parts.slice(2).join('\t').trim();
                 if (!filePath) continue;
                 if (!Number.isFinite(additions) || !Number.isFinite(deletions)) continue;

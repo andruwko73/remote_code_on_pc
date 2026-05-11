@@ -2081,11 +2081,12 @@ private fun MobileChangeCard(
                     .padding(horizontal = 10.dp, vertical = 7.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Column(
+                Row(
                     modifier = Modifier
                         .weight(1f)
                         .padding(end = 6.dp),
-                    verticalArrangement = Arrangement.spacedBy(3.dp)
+                    horizontalArrangement = Arrangement.spacedBy(9.dp),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
                         changeHeaderTitle(summary),
@@ -2093,13 +2094,14 @@ private fun MobileChangeCard(
                         fontSize = 13.sp,
                         fontWeight = FontWeight.SemiBold,
                         maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f)
                     )
                     ChangeDeltaStrip(
                         additions = summary.additions,
                         deletions = summary.deletions,
                         alwaysShowZero = true,
-                        modifier = Modifier.fillMaxWidth()
+                        modifier = Modifier.padding(start = 2.dp)
                     )
                 }
                 TextButton(
