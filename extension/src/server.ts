@@ -5296,8 +5296,6 @@ svg{width:15px;height:15px;display:block;fill:none;stroke:currentColor;stroke-wi
 .icon-btn{width:26px;height:26px;border:0;border-radius:7px;background:transparent;color:#9ea0a4;display:inline-flex;align-items:center;justify-content:center;cursor:pointer;padding:0}
 .icon-btn svg{width:16px;height:16px;stroke-width:1.65}
 .icon-btn:hover{background:var(--codex-surface);color:var(--codex-bright)}
-.token-btn{width:auto;padding:0 8px;gap:5px}
-.token-btn span{font-size:12px;line-height:1;white-space:nowrap}
 .thread-menu-wrap{position:relative;min-width:0;display:flex;align-items:center;gap:7px}
 .thread-menu-btn{border:0;background:transparent;color:var(--codex-bright);display:flex;align-items:center;gap:6px;min-width:0;max-width:680px;cursor:pointer;border-radius:8px;padding:5px 6px}
 .thread-menu-btn:hover,.thread-menu-wrap.open .thread-menu-btn{background:var(--codex-surface)}
@@ -5371,7 +5369,7 @@ svg{width:15px;height:15px;display:block;fill:none;stroke:currentColor;stroke-wi
 .sidebar-empty{font-size:12.5px;color:#777;padding:7px 10px}.sidebar-empty.compact{padding:3px 8px 6px;font-size:11.5px}
 .sidebar-bottom{margin-top:auto;padding-top:10px;border-top:1px solid rgba(255,255,255,.055)}
 .messages{flex:1;min-width:0;overflow:auto;padding:18px clamp(18px,4vw,70px) 138px;scrollbar-gutter:stable}
-.progress-panel{width:240px;max-width:20vw;align-self:flex-start;margin:18px min(1vw,14px) 18px 0;background:rgba(36,36,36,.97);border:1px solid var(--codex-border);border-radius:8px;padding:12px;box-shadow:0 12px 30px rgba(0,0,0,.22);max-height:calc(100% - 36px);overflow:auto;color:#cfcfcf}
+.progress-panel{display:none;width:240px;max-width:20vw;align-self:flex-start;margin:18px min(1vw,14px) 18px 0;background:rgba(36,36,36,.97);border:1px solid var(--codex-border);border-radius:8px;padding:12px;box-shadow:0 12px 30px rgba(0,0,0,.22);max-height:calc(100% - 36px);overflow:auto;color:#cfcfcf}
 .progress-title{font-size:13px;font-weight:650;color:#9e9e9e;margin-bottom:8px}
 .progress-list,.progress-section{display:flex;flex-direction:column;gap:7px}
 .progress-item{display:grid;grid-template-columns:20px 1fr;gap:8px;align-items:start;color:#b9b9b9;font-size:12.25px;line-height:1.38}
@@ -5504,7 +5502,7 @@ pre{margin:0;white-space:pre-wrap;word-wrap:break-word;font:inherit}
 .subcontrols{display:flex;gap:12px;align-items:center;margin:5px auto 0;max-width:var(--composer-max);color:#8e8e8e;font-size:12px}
 .plus{color:#c0c0c0;background:transparent;border:0;width:30px;height:30px;display:inline-flex;align-items:center;justify-content:center;padding:0;cursor:pointer;border-radius:8px;flex:0 0 auto}
 .plus:hover{background:var(--codex-selected);color:#ededed}
-textarea{width:100%;box-sizing:border-box;resize:none;min-height:54px;max-height:190px;overflow:hidden;border:0;background:transparent;color:#e9e9e9;padding:0;font:inherit;font-size:14px;outline:none;line-height:1.46}
+textarea{width:100%;box-sizing:border-box;resize:none;min-height:42px;max-height:168px;overflow:hidden;border:0;background:transparent;color:#e9e9e9;padding:0;font:inherit;font-size:14px;outline:none;line-height:1.46}
 textarea.scroll{overflow:auto}
 textarea::placeholder{color:#818389}
 .composer-attachments{display:none;flex-wrap:wrap;gap:6px;margin:-1px 0 2px}
@@ -5549,11 +5547,11 @@ button.send:disabled{opacity:.55;cursor:default}
 @keyframes pulse{0%,100%{opacity:.35;transform:scale(.82)}50%{opacity:1;transform:scale(1)}}
 @keyframes spin{to{transform:rotate(360deg)}}
 @media (min-width: 760px){.composer-wrap{margin-left:246px}.messages{padding-left:clamp(20px,3vw,64px);padding-right:clamp(20px,3vw,64px)}}
-@media (min-width: 1120px){:root{--progress-offset:250px}.composer-wrap{margin-right:252px}.progress-panel{display:block}}
+@media (min-width: 1120px){:root{--progress-offset:0}.composer-wrap{margin-right:0}.progress-panel{display:none}}
 @media (min-width: 1500px){:root{--chat-max:900px;--composer-max:940px}.progress-panel{width:246px}}
 @media (max-width: 1119px){:root{--progress-offset:0}.progress-panel{display:none}}
 @media (max-width: 759px){.wide-sidebar{display:none}.content-shell{display:flex;overflow:hidden}.messages{height:auto;overflow:auto}.scroll-bottom{display:none}}
-@media (max-width: 680px){.top{padding:0 10px}.token-btn{width:26px;padding:0}.token-btn span{display:none}.messages{padding-left:14px;padding-right:14px;padding-bottom:132px}.composer-wrap{padding-left:8px;padding-right:8px}.controls{flex-wrap:wrap}button.send{margin-left:auto}.subcontrols{gap:8px;flex-wrap:wrap}.dropdown.profile{flex-basis:132px}.msg.user .message-text,.msg.user .attachments-list,.msg.user .message-file-cards{max-width:88%}}
+@media (max-width: 680px){.top{padding:0 10px}.messages{padding-left:14px;padding-right:14px;padding-bottom:132px}.composer-wrap{padding-left:8px;padding-right:8px}.controls{flex-wrap:wrap}button.send{margin-left:auto}.subcontrols{gap:8px;flex-wrap:wrap}.dropdown.profile{flex-basis:132px}.msg.user .message-text,.msg.user .attachments-list,.msg.user .message-file-cards{max-width:88%}}
 </style>
 </head>
 <body>
@@ -5568,6 +5566,7 @@ button.send:disabled{opacity:.55;cursor:default}
       ${threadMenuRows || '<div class="sidebar-empty">Нет чатов</div>'}
     </div>
   </div>
+  <div class="toolbar-spacer"></div>
   <div class="top-menu-wrap" id="topMoreDrop">
     <button class="icon-btn" type="button" id="topMoreBtn" title="&#1052;&#1077;&#1085;&#1102;">${icon.more}</button>
     <div class="top-menu">
@@ -5581,6 +5580,14 @@ button.send:disabled{opacity:.55;cursor:default}
       <button class="item" type="button" data-action="clearChat">&#1054;&#1095;&#1080;&#1089;&#1090;&#1080;&#1090;&#1100; &#1095;&#1072;&#1090;</button>
       <button class="item" type="button" data-action="deleteCurrentThread">&#1059;&#1076;&#1072;&#1083;&#1080;&#1090;&#1100; &#1095;&#1072;&#1090;</button>
       <div class="menu-separator"></div>
+      <button class="item icon-item" type="button" data-action="createOrCopyToken">${icon.lock}<span>${this._authToken ? 'Токен доступа' : 'Создать токен доступа'}</span></button>
+      <button class="item icon-item" type="button" data-action="showPairingQr">${icon.qr}<span>QR для телефона</span></button>
+      <button class="item icon-item" type="button" data-action="copyPairingPayload">${icon.copy}<span>Код для телефона</span></button>
+      <div class="menu-separator"></div>
+      <button class="item icon-item" type="button" data-action="showProblems">${icon.panel}<span>Диагностика</span></button>
+      <button class="item icon-item" type="button" data-action="openScm">${icon.branch}<span>Изменения Git</span></button>
+      <button class="item icon-item" type="button" data-action="openTerminal">${icon.terminal}<span>Терминал</span></button>
+      <div class="menu-separator"></div>
       <button class="item icon-item" type="button" data-action="configureKeeneticRouter">${icon.globe}<span>Настроить Keenetic</span></button>
       <button class="item icon-item" type="button" data-action="copyKeeneticCommands">${icon.copy}<span>Скопировать инструкцию Keenetic</span></button>
       <button class="item icon-item" type="button" data-action="openRouterPage">${icon.globe}<span>Открыть Keenetic</span></button>
@@ -5588,20 +5595,6 @@ button.send:disabled{opacity:.55;cursor:default}
       <button class="item" type="button" data-action="openSettings">&#1053;&#1072;&#1089;&#1090;&#1088;&#1086;&#1081;&#1082;&#1080;</button>
     </div>
   </div>
-  <div class="toolbar-spacer"></div>
-  <button class="icon-btn token-btn" type="button" data-action="createOrCopyToken" title="${this._authToken ? '&#1052;&#1077;&#1085;&#1102; &#1090;&#1086;&#1082;&#1077;&#1085;&#1072;: &#1089;&#1082;&#1086;&#1087;&#1080;&#1088;&#1086;&#1074;&#1072;&#1090;&#1100; &#1080;&#1083;&#1080; &#1089;&#1086;&#1079;&#1076;&#1072;&#1090;&#1100; &#1085;&#1086;&#1074;&#1099;&#1081;' : '&#1057;&#1086;&#1079;&#1076;&#1072;&#1090;&#1100; &#1090;&#1086;&#1082;&#1077;&#1085; &#1076;&#1086;&#1089;&#1090;&#1091;&#1087;&#1072;'}">${icon.lock}<span>&#1058;&#1086;&#1082;&#1077;&#1085;</span></button>
-  <button class="icon-btn token-btn" type="button" data-action="showPairingQr" title="QR для телефона">${icon.qr}<span>QR для телефона</span></button>
-  <button class="icon-btn token-btn" type="button" data-action="copyPairingPayload" title="Код для телефона">${icon.copy}<span>Код</span></button>
-  <button class="icon-btn" type="button" id="topRun" title="${isBusy ? '&#1054;&#1089;&#1090;&#1072;&#1085;&#1086;&#1074;&#1080;&#1090;&#1100;' : '&#1054;&#1090;&#1087;&#1088;&#1072;&#1074;&#1080;&#1090;&#1100;'}">${isBusy ? icon.stop : icon.play}</button>
-  <div class="connector-menu-wrap" id="connectorDrop">
-    <button class="connector-btn" type="button" id="connectorBtn" title="VS Code">${icon.vscode}<span>VS Code</span><span class="chev">${icon.chevron}</span></button>
-    <div class="toolbar-menu">
-      <button class="item" type="button" data-action="showProblems">&#1044;&#1080;&#1072;&#1075;&#1085;&#1086;&#1089;&#1090;&#1080;&#1082;&#1072;</button>
-      <button class="item" type="button" data-action="openScm">&#1048;&#1079;&#1084;&#1077;&#1085;&#1077;&#1085;&#1080;&#1103; Git</button>
-      <button class="item" type="button" data-action="openTerminal">&#1058;&#1077;&#1088;&#1084;&#1080;&#1085;&#1072;&#1083;</button>
-    </div>
-  </div>
-  <button class="icon-btn" type="button" data-action="openTerminal" title="&#1058;&#1077;&#1088;&#1084;&#1080;&#1085;&#1072;&#1083;">${icon.terminal}</button>
 </div>
 <div class="content-shell">
   ${sidebarHtml}
@@ -5791,10 +5784,6 @@ document.getElementById('topMoreBtn').addEventListener('click', event => {
   event.stopPropagation();
   document.getElementById('topMoreDrop').classList.toggle('open');
 });
-document.getElementById('connectorBtn').addEventListener('click', event => {
-  event.stopPropagation();
-  document.getElementById('connectorDrop').classList.toggle('open');
-});
 document.querySelectorAll('[data-thread-id]').forEach(button => {
   button.addEventListener('click', () => {
     vscode.postMessage({ type: 'action', action: 'switchThread', threadId: button.dataset.threadId });
@@ -5819,14 +5808,10 @@ document.addEventListener('click', event => {
   if (!event.target.closest('#topMoreDrop')) {
     document.getElementById('topMoreDrop').classList.remove('open');
   }
-  if (!event.target.closest('#connectorDrop')) {
-    document.getElementById('connectorDrop').classList.remove('open');
-  }
 });
 document.querySelectorAll('[data-action]').forEach(button => {
   button.addEventListener('click', () => {
     document.getElementById('topMoreDrop')?.classList.remove('open');
-    document.getElementById('connectorDrop')?.classList.remove('open');
     const payload = { type: 'action', action: button.dataset.action };
     if (button.dataset.path) payload.path = button.dataset.path;
     if (button.dataset.url) payload.url = button.dataset.url;
@@ -5852,14 +5837,6 @@ document.querySelectorAll('[data-dismiss-action-id]').forEach(button => {
     if (!actionId) return;
     vscode.postMessage({ type: 'action', action: 'dismissActionEvent', actionId });
   });
-});
-document.getElementById('topRun').addEventListener('click', () => {
-  if (submitLocked) return;
-  if (isBusy) {
-    vscode.postMessage({ type: 'action', action: 'stopGeneration' });
-    return;
-  }
-  form.requestSubmit();
 });
 document.getElementById('send').addEventListener('click', event => {
   if (!isBusy) return;

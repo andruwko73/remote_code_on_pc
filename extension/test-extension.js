@@ -62,7 +62,7 @@ const assertWebviewInteractionWiring = () => {
     assert(serverContent.includes("data-action-id=") && serverContent.includes("actionResponse"), 'Approve/deny action buttons work', 'action response wiring missing');
     assert(serverContent.includes("prompt.addEventListener('paste'") && serverContent.includes("pasteFiles"), 'Paste attachment flow works', 'paste attachment wiring missing');
 assert(serverContent.includes("prompt.addEventListener('keydown'") && serverContent.includes("event.key === 'Enter'"), 'Enter sends message in extension', 'Enter send wiring missing');
-assert(serverContent.includes("case 'stopGeneration'") && serverContent.includes("id=\"topRun\"") && serverContent.includes("id=\"send\""), 'Stop/run buttons are wired', 'stop/run wiring missing');
+assert(serverContent.includes("case 'stopGeneration'") && serverContent.includes("id=\"send\"") && serverContent.includes("document.getElementById('send').addEventListener"), 'Stop/run buttons are wired', 'stop/run wiring missing');
 assert(serverContent.includes("codex:preferences-changed") && serverContent.includes("Composer preferences changed"), 'Composer preferences sync over API/WebSocket', 'preference sync missing');
 assert(serverContent.includes('actionTimelineSummary') && serverContent.includes('recentActionTimelineEvents') && serverContent.includes('work-summary-line') && serverContent.includes('на протяжении'), 'Extension shows Codex-like work summary', 'work summary row missing from extension chat');
 };
@@ -200,10 +200,10 @@ assert(
     'WebSocket public access requires token',
     'public WebSocket must use the same token gate as HTTP'
 );
-assert(serverContent.includes('data-action="createOrCopyToken"') && serverContent.includes("case 'createOrCopyToken'") && serverContent.includes('showAuthTokenMenu'), 'Visible token button works', 'token button missing in webview');
+assert(serverContent.includes('data-action="createOrCopyToken"') && serverContent.includes("case 'createOrCopyToken'") && serverContent.includes('showAuthTokenMenu'), 'Token menu action works', 'token menu action missing in webview');
 assert(serverContent.includes('copyPairingPayload') && serverContent.includes('remote-code-pair:') && serverContent.includes('data-action="copyPairingPayload"'), 'Extension can copy Android pairing payload', 'pairing payload copy action missing');
 assert(serverContent.includes('showPairingQr') && serverContent.includes("require('qrcode')") && serverContent.includes('data-action="showPairingQr"') && serverContent.includes('QR для телефона'), 'Extension shows Android pairing QR', 'pairing QR panel/action missing');
-assert(serverContent.includes('Создать новый токен') && serverContent.includes('forceNew') && serverContent.includes('token-btn'), 'Token can be regenerated explicitly', 'token regeneration/menu label missing');
+assert(serverContent.includes('Создать новый токен') && serverContent.includes('forceNew') && serverContent.includes('data-action="createOrCopyToken"'), 'Token can be regenerated explicitly', 'token regeneration/menu label missing');
 assert(serverContent.includes('liveDraftThreadIds'), 'Пустые чаты не закрепляются навсегда', 'liveDraftThreadIds не найден');
 assert(serverContent.includes("private currentRemoteThreadId: string = '';"), 'Нет скрытого default-чата при старте', 'currentRemoteThreadId не должен стартовать с remote-code-default');
 assert(serverContent.includes('if (!targetThreadId)') && serverContent.includes('targetThreadId = this.createRemoteCodeThread()'), 'Сообщение без thread создаёт реальный чат', 'fallback thread должен создаваться явно');
@@ -232,6 +232,7 @@ const compactWebviewChecks = [
     '.composer{max-width:var(--composer-max);margin:0 auto;border:1px solid var(--codex-strong-border);background:#2d2d2d;border-radius:18px',
 ];
 assert(compactWebviewChecks.every((snippet) => serverContent.includes(snippet)), 'Extension webview uses compact Codex-like density', 'webview sidebar/message/change-card/composer density drifted from Codex target');
+assert(!serverContent.includes('id="topRun"') && !serverContent.includes('id="connectorDrop"') && serverContent.includes('.progress-panel{display:none') && serverContent.includes('min-height:42px;max-height:168px'), 'Extension top bar matches Codex surface', 'Remote Code utility buttons/progress sidebar should not dominate the chat surface');
 assert(serverContent.includes('.code-block') && serverContent.includes('data-preview-src') && serverContent.includes('imageDataUri') && serverContent.includes('imagePreview') && serverContent.includes('isAttachmentPreviewPathAllowed'), 'Extension renders Codex-style code blocks and image previews', 'webview chat should render fenced code blocks and tappable image thumbnails');
 assert(
     serverContent.includes('remote_code_hidden_messages') &&
