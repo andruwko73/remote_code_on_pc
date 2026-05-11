@@ -83,6 +83,7 @@ fun CodexScreen(
     threads: List<CodexThread>,
     projects: List<CodexProject>,
     currentThreadId: String,
+    currentProjectId: String,
     isLoading: Boolean,
     error: String?,
     // Files params (same as VSCodeScreen)
@@ -158,6 +159,7 @@ fun CodexScreen(
             threads = threads,
             projects = projects,
             currentThreadId = currentThreadId,
+            currentProjectId = currentProjectId,
             isLoading = isLoading,
             error = error,
             onOpenNavigation = {
@@ -171,7 +173,6 @@ fun CodexScreen(
             onToggleContext = onToggleContext,
             onNewThread = onNewThread,
             onLoadThreads = onLoadThreads,
-            onSwitchThread = onSwitchThread,
             onDeleteThread = onDeleteThread,
             onDeleteMessage = onDeleteMessage,
             onRegenerateMessage = onRegenerateMessage,
@@ -506,6 +507,7 @@ fun CodexChatTab(
     threads: List<CodexThread>,
     projects: List<CodexProject>,
     currentThreadId: String,
+    currentProjectId: String,
     isLoading: Boolean,
     error: String?,
     onOpenNavigation: () -> Unit = {},
@@ -516,7 +518,6 @@ fun CodexChatTab(
     onToggleContext: () -> Unit,
     onNewThread: () -> Unit,
     onLoadThreads: () -> Unit,
-    onSwitchThread: (String) -> Unit,
     onDeleteThread: (String) -> Unit,
     onDeleteMessage: (String) -> Unit = {},
     onRegenerateMessage: (String) -> Unit = {},
@@ -528,7 +529,6 @@ fun CodexChatTab(
     var messageText by remember { mutableStateOf("") }
     var showModelEffortSelector by remember { mutableStateOf(false) }
     var showProfileSelector by remember { mutableStateOf(false) }
-    var showThreads by remember { mutableStateOf(false) }
     var showCurrentThreadMenu by remember { mutableStateOf(false) }
     var pendingDeleteThread by remember { mutableStateOf<CodexThread?>(null) }
     var attachments by remember { mutableStateOf<List<MessageAttachment>>(emptyList()) }
@@ -605,6 +605,7 @@ fun CodexChatTab(
     val currentThread = threads.find { it.id == currentThreadId }
     val projectGroups = remember(projects, threads) { projects.ifEmpty { buildMobileCodexProjects(threads) } }
     val currentProjectLabel = currentThread?.let { threadProjectName(it) }
+        ?: projectGroups.firstOrNull { project -> project.id == currentProjectId }?.name
         ?: projectGroups.firstOrNull { project -> project.threads.any { it.id == currentThreadId } }?.name
     val visibleChatHistory = remember(chatHistory) {
         dedupeMobileChatMessages(chatHistory.filterNot { isMobileActionResultMessage(it.content) })
@@ -661,7 +662,7 @@ fun CodexChatTab(
                     .weight(1f)
                     .clickable {
                         onLoadThreads()
-                        showThreads = true
+                        onOpenNavigation()
                     },
                 verticalArrangement = Arrangement.Center
             ) {
@@ -712,7 +713,7 @@ fun CodexChatTab(
                         onClick = {
                             showCurrentThreadMenu = false
                             onLoadThreads()
-                            showThreads = true
+                            onOpenNavigation()
                         }
                     )
                     DropdownMenuItem(
@@ -740,88 +741,6 @@ fun CodexChatTab(
             }
         }
 
-        if (showThreads) {
-            AlertDialog(
-                modifier = Modifier.fillMaxWidth(0.94f),
-                onDismissRequest = { showThreads = false },
-                title = { Text("\u0418\u0441\u0442\u043E\u0440\u0438\u044F Codex", color = TextBright) },
-                text = {
-                    LazyColumn(
-                        modifier = Modifier.fillMaxWidth().heightIn(max = 480.dp),
-                        verticalArrangement = Arrangement.spacedBy(4.dp)
-                    ) {
-                        if (projectGroups.isEmpty()) item { Text("\u041D\u0435\u0442 \u0430\u043A\u0442\u0438\u0432\u043D\u044B\u0445 \u0447\u0430\u0442\u043E\u0432", color = TextSecondary) }
-                        projectGroups.forEach { project ->
-                            item(key = "dialog-project-${project.id}") {
-                                Row(
-                                    modifier = Modifier.fillMaxWidth().padding(top = 4.dp, bottom = 2.dp),
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Icon(Icons.Outlined.Folder, contentDescription = null, tint = TextSecondary, modifier = Modifier.size(15.dp))
-                                    Spacer(modifier = Modifier.width(7.dp))
-                                    Text(project.name.ifBlank { "Без проекта" }, color = TextSecondary, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                }
-                            }
-                            items(project.threads, key = { "dialog-thread-${it.id}" }) { thread ->
-                                val selected = thread.id == currentThreadId
-                                Surface(
-                                    color = if (selected) Color(0xFF323039) else Color.Transparent,
-                                    shape = RoundedCornerShape(10.dp),
-                                    border = BorderStroke(1.dp, if (selected) AccentBlue.copy(alpha = 0.28f) else Color.Transparent),
-                                    modifier = Modifier.fillMaxWidth()
-                                ) {
-                                    Row(
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .clickable {
-                                                onSwitchThread(thread.id)
-                                                showThreads = false
-                                            }
-                                            .padding(start = 12.dp, end = 4.dp, top = 9.dp, bottom = 9.dp)
-                                    ) {
-                                        Box(
-                                            modifier = Modifier
-                                                .size(width = 3.dp, height = 34.dp)
-                                                .background(if (selected) AccentBlue else Color.Transparent, RoundedCornerShape(999.dp))
-                                        )
-                                        Spacer(modifier = Modifier.width(9.dp))
-                                        Column(modifier = Modifier.weight(1f).padding(end = 10.dp)) {
-                                            Text(
-                                                threadDisplayTitle(thread),
-                                                color = if (selected) TextBright else TextPrimary,
-                                                fontSize = 14.sp,
-                                                lineHeight = 18.sp,
-                                                fontWeight = FontWeight.SemiBold,
-                                                maxLines = 2,
-                                                overflow = TextOverflow.Ellipsis,
-                                                modifier = Modifier.fillMaxWidth()
-                                            )
-                                            Spacer(modifier = Modifier.height(2.dp))
-                                            Text(
-                                                threadSourceLabel(thread),
-                                                color = TextSecondary,
-                                                fontSize = 11.sp,
-                                                lineHeight = 13.sp,
-                                                maxLines = 1,
-                                                overflow = TextOverflow.Ellipsis,
-                                                modifier = Modifier.fillMaxWidth()
-                                            )
-                                        }
-                                        IconButton(onClick = { pendingDeleteThread = thread }, modifier = Modifier.size(40.dp)) {
-                                            Icon(Icons.Outlined.Delete, contentDescription = "Удалить чат", tint = TextSecondary, modifier = Modifier.size(18.dp))
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                },
-                confirmButton = { TextButton(onClick = { showThreads = false }) { Text("\u0417\u0430\u043A\u0440\u044B\u0442\u044C") } },
-                containerColor = Color(0xFF242424)
-            )
-        }
-
         pendingDeleteThread?.let { thread ->
             AlertDialog(
                 onDismissRequest = { pendingDeleteThread = null },
@@ -837,7 +756,6 @@ fun CodexChatTab(
                         onClick = {
                             onDeleteThread(thread.id)
                             pendingDeleteThread = null
-                            showThreads = false
                         }
                     ) {
                         Text("Удалить", color = ErrorRed)
@@ -867,7 +785,6 @@ fun CodexChatTab(
                             onOpenFile = onOpenFile,
                             onEditMessage = { text ->
                                 messageText = text
-                                showThreads = false
                             },
                             onDeleteMessage = onDeleteMessage,
                             onRegenerateMessage = onRegenerateMessage

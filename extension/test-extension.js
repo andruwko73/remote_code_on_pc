@@ -322,7 +322,8 @@ assert(remoteCodeApp.includes('Arrangement.spacedBy(7.dp, Alignment.CenterVertic
 assert(remoteCodeApp.includes('Text("Логи"') && remoteCodeApp.includes('Text("Очистить"') && remoteCodeApp.includes('Text("Обновить"'), 'Android startup action buttons are present', 'startup action row missing');
 assert(remoteCodeApp.includes('PasswordVisualTransformation') && remoteCodeApp.includes('showToken') && remoteCodeApp.includes('showCompactToken'), 'Android token fields are masked by default', 'token field must not show secrets by default');
 assert(!connectionUrl.includes('withKeeneticPort') && !remoteCodeApp.includes('Text("Порт"') && !remoteCodeApp.includes('порт'), 'Android hides manual port from connection UI', 'external URLs should not get an implicit app port and Android should not mention a manual port in the main UI');
-assert(mainActivity.includes('ConnectionUrl.httpBase(config).trimEnd') && mainActivity.indexOf('ConnectionUrl.httpBase(config).trimEnd') < mainActivity.indexOf('publicUpdateUrl?ts'), 'Android updater tries connected extension before GitHub', 'update button should prefer the current extension APK endpoint before public fallback');
+assert(mainActivity.includes('buildUpdateSources') && mainActivity.includes('statusUrl = "$base/api/app/apk/status?ts=$ts"') && mainActivity.includes('apkUrl = "$base/api/app/apk?ts=$ts"') && mainActivity.indexOf('addExtensionSource(ConnectionUrl.httpBase(config') < mainActivity.indexOf('apkUrl = "$publicUpdateUrl?ts=$ts"'), 'Android updater tries connected extension before GitHub', 'update button should prefer the current extension APK endpoint before public fallback');
+assert(mainActivity.includes('preflightUpdateSource') && mainActivity.includes('currentInstalledApkSha256') && mainActivity.includes('Уже установлена актуальная версия приложения') && mainActivity.includes('UpdateManifest'), 'Android updater preflights APK status', 'updater should query APK status/SHA before downloading and skip already-installed APKs');
 assert(
     serverContent.includes('X-Remote-Code-Apk-Sha256') &&
     standaloneContent.includes('X-Remote-Code-Apk-Sha256') &&
@@ -333,8 +334,8 @@ assert(
     'APK downloads must be verified before install'
 );
 assert(androidManifest.includes('REQUEST_INSTALL_PACKAGES') && mainActivity.includes('canRequestPackageInstalls') && mainActivity.includes('ACTION_MANAGE_UNKNOWN_APP_SOURCES'), 'Android updater declares and gates APK install permission', 'PackageInstaller requires REQUEST_INSTALL_PACKAGES and an unknown-source settings gate');
-assert(androidBuildGradle.includes('versionCode = 95') && androidBuildGradle.includes('versionName = "1.0.94"') && androidBuildGradle.includes('signingConfig = signingConfigs.getByName("debug")'), 'Android release artifact can update existing sideload installs', 'release APK should be version-bumped and signed for sideload updates');
-assert(mainActivity.includes('UpdateReadyDialog') && mainActivity.includes('UpdateStatusDialog') && mainActivity.includes('onStatus("Скачивание обновления') && mainActivity.includes('onStatus("Проверка APK') && mainActivity.includes('PendingVerifiedApk') && mainActivity.includes('onReadyDialogFinished = { pendingVerifiedApk = null }') && mainActivity.includes('onInstallPermissionRequired = { pendingVerifiedApk = update }') && mainActivity.includes('Handler(Looper.getMainLooper()).post') && mainActivity.includes('Intent.ACTION_VIEW') && mainActivity.includes('Intent.ACTION_INSTALL_PACKAGE') && mainActivity.includes('Intent.EXTRA_RETURN_RESULT') && mainActivity.includes('startActivityForResult(intent, updateInstallRequestCode)') && mainActivity.includes('startActivityForResult(installIntent, updateInstallRequestCode)') && !mainActivity.includes('Intent.FLAG_ACTIVITY_NEW_TASK'), 'Android updater uses the old Package Installer handoff style', 'verified APK should open through ACTION_VIEW with return-result mode and keep ACTION_INSTALL_PACKAGE as fallback');
+assert(androidBuildGradle.includes('versionCode = 97') && androidBuildGradle.includes('versionName = "1.0.97"') && androidBuildGradle.includes('signingConfig = signingConfigs.getByName("debug")'), 'Android release artifact can update existing sideload installs', 'release APK should be version-bumped and signed for sideload updates');
+assert(mainActivity.includes('UpdateReadyDialog') && mainActivity.includes('UpdateStatusDialog') && mainActivity.includes('onStatus("Скачивание обновления') && mainActivity.includes('onStatus("Проверка APK') && mainActivity.includes('PendingVerifiedApk') && mainActivity.includes('onReadyDialogFinished = { pendingVerifiedApk = null }') && mainActivity.includes('onInstallPermissionRequired = { pendingVerifiedApk = update }') && mainActivity.includes('Handler(Looper.getMainLooper()).post') && mainActivity.includes('Intent.ACTION_VIEW') && mainActivity.includes('Intent.ACTION_INSTALL_PACKAGE') && !mainActivity.includes('Intent.EXTRA_RETURN_RESULT') && mainActivity.includes('startActivityForResult(intent, updateInstallRequestCode)') && mainActivity.includes('startActivityForResult(installIntent, updateInstallRequestCode)') && !mainActivity.includes('Intent.FLAG_ACTIVITY_NEW_TASK'), 'Android updater uses the Package Installer handoff style without forced return-result', 'verified APK should open through ACTION_VIEW and keep ACTION_INSTALL_PACKAGE as fallback without forcing result mode');
 assert(mainActivity.includes('onInstallPermissionRequired()') && mainActivity.includes('ACTION_MANAGE_UNKNOWN_APP_SOURCES') && mainActivity.indexOf('onInstallPermissionRequired()') > mainActivity.indexOf('startActivity(settingsIntent)'), 'Android updater preserves APK after unknown-source permission handoff', 'permission settings should keep the verified APK ready for a second install tap');
 assert(codexScreen.includes('CodexNavigationPanel') && codexScreen.includes('CodexDrawerProjectRow') && codexScreen.includes('buildMobileCodexProjects') && modelsFile.includes('workspaceName'), 'Android exposes projects in Codex chat list', 'project drawer/thread workspace metadata should be visible to Android');
 assert(codexScreen.includes('Icons.Outlined.Extension') && codexScreen.includes('Icons.Outlined.Schedule') && codexScreen.includes('Плагины') && codexScreen.includes('Автоматизации') && codexScreen.includes('PaddingValues(bottom = 64.dp)'), 'Android drawer mirrors Codex navigation actions', 'drawer should expose Codex-like plugins and automations entries');
@@ -369,6 +370,7 @@ assert(
 assert(mainVm.includes('isUnsupportedExternalUrl') && mainVm.includes('Расширение вернуло служебный адрес'), 'Android rejects unsupported service public URLs', 'Android should reject service URLs before connecting');
 assert(codexScreen.includes('item(key = "bottom-anchor")'), 'Android chat scrolls to a true bottom anchor', 'bottom anchor missing');
 assert(codexScreen.includes('showCurrentThreadMenu') && codexScreen.includes('pendingDeleteThread') && codexScreen.includes('onNavigateToSettings()'), 'Android current-chat menu buttons work', 'current chat menu wiring missing');
+assert(!codexScreen.includes('showThreads') && !codexScreen.includes('История Codex') && codexScreen.includes('onOpenNavigation()'), 'Android chat history uses the Codex drawer only', 'chat history should not be duplicated in a separate modal dialog');
 assert(codexScreen.includes('attachmentPicker.launch') && codexScreen.includes('startVoiceInput'), 'Android composer file and voice buttons work', 'composer media/voice wiring missing');
 assert(codexScreen.includes('onStopGeneration') && codexScreen.includes('onRespondToAction'), 'Android stop and approve/deny actions are wired', 'stop/approval wiring missing');
 assert(codexScreen.includes('contentAlignment = Alignment.Center') && codexScreen.includes('modifier = Modifier.widthIn(max = 330.dp)'), 'Android user messages match Codex centered cards', 'user prompt bubble should be centered and constrained like Codex');
@@ -395,6 +397,15 @@ assert(
     codexScreen.includes('mobileProjectKey(it.projectId, it.workspaceName, it.workspacePath)'),
     'Android chats stay attached to projects',
     'thread projectId should be modeled and preferred when selecting a project'
+);
+assert(
+    apiClient.includes('newCodexThread(@Body body: Map<String, String>)') &&
+    mainVm.includes('currentCodexProjectForNewThread') &&
+    mainVm.includes('codexNewThreadRequest') &&
+    serverContent.includes('resolveRequestedRemoteCodeWorkspace') &&
+    serverContent.includes('createRemoteCodeThread(workspace)'),
+    'New Android chat is created inside the selected project',
+    'new chat should send project/workspace metadata and extension should preserve it on the thread'
 );
 
 for (const f of androidFiles) {

@@ -1063,6 +1063,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         currentCodexThreadId = body?.threadId?.takeIf { it.isNotBlank() }
                             ?: selectedThreadId
                             ?: _uiState.value.currentCodexThreadId,
+                        currentCodexProjectId = body?.projectId?.takeIf { it.isNotBlank() }
+                            ?: selectedProjectIdForThread(
+                                body?.threadId?.takeIf { it.isNotBlank() } ?: selectedThreadId.orEmpty(),
+                                _uiState.value.codexProjects,
+                                _uiState.value.codexThreads
+                            ),
                         codexError = null
                     )
                 }
@@ -1314,6 +1320,25 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             ?: "Без проекта"
     }
 
+    private fun currentCodexProjectForNewThread(): CodexProject? {
+        val state = _uiState.value
+        state.codexProjects.firstOrNull { it.id == state.currentCodexProjectId }?.let { return it }
+        selectedProjectIdForThread(state.currentCodexThreadId, state.codexProjects, state.codexThreads)
+            .takeIf { it.isNotBlank() }
+            ?.let { projectId -> state.codexProjects.firstOrNull { it.id == projectId } }
+            ?.let { return it }
+        return state.codexProjects.firstOrNull { it.active }
+            ?: state.codexProjects.firstOrNull()
+    }
+
+    private fun codexNewThreadRequest(project: CodexProject?): Map<String, String> {
+        val body = mutableMapOf<String, String>()
+        project?.id?.takeIf { it.isNotBlank() }?.let { body["projectId"] = it }
+        project?.name?.takeIf { it.isNotBlank() }?.let { body["workspaceName"] = it }
+        project?.path?.takeIf { it.isNotBlank() }?.let { body["workspacePath"] = it }
+        return body
+    }
+
     fun switchCodexThread(threadId: String) {
         val nextProjectId = selectedProjectIdForThread(threadId, _uiState.value.codexProjects, _uiState.value.codexThreads)
         _uiState.value = _uiState.value.copy(
@@ -1331,11 +1356,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             try {
                 val api = ApiClient.getApi(_uiState.value.serverConfig)
-                val response = api.newCodexThread()
+                val project = currentCodexProjectForNewThread()
+                val response = api.newCodexThread(codexNewThreadRequest(project))
                 if (response.isSuccessful) {
                     val body = response.body()
                     _uiState.value = _uiState.value.copy(
                         currentCodexThreadId = body?.threadId.orEmpty(),
+                        currentCodexProjectId = body?.projectId?.takeIf { it.isNotBlank() }
+                            ?: project?.id
+                            ?: _uiState.value.currentCodexProjectId,
                         codexChatHistory = body?.messages ?: emptyList(),
                         codexActionEvents = emptyList(),
                         codexSendResult = null,
@@ -1568,12 +1597,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         useTunnel = true,
                         tunnelUrl = url
                     )
-                    val validation = getStatusWithRetries(updatedConfig)
-                    if (!validation.isSuccessful) {
+                    val validationResponse = getStatusWithRetries(updatedConfig)
+                    if (!validationResponse.isSuccessful) {
                         val errorText = formatConnectionError(
                             updatedConfig,
-                            "Ошибка ${validation.code()}: ${validation.message()}",
-                            validation.code()
+                            "HTTP ${validationResponse.code()}: ${validationResponse.message()}",
+                            validationResponse.code()
                         )
                         val localConfig = _uiState.value.serverConfig.copy(
                             useTunnel = false,

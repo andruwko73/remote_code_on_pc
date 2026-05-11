@@ -129,7 +129,7 @@ object CrashLogger {
             .replace(Regex("""\b172\.(?:1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3}\b"""), "[private-ip]")
             .replace(Regex("""\b192\.168\.\d{1,3}\.\d{1,3}\b"""), "[private-ip]")
             .replace(
-                Regex("""(?i)https?://[^\s"'<>]+(?:trycloudflare\.com|netcraze\.io|keenetic\.(?:link|name|pro|io|net))[^\s"'<>]*"""),
+                Regex("""(?i)https?://[^\s"'<>]+(?:trycloudflare\.com|netcraze\.(?:io|pro)|keenetic\.(?:link|name|pro|io|net))[^\s"'<>]*"""),
                 "[public-url]"
             )
     }

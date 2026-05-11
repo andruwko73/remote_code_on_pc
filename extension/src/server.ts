@@ -62,6 +62,11 @@ interface RemoteCodeProjectSummary {
     threads: RemoteCodeThreadSummary[];
 }
 
+interface WorkspaceSummary {
+    workspaceName?: string;
+    workspacePath?: string;
+}
+
 interface MobileAttachment {
     name?: string;
     mimeType?: string;
@@ -869,10 +874,16 @@ export class RemoteServer {
                     });
                 });
 
-                this.httpServer.listen(this._port, this._host, () => {
+                const configuredHost = this._host;
+                const bindHost = this.bindHost;
+                this.httpServer.listen(this._port, bindHost, () => {
                     this._isRunning = true;
                     this.detectLocalIp();
-                    console.log(`[RemoteCodeOnPC] Сервер запущен на ${this._host}:${this._port}`);
+                    this._host = bindHost;
+                    if (bindHost !== (configuredHost || '').trim()) {
+                        console.log(`[RemoteCodeOnPC] Host binding was adjusted to ${bindHost} for public access.`);
+                    }
+                    console.log(`[RemoteCodeOnPC] Сервер запущен на ${bindHost}:${this._port}`);
 
                     // Следим за диагностикой
                     this.diagnosticDisposable = vscode.languages.onDidChangeDiagnostics(() => {
@@ -2083,6 +2094,7 @@ export class RemoteServer {
         if (this.looksLikeKeeneticHost(host)
             || host.endsWith('.trycloudflare.com')
             || host.endsWith('.netcraze.io')
+            || host.endsWith('.netcraze.pro')
             || host.endsWith('.ngrok-free.app')
             || host.endsWith('.ngrok.io')) {
             return true;
@@ -2114,6 +2126,34 @@ export class RemoteServer {
             if (second >= 16 && second <= 31) return true;
         }
         return normalized === (this._localIp || '').toLowerCase();
+    }
+
+    private isLoopbackHost(host: string): boolean {
+        const normalized = (host || '').trim().toLowerCase();
+        return normalized === '127.0.0.1' || normalized === 'localhost' || normalized === '::1';
+    }
+
+    private shouldExposePubliclyFromSettings(): boolean {
+        return !!(
+            this.getConfiguredPublicUrl()
+            || this.getConfiguredKeeneticHost()
+            || (this._tunnelUrl && !this.isUnsupportedKeeneticServiceUrl(this._tunnelUrl))
+        );
+    }
+
+    private get bindHost(): string {
+        const configuredHost = (this._host || '').trim();
+        const shouldExpose = this.shouldExposePubliclyFromSettings();
+        if (!configuredHost) {
+            return shouldExpose ? '0.0.0.0' : '127.0.0.1';
+        }
+        if (!this.isLocalOrPrivateHost(configuredHost) && shouldExpose) {
+            return '0.0.0.0';
+        }
+        if (this.isLoopbackHost(configuredHost) && shouldExpose) {
+            return '0.0.0.0';
+        }
+        return configuredHost;
     }
 
     private enrichCodexMessageForClient(message: CodexChatMessage): CodexChatMessage {
@@ -2161,7 +2201,7 @@ export class RemoteServer {
             .replace(/\b(?:10|127)\.\d{1,3}\.\d{1,3}\.\d{1,3}\b/g, '[private-ip]')
             .replace(/\b172\.(?:1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3}\b/g, '[private-ip]')
             .replace(/\b192\.168\.\d{1,3}\.\d{1,3}\b/g, '[private-ip]')
-            .replace(/https?:\/\/[^\s"'<>]+(?:trycloudflare\.com|netcraze\.io|keenetic\.(?:link|name|pro|io|net))[^\s"'<>]*/gi, '[public-url]');
+            .replace(/https?:\/\/[^\s"'<>]+(?:trycloudflare\.com|netcraze\.(?:io|pro)|keenetic\.(?:link|name|pro|io|net))[^\s"'<>]*/gi, '[public-url]');
     }
 
     private findAppApkPath(): string | undefined {
@@ -2456,12 +2496,13 @@ export class RemoteServer {
         void this._context.globalState.update('remote_code_archived_threads', Array.from(this.archivedThreadIds).slice(-250));
     }
 
-    private upsertRemoteCodeThread(threadId: string, title?: string, timestamp?: number): void {
+    private upsertRemoteCodeThread(threadId: string, title?: string, timestamp?: number, workspaceOverride?: WorkspaceSummary): void {
         const id = threadId.trim();
         if (!id) return;
         this.archivedThreadIds.delete(id);
         const existing = this.remoteCodeThreads.find(thread => thread.id === id);
-        const workspace = this.getCurrentWorkspaceSummary();
+        const workspace = this.normalizeWorkspaceSummary(workspaceOverride);
+        const fallbackWorkspace = this.getCurrentWorkspaceSummary();
         const cleanTitle = this.cleanThreadTitle(title);
         const existingTitle = this.cleanThreadTitle(existing?.title);
         const next: RemoteCodeThreadSummary = {
@@ -2469,8 +2510,8 @@ export class RemoteServer {
             title: cleanTitle || existingTitle || 'Новый чат',
             timestamp: Math.max(existing?.timestamp || 0, Math.round(timestamp || Date.now())),
             source: existing?.source || (id.startsWith('codex-file:') ? 'codex' : 'remote'),
-            workspaceName: workspace.workspaceName || existing?.workspaceName,
-            workspacePath: workspace.workspacePath || existing?.workspacePath
+            workspaceName: workspace?.workspaceName || existing?.workspaceName || fallbackWorkspace.workspaceName,
+            workspacePath: workspace?.workspacePath || existing?.workspacePath || fallbackWorkspace.workspacePath
         };
         this.remoteCodeThreads = [
             next,
@@ -2481,13 +2522,22 @@ export class RemoteServer {
         this.remoteCodeThreadsCache = undefined;
     }
 
-    private getCurrentWorkspaceSummary(): { workspaceName?: string; workspacePath?: string } {
+    private getCurrentWorkspaceSummary(): WorkspaceSummary {
         const folder = vscode.workspace.workspaceFolders?.[0];
         if (!folder) return {};
         return {
             workspaceName: folder.name,
             workspacePath: folder.uri.fsPath
         };
+    }
+
+    private normalizeWorkspaceSummary(workspace?: WorkspaceSummary): WorkspaceSummary | undefined {
+        const workspacePath = this.normalizeWorkspacePath(workspace?.workspacePath);
+        const workspaceName = workspace?.workspaceName?.trim()
+            || this.workspaceNameFromPath(workspacePath)
+            || undefined;
+        if (!workspaceName && !workspacePath) return undefined;
+        return { workspaceName, workspacePath };
     }
 
     private workspaceNameFromPath(workspacePath?: string): string | undefined {
@@ -2576,6 +2626,52 @@ export class RemoteServer {
         if (current) return this.getWorkspaceProjectId(current.workspaceName, current.workspacePath);
         const workspace = this.getCurrentWorkspaceSummary();
         return this.getWorkspaceProjectId(workspace.workspaceName, workspace.workspacePath);
+    }
+
+    private getWorkspaceForThread(threadId: string): WorkspaceSummary {
+        const thread = this.getRemoteCodeThreads().find(item => item.id === threadId);
+        return this.normalizeWorkspaceSummary({
+            workspaceName: thread?.workspaceName,
+            workspacePath: thread?.workspacePath
+        }) || this.getCurrentWorkspaceSummary();
+    }
+
+    private resolveRequestedRemoteCodeWorkspace(body: any): WorkspaceSummary | undefined {
+        const requestedProjectId = typeof body?.projectId === 'string' ? body.projectId.trim() : '';
+        const requestedPath = this.normalizeWorkspacePath(typeof body?.workspacePath === 'string' ? body.workspacePath : undefined);
+        const requestedName = typeof body?.workspaceName === 'string' ? body.workspaceName.trim() : '';
+        const projects = this.getRemoteCodeProjects();
+        const project = requestedProjectId
+            ? projects.find(item => item.id === requestedProjectId)
+            : undefined;
+        if (project) {
+            return this.normalizeWorkspaceSummary({
+                workspaceName: project.name || requestedName,
+                workspacePath: project.path || requestedPath
+            });
+        }
+        if (requestedPath) {
+            const projectByPath = projects.find(item => {
+                const projectPath = this.normalizeWorkspacePath(item.path);
+                return projectPath?.toLowerCase() === requestedPath.toLowerCase();
+            });
+            if (projectByPath) {
+                return this.normalizeWorkspaceSummary({
+                    workspaceName: projectByPath.name || requestedName,
+                    workspacePath: projectByPath.path || requestedPath
+                });
+            }
+        }
+        if (requestedName) {
+            const projectByName = projects.find(item => item.name.toLowerCase() === requestedName.toLowerCase());
+            if (projectByName) {
+                return this.normalizeWorkspaceSummary({
+                    workspaceName: projectByName.name,
+                    workspacePath: projectByName.path || requestedPath
+                });
+            }
+        }
+        return undefined;
     }
 
     private getRemoteCodeThreadsWithProjectIds(threads = this.getRemoteCodeThreads()): RemoteCodeThreadSummary[] {
@@ -2843,11 +2939,11 @@ export class RemoteServer {
         ].join('\u0000');
     }
 
-    private createRemoteCodeThread(): string {
+    private createRemoteCodeThread(workspaceOverride?: WorkspaceSummary): string {
         const threadId = `remote-code-${Date.now()}`;
         this.currentRemoteThreadId = threadId;
         this.liveDraftThreadIds.add(threadId);
-        this.upsertRemoteCodeThread(threadId, 'Новый чат', Date.now());
+        this.upsertRemoteCodeThread(threadId, 'Новый чат', Date.now(), workspaceOverride);
         this.codexActionEvents = this.codexActionEvents.filter(event => event.threadId !== threadId);
         this.saveRemoteCodeState();
         this.refreshPcChatPanel();
@@ -3366,6 +3462,7 @@ export class RemoteServer {
             targetThreadId = this.createRemoteCodeThread();
         }
         this.currentRemoteThreadId = targetThreadId;
+        const workspace = this.getWorkspaceForThread(targetThreadId);
         const effort = this.normalizeReasoningEffort(reasoningEffort || this.selectedReasoningEffort);
         this.selectedReasoningEffort = effort;
         this.selectedIncludeContext = includeContext !== false;
@@ -3378,7 +3475,6 @@ export class RemoteServer {
             .filter(item => item.role !== 'system' && !item.isStreaming);
         const displayMessage = message.trim() || (attachmentFiles.length ? 'Проверь вложения.' : message);
         const messageForAgent = this.withAttachmentInstructions(displayMessage, attachmentFiles);
-        const workspace = this.getCurrentWorkspaceSummary();
         const userMessage: CodexChatMessage = {
             id: `remote_user_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
             role: 'user',
@@ -6774,9 +6870,13 @@ prompt.addEventListener('keydown', event => {
                 this.getMessagesForRemoteThread(this.currentRemoteThreadId, 120).filter(m => m.role !== 'system')
             )
             : [];
+        const thread = this.getRemoteCodeThreads().find(t => t.id === this.currentRemoteThreadId);
         this.jsonResponse(res, 200, {
             threadId: this.currentRemoteThreadId,
-            title: this.getRemoteCodeThreads().find(t => t.id === this.currentRemoteThreadId)?.title || 'Новый чат',
+            title: thread?.title || 'Новый чат',
+            projectId: thread ? this.getWorkspaceProjectId(thread.workspaceName, thread.workspacePath) : undefined,
+            workspaceName: thread?.workspaceName,
+            workspacePath: thread?.workspacePath,
             messages
         });
     }
@@ -7066,13 +7166,19 @@ prompt.addEventListener('keydown', event => {
         }
     }
 
-    private async handleRemoteCodeNewThread(_req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
+    private async handleRemoteCodeNewThread(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
         try {
-            const threadId = this.createRemoteCodeThread();
+            const body = JSON.parse(await this.readBody(req) || '{}');
+            const workspace = this.resolveRequestedRemoteCodeWorkspace(body);
+            const threadId = this.createRemoteCodeThread(workspace);
+            const thread = this.getRemoteCodeThreads().find(item => item.id === threadId);
             this.openPcChatPanel();
             this.jsonResponse(res, 200, {
                 threadId,
                 title: this.getCurrentThreadTitle(),
+                projectId: thread ? this.getWorkspaceProjectId(thread.workspaceName, thread.workspacePath) : undefined,
+                workspaceName: thread?.workspaceName,
+                workspacePath: thread?.workspacePath,
                 messages: this.getMessagesForRemoteThread(threadId, 120)
                     .filter(m => m.role !== 'system')
             });

@@ -58,6 +58,7 @@ import com.remotecodeonpc.app.ui.theme.TextSecondary
 import com.remotecodeonpc.app.network.ConnectionUrl
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import org.json.JSONObject
 import java.io.File
 import java.security.MessageDigest
 import kotlin.system.exitProcess
@@ -254,8 +255,8 @@ class MainActivity : ComponentActivity() {
             return
         }
 
-        val updateUrls = buildUpdateUrls(config)
-        if (updateUrls.isEmpty()) {
+        val updateSources = buildUpdateSources(config)
+        if (updateSources.isEmpty()) {
             Toast.makeText(this, "Сначала укажите адрес подключения", Toast.LENGTH_LONG).show()
             return
         }
@@ -270,11 +271,24 @@ class MainActivity : ComponentActivity() {
                     .readTimeout(120, TimeUnit.SECONDS)
                     .build()
                 var lastError: Exception? = null
-                for (updateUrl in updateUrls) {
+                for (source in updateSources) {
                     try {
+                        val updateUrl = source.apkUrl
                         CrashLogger.i("MainActivity", "Downloading update from $updateUrl")
+                        runOnUiThread { onStatus("Проверка обновления...") }
+                        val manifest = preflightUpdateSource(client, source, config)
+                        val installedSha256 = currentInstalledApkSha256()
+                        if (manifest?.sha256 != null && installedSha256 != null && manifest.sha256.equals(installedSha256, ignoreCase = true)) {
+                            runOnUiThread {
+                                isUpdateInProgress = false
+                                onStatus(null)
+                                Toast.makeText(this, "Уже установлена актуальная версия приложения", Toast.LENGTH_LONG).show()
+                            }
+                            return@Thread
+                        }
                         runOnUiThread {
-                            onStatus(if (updateUrl.startsWith(publicUpdateUrl)) "Скачивание APK из резервного источника..." else "Скачивание APK из подключенного расширения...")
+                            val sizeText = manifest?.sizeBytes?.takeIf { it > 0 }?.let { " (${formatBytes(it)})" }.orEmpty()
+                            onStatus("${source.downloadLabel}$sizeText...")
                         }
                         val request = Request.Builder()
                             .url(updateUrl)
@@ -307,7 +321,8 @@ class MainActivity : ComponentActivity() {
                                 throw IllegalStateException("Файл обновления слишком большой")
                             }
                             runOnUiThread { onStatus("Проверка APK и SHA-256...") }
-                            val expectedSha256 = resolveExpectedUpdateSha256(client, updateUrl, response.headers["X-Remote-Code-Apk-Sha256"])
+                            val expectedSha256 = manifest?.sha256
+                                ?: resolveExpectedUpdateSha256(client, updateUrl, response.headers["X-Remote-Code-Apk-Sha256"])
                                 ?: throw IllegalStateException("Источник обновления не отдал SHA-256 для проверки APK")
                             runOnUiThread { onStatus("Проверка подписи APK...") }
                             val archiveInfo = validateDownloadedApk(apkFile, expectedSha256)
@@ -331,7 +346,7 @@ class MainActivity : ComponentActivity() {
                         }
                     } catch (e: Exception) {
                         lastError = e
-                        CrashLogger.w("MainActivity", "Update source failed: $updateUrl -> ${e.message}")
+                        CrashLogger.w("MainActivity", "Update source failed: ${source.apkUrl} -> ${e.message}")
                     }
                 }
                 throw lastError ?: IllegalStateException("Не удалось скачать обновление ни из одного источника")
@@ -346,20 +361,75 @@ class MainActivity : ComponentActivity() {
         }.start()
     }
 
-    private fun buildUpdateUrls(config: ServerConfig): List<String> {
+    private fun buildUpdateSources(config: ServerConfig): List<UpdateSource> {
         val ts = System.currentTimeMillis()
-        val urls = mutableListOf<String>()
+        val sources = mutableListOf<UpdateSource>()
+        fun addExtensionSource(baseUrl: String) {
+            val base = baseUrl.trimEnd('/')
+            sources += UpdateSource(
+                apkUrl = "$base/api/app/apk?ts=$ts",
+                statusUrl = "$base/api/app/apk/status?ts=$ts",
+                downloadLabel = "Скачивание APK из подключенного расширения"
+            )
+        }
         if (config.useTunnel && config.tunnelUrl.isNotBlank()) {
-            urls += "${ConnectionUrl.httpBase(config).trimEnd('/')}/api/app/apk?ts=$ts"
+            addExtensionSource(ConnectionUrl.httpBase(config))
         }
         if (config.tunnelUrl.isNotBlank()) {
-            urls += "${ConnectionUrl.httpBase(config.copy(useTunnel = true)).trimEnd('/')}/api/app/apk?ts=$ts"
+            addExtensionSource(ConnectionUrl.httpBase(config.copy(useTunnel = true)))
         }
         if (config.host.isNotBlank()) {
-            urls += "${ConnectionUrl.httpBase(config.copy(useTunnel = false)).trimEnd('/')}/api/app/apk?ts=$ts"
+            addExtensionSource(ConnectionUrl.httpBase(config.copy(useTunnel = false)))
         }
-        urls += "$publicUpdateUrl?ts=$ts"
-        return urls.distinct()
+        sources += UpdateSource(
+            apkUrl = "$publicUpdateUrl?ts=$ts",
+            sha256Url = "$publicUpdateSha256Url?ts=$ts",
+            downloadLabel = "Скачивание APK из резервного источника"
+        )
+        return sources.distinctBy { it.apkUrl }
+    }
+
+    private fun preflightUpdateSource(client: OkHttpClient, source: UpdateSource, config: ServerConfig): UpdateManifest? {
+        val statusUrl = source.statusUrl ?: return source.sha256Url?.let { shaUrl ->
+            val request = Request.Builder()
+                .url(shaUrl)
+                .header("Cache-Control", "no-cache")
+                .header("bypass-tunnel-reminder", "true")
+                .build()
+            val sha = runCatching {
+                client.newCall(request).execute().use { response ->
+                    if (!response.isSuccessful) return@use null
+                    normalizeSha256(response.body?.string())
+                }
+            }.getOrNull()
+            sha?.let { UpdateManifest(sizeBytes = null, sha256 = it, serverVersion = null) }
+        }
+        val request = Request.Builder()
+            .url(statusUrl)
+            .header("Cache-Control", "no-cache")
+            .header("bypass-tunnel-reminder", "true")
+            .apply {
+                if (config.authToken.isNotBlank()) {
+                    header("Authorization", "Bearer ${config.authToken}")
+                }
+            }
+            .build()
+        return runCatching {
+            client.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) return@use null
+                val json = JSONObject(response.body?.string().orEmpty())
+                if (!json.optBoolean("available", false)) {
+                    throw IllegalStateException(json.optString("error", "APK недоступен на расширении"))
+                }
+                UpdateManifest(
+                    sizeBytes = json.optLong("sizeBytes").takeIf { it > 0 },
+                    sha256 = normalizeSha256(json.optString("sha256")),
+                    serverVersion = json.optString("serverVersion").takeIf { it.isNotBlank() }
+                )
+            }
+        }.onFailure {
+            CrashLogger.w("MainActivity", "Update preflight failed: $statusUrl -> ${it.message}")
+        }.getOrNull()
     }
 
     private fun resolveExpectedUpdateSha256(client: OkHttpClient, updateUrl: String, headerValue: String?): String? {
@@ -453,6 +523,17 @@ class MainActivity : ComponentActivity() {
             ?.lowercase()
     }
 
+    private fun currentInstalledApkSha256(): String? {
+        return runCatching {
+            sha256Hex(File(applicationInfo.sourceDir))
+        }.getOrNull()
+    }
+
+    private fun formatBytes(bytes: Long): String {
+        val mb = bytes / (1024.0 * 1024.0)
+        return "${"%.1f".format(mb)} МБ"
+    }
+
     private fun sha256Hex(file: File): String {
         val digest = MessageDigest.getInstance("SHA-256")
         file.inputStream().use { input ->
@@ -504,7 +585,6 @@ class MainActivity : ComponentActivity() {
         val intent = Intent(Intent.ACTION_VIEW).apply {
             setDataAndType(uri, apkMimeType)
             putExtra(Intent.EXTRA_NOT_UNKNOWN_SOURCE, true)
-            putExtra(Intent.EXTRA_RETURN_RESULT, true)
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
         }
         try {
@@ -517,7 +597,6 @@ class MainActivity : ComponentActivity() {
             val installIntent = Intent(Intent.ACTION_INSTALL_PACKAGE).apply {
                 data = uri
                 putExtra(Intent.EXTRA_NOT_UNKNOWN_SOURCE, true)
-                putExtra(Intent.EXTRA_RETURN_RESULT, true)
                 addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
             }
             try {
@@ -613,6 +692,19 @@ private data class PendingVerifiedApk(
     val versionCode: Long,
     val sizeBytes: Long,
     val sha256: String
+)
+
+private data class UpdateSource(
+    val apkUrl: String,
+    val statusUrl: String? = null,
+    val sha256Url: String? = null,
+    val downloadLabel: String
+)
+
+private data class UpdateManifest(
+    val sizeBytes: Long?,
+    val sha256: String?,
+    val serverVersion: String?
 )
 
 @Composable

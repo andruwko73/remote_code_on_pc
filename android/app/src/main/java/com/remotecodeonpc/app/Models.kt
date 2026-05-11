@@ -248,6 +248,9 @@ data class CodexActionEvent(
 data class CodexHistoryResponse(
     val threadId: String = "",
     val title: String = "",
+    val projectId: String? = null,
+    val workspaceName: String? = null,
+    val workspacePath: String? = null,
     val messages: List<CodexChatMessage> = emptyList()
 )
 

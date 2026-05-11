@@ -23,6 +23,22 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.remotecodeonpc.app.ui.screens.*
 import com.remotecodeonpc.app.ui.theme.*
 import com.remotecodeonpc.app.viewmodel.MainViewModel
+import java.net.URI
+
+private fun isTunnelUrlInputValid(raw: String): Boolean {
+    val trimmed = raw.trim()
+    if (trimmed.isEmpty()) return false
+    val normalized = when {
+        trimmed.contains("://") -> trimmed
+        trimmed.startsWith("//") -> "http:$trimmed"
+        else -> "http://$trimmed"
+    }
+    return try {
+        URI(normalized).host != null
+    } catch (_: Exception) {
+        false
+    }
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -62,6 +78,7 @@ fun RemoteCodeApp(
                         codexThreads = state.codexThreads,
                         codexProjects = state.codexProjects,
                         currentCodexThreadId = state.currentCodexThreadId,
+                        currentCodexProjectId = state.currentCodexProjectId,
                         isCodexLoading = state.isCodexLoading,
                         codexError = state.codexError,
                         onSendCodexMessage = { text, attachments -> viewModel.sendCodexMessage(text, attachments) },
@@ -71,7 +88,6 @@ fun RemoteCodeApp(
                         onToggleCodexContext = { viewModel.toggleCodexContext() },
                         onNewCodexThread = { viewModel.newCodexThread() },
                         onLoadCodexThreads = { viewModel.loadCodexThreads() },
-                        onSwitchCodexThread = { viewModel.switchCodexThread(it) },
                         onDeleteCodexThread = { viewModel.deleteCodexThread(it) },
                         onDeleteCodexMessage = { viewModel.deleteCodexMessage(it) },
                         onRegenerateCodexMessage = { viewModel.regenerateCodexMessage(it) },
@@ -108,6 +124,7 @@ fun RemoteCodeApp(
                         threads = state.codexThreads,
                         projects = state.codexProjects,
                         currentThreadId = state.currentCodexThreadId,
+                        currentProjectId = state.currentCodexProjectId,
                         isLoading = state.isCodexLoading,
                         error = state.codexError,
                         folders = state.folders,
@@ -253,9 +270,7 @@ private fun ConnectionScreen(
     var tunnelUrl by remember(serverConfig.tunnelUrl) { mutableStateOf(serverConfig.tunnelUrl) }
     var confirmClearLogs by remember { mutableStateOf(false) }
     val trimmedTunnelUrl = tunnelUrl.trim().trimEnd('/')
-    val tunnelFormatOk = trimmedTunnelUrl.isBlank() ||
-        trimmedTunnelUrl.startsWith("http://") ||
-        trimmedTunnelUrl.startsWith("https://")
+    val tunnelFormatOk = isTunnelUrlInputValid(trimmedTunnelUrl)
     val externalTokenMissing = useTunnel && authToken.trim().isBlank()
     val canConnect = if (useTunnel) {
         trimmedTunnelUrl.isNotBlank() && tunnelFormatOk && !externalTokenMissing && !isConnecting
@@ -373,7 +388,7 @@ private fun ConnectionScreen(
                     emitConfig(nextTunnelUrl = it)
                 },
                 label = { Text("Публичный URL", color = TextSecondary) },
-                placeholder = { Text("https://remote.example.com", color = TextSecondary.copy(alpha = 0.5f)) },
+                placeholder = { Text("https://remote.example.com / remote.example.com", color = TextSecondary.copy(alpha = 0.5f)) },
                 singleLine = true,
                 leadingIcon = { Icon(Icons.Default.Public, contentDescription = null, tint = AccentGreen) },
                 modifier = Modifier.fillMaxWidth().height(58.dp),
@@ -613,9 +628,7 @@ private fun SettingsScreenV2(
         useTunnel = compactUseTunnel,
         tunnelUrl = compactTunnelUrl
     )
-    val tunnelFormatOk = compactTunnelUrl.isBlank() ||
-        compactTunnelUrl.startsWith("http://") ||
-        compactTunnelUrl.startsWith("https://")
+    val tunnelFormatOk = isTunnelUrlInputValid(compactTunnelUrl)
     val hasLocalTarget = compactHostText.isNotBlank()
     val hasPublicTarget = compactTunnelUrl.isNotBlank() && tunnelFormatOk
     val externalTokenMissing = compactUseTunnel && compactTokenText.trim().isBlank()

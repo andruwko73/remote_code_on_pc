@@ -88,7 +88,7 @@ interface RemoteCodeApi {
     suspend fun getCodexThreads(): Response<CodexThreadsResponse>
 
     @POST("/api/codex/new")
-    suspend fun newCodexThread(): Response<CodexHistoryResponse>
+    suspend fun newCodexThread(@Body body: Map<String, String>): Response<CodexHistoryResponse>
 
     @POST("/api/codex/delete")
     suspend fun deleteCodexThread(@Body body: Map<String, String>): Response<Map<String, Any>>
