@@ -228,6 +228,7 @@ data class CodexChangeFile(
 data class CodexChangeSummary(
     val commit: String? = null,
     val cwd: String? = null,
+    val fileCount: Int = 0,
     val files: List<CodexChangeFile> = emptyList(),
     val additions: Int = 0,
     val deletions: Int = 0

@@ -6725,7 +6725,8 @@ prompt.addEventListener('keydown', event => {
 
     private getGitChangeSummaryFromMessage(content: string): GitChangeSummary | undefined {
         if (!/::git-(?:stage|commit|push)\{/.test(content)) return undefined;
-        const commit = this.extractCommitHash(content) || 'HEAD';
+        const commit = this.extractCommitHash(content);
+        if (!commit) return undefined;
         const cwd = this.extractDirectiveCwd(content) || vscode.workspace.workspaceFolders?.[0]?.uri.fsPath || process.cwd();
         const key = `${cwd}:${commit}`;
         if (this.gitChangeSummaryCache.has(key)) {
@@ -6741,7 +6742,7 @@ prompt.addEventListener('keydown', event => {
     }
 
     private extractCommitHash(content: string): string | undefined {
-        const explicit = content.match(/(?:Commit|Коммит):\s*`?([0-9a-f]{7,40})`?/i);
+        const explicit = content.match(/(?:commit|коммит)\s*:?\s*`?([0-9a-f]{7,40})`?/i);
         if (explicit?.[1]) return explicit[1];
         return undefined;
     }
@@ -6768,8 +6769,9 @@ prompt.addEventListener('keydown', event => {
             for (const line of output.split(/\r?\n/)) {
                 const parts = line.split('\t');
                 if (parts.length < 3) continue;
-                const additions = Number(parts[0]);
-                const deletions = Number(parts[1]);
+                const binary = parts[0] === '-' || parts[1] === '-';
+                const additions = binary ? 0 : Number(parts[0]);
+                const deletions = binary ? 0 : Number(parts[1]);
                 const filePath = parts.slice(2).join('\t').trim();
                 if (!filePath) continue;
                 if (!Number.isFinite(additions) || !Number.isFinite(deletions)) continue;

@@ -2078,32 +2078,46 @@ private fun MobileChangeCard(
                 modifier = Modifier
                     .fillMaxWidth()
                     .background(Color(0xFF2D2D2D))
-                    .padding(horizontal = 10.dp, vertical = 6.dp),
+                    .padding(horizontal = 10.dp, vertical = 7.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text(
-                    changeHeaderText(summary),
-                    color = TextPrimary,
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    modifier = Modifier.weight(1f)
-                )
+                Column(
+                    modifier = Modifier
+                        .weight(1f)
+                        .padding(end = 6.dp),
+                    verticalArrangement = Arrangement.spacedBy(3.dp)
+                ) {
+                    Text(
+                        changeHeaderTitle(summary),
+                        color = TextPrimary,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        ChangeDeltaText("+${summary.additions}", AccentGreen)
+                        ChangeDeltaText("-${summary.deletions}", ErrorRed)
+                    }
+                }
                 TextButton(
                     onClick = { onUndo(summary.commit, summary.cwd, null) },
-                    contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp)
+                    modifier = Modifier.height(30.dp),
+                    contentPadding = PaddingValues(horizontal = 5.dp, vertical = 0.dp)
                 ) {
                     Text("Undo", color = ErrorRed, fontSize = 11.5.sp, fontWeight = FontWeight.SemiBold)
                 }
-                TextButton(
+                IconButton(
                     onClick = { onReview(summary.commit, summary.cwd, primaryPath) },
                     enabled = summary.files.isNotEmpty(),
-                    contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp)
+                    modifier = Modifier.size(30.dp)
                 ) {
-                    Text("Проверить", color = TextSecondary, fontSize = 11.5.sp, fontWeight = FontWeight.SemiBold)
-                    Spacer(modifier = Modifier.width(3.dp))
-                    Icon(Icons.Default.NorthEast, contentDescription = null, tint = TextSecondary, modifier = Modifier.size(13.dp))
+                    Icon(Icons.Default.NorthEast, contentDescription = "Проверить", tint = TextSecondary, modifier = Modifier.size(14.dp))
                 }
-                IconButton(onClick = { expanded = !expanded }, modifier = Modifier.size(26.dp)) {
+                IconButton(onClick = { expanded = !expanded }, modifier = Modifier.size(30.dp)) {
                     Icon(
                         if (expanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
                         contentDescription = if (expanded) "Свернуть" else "Развернуть",
@@ -2130,17 +2144,26 @@ private fun MobileChangeCard(
     }
 }
 
-private fun changeHeaderText(summary: CodexChangeSummary): AnnotatedString {
-    return buildAnnotatedString {
-        append("Изменено ${summary.files.size} ${pluralRu(summary.files.size, "файл", "файла", "файлов")} ")
-        val plusStart = length
-        append("+${summary.additions}")
-        addStyle(SpanStyle(color = AccentGreen), plusStart, length)
-        append(" ")
-        val minusStart = length
-        append("-${summary.deletions}")
-        addStyle(SpanStyle(color = ErrorRed), minusStart, length)
-    }
+private fun changeHeaderTitle(summary: CodexChangeSummary): String {
+    val fileCount = changeFileCount(summary)
+    return "Изменено $fileCount ${pluralRu(fileCount, "файл", "файла", "файлов")}"
+}
+
+private fun changeFileCount(summary: CodexChangeSummary): Int {
+    return summary.fileCount.takeIf { it > 0 } ?: summary.files.size
+}
+
+@Composable
+private fun ChangeDeltaText(value: String, color: Color) {
+    Text(
+        value,
+        color = color,
+        fontSize = 11.75.sp,
+        lineHeight = 14.sp,
+        fontFamily = FontFamily.Monospace,
+        maxLines = 1,
+        softWrap = false
+    )
 }
 
 private fun findMobileChangeSummaryForDiff(
@@ -2177,11 +2200,26 @@ private fun ChangeFileRow(
             .padding(horizontal = 10.dp, vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Text(file.path, color = TextPrimary, fontSize = 11.75.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
-        if (file.additions > 0) Text("+${file.additions}", color = AccentGreen, fontSize = 11.75.sp, fontFamily = FontFamily.Monospace)
-        if (file.deletions > 0) {
-            Spacer(modifier = Modifier.width(6.dp))
-            Text("-${file.deletions}", color = ErrorRed, fontSize = 11.75.sp, fontFamily = FontFamily.Monospace)
+        Text(
+            file.path,
+            color = TextPrimary,
+            fontSize = 11.75.sp,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f)
+        )
+        Row(
+            modifier = Modifier
+                .widthIn(min = 68.dp)
+                .padding(start = 8.dp),
+            horizontalArrangement = Arrangement.End,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            if (file.additions > 0) ChangeDeltaText("+${file.additions}", AccentGreen)
+            if (file.deletions > 0) {
+                Spacer(modifier = Modifier.width(7.dp))
+                ChangeDeltaText("-${file.deletions}", ErrorRed)
+            }
         }
         IconButton(onClick = { onOpenFile(file.path) }, modifier = Modifier.size(26.dp)) {
             Icon(Icons.Default.NorthEast, contentDescription = "Open file", tint = TextSecondary, modifier = Modifier.size(13.dp))
@@ -2390,6 +2428,8 @@ private fun parseMobileChangeSummary(content: String): CodexChangeSummary? {
     val lines = content.lines()
     val headerIndex = lines.indexOfFirst { it.trim().matches(Regex("""Изменено\s+\d+\s+файл.*""", RegexOption.IGNORE_CASE)) }
     if (headerIndex < 0) return null
+    val headerTotals = Regex("""Изменено\s+(\d+)\s+файл\p{L}*\s+\+(\d+)\s+-(\d+)""", RegexOption.IGNORE_CASE)
+        .find(lines[headerIndex].trim())
     val files = mutableListOf<CodexChangeFile>()
     for (line in lines.drop(headerIndex + 1)) {
         val match = Regex("""^\s*(?:[-*•]\s*)?(.+?)\s+\+(\d+)(?:\s+-(\d+))?\s*$""").find(line) ?: break
@@ -2403,10 +2443,28 @@ private fun parseMobileChangeSummary(content: String): CodexChangeSummary? {
     }
     if (files.isEmpty()) return null
     return CodexChangeSummary(
+        commit = extractMobileCommitHash(content),
+        cwd = extractMobileDirectiveCwd(content),
+        fileCount = headerTotals?.groupValues?.getOrNull(1)?.toIntOrNull() ?: files.size,
         files = files,
-        additions = files.sumOf { it.additions },
-        deletions = files.sumOf { it.deletions }
+        additions = headerTotals?.groupValues?.getOrNull(2)?.toIntOrNull() ?: files.sumOf { it.additions },
+        deletions = headerTotals?.groupValues?.getOrNull(3)?.toIntOrNull() ?: files.sumOf { it.deletions }
     )
+}
+
+private fun extractMobileCommitHash(content: String): String? {
+    return Regex("""(?:commit|коммит)\s*:?\s*`?([0-9a-f]{7,40})`?""", RegexOption.IGNORE_CASE)
+        .find(content)
+        ?.groupValues
+        ?.getOrNull(1)
+}
+
+private fun extractMobileDirectiveCwd(content: String): String? {
+    return Regex("::git-(?:stage|commit|push)\\{[^}]*cwd=\\\"([^\\\"]+)\\\"")
+        .find(content)
+        ?.groupValues
+        ?.getOrNull(1)
+        ?.replace("\\\\", "\\")
 }
 
 private fun isChangeFileLine(line: String): Boolean {

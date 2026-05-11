@@ -848,8 +848,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         attachments.joinToString("|") { "${it.name}:${it.mimeType}:${it.size}" }
 
     private fun CodexChatMessage.changeSummaryKey(): String =
-        changeSummary?.files
-            ?.joinToString("|") { "${it.path}:${it.additions}:${it.deletions}" }
+        changeSummary
+            ?.let { summary -> "${summary.fileCount}:" + summary.files.joinToString("|") { "${it.path}:${it.additions}:${it.deletions}" } }
             ?: ""
 
     private fun preferCodexMessage(first: CodexChatMessage, second: CodexChatMessage): CodexChatMessage {
@@ -946,6 +946,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         return CodexChangeSummary(
             commit = this["commit"] as? String,
             cwd = this["cwd"] as? String,
+            fileCount = (this["fileCount"] as? Double)?.toInt()
+                ?: (this["fileCount"] as? Int)
+                ?: files.size,
             files = files,
             additions = (this["additions"] as? Double)?.toInt() ?: (this["additions"] as? Int) ?: files.sumOf { it.additions },
             deletions = (this["deletions"] as? Double)?.toInt() ?: (this["deletions"] as? Int) ?: files.sumOf { it.deletions }

@@ -250,6 +250,14 @@ assert(
     'Change cards expose diff/review/undo through the remote API',
     'change-card API should support diff and create an approval-gated undo action'
 );
+assert(
+    serverContent.includes('const commit = this.extractCommitHash(content);') &&
+    serverContent.includes('if (!commit) return undefined;') &&
+    serverContent.includes('(?:commit|коммит)\\s*:?\\s*`?([0-9a-f]{7,40})`?') &&
+    serverContent.includes("const binary = parts[0] === '-' || parts[1] === '-'"),
+    'Change cards use the explicit commit for git stats',
+    'change summaries must not fall back to the moving HEAD commit and must count binary files'
+);
 
 const terminalExecBody = serverContent.match(/private async handleTerminalExec[\s\S]*?\/\/ ========== WEBSOCKET ==========/)?.[0] || '';
 assert(
@@ -348,7 +356,7 @@ assert(
     'APK downloads must be verified before install'
 );
 assert(androidManifest.includes('REQUEST_INSTALL_PACKAGES') && mainActivity.includes('canRequestPackageInstalls') && mainActivity.includes('ACTION_MANAGE_UNKNOWN_APP_SOURCES'), 'Android updater declares and gates APK install permission', 'PackageInstaller requires REQUEST_INSTALL_PACKAGES and an unknown-source settings gate');
-assert(androidBuildGradle.includes('versionCode = 102') && androidBuildGradle.includes('versionName = "1.0.102"') && androidBuildGradle.includes('signingConfig = signingConfigs.getByName("debug")'), 'Android release artifact can update existing sideload installs', 'release APK should be version-bumped and signed for sideload updates');
+assert(androidBuildGradle.includes('versionCode = 103') && androidBuildGradle.includes('versionName = "1.0.103"') && androidBuildGradle.includes('signingConfig = signingConfigs.getByName("debug")'), 'Android release artifact can update existing sideload installs', 'release APK should be version-bumped and signed for sideload updates');
 assert(mainActivity.includes('UpdateReadyDialog') && mainActivity.includes('UpdateStatusDialog') && mainActivity.includes('onStatus("Скачивание обновления') && mainActivity.includes('onStatus("Проверка APK') && mainActivity.includes('PendingVerifiedApk') && mainActivity.includes('onReadyDialogFinished = { pendingVerifiedApk = null }') && mainActivity.includes('onInstallPermissionRequired = { pendingVerifiedApk = update }') && mainActivity.includes('Handler(Looper.getMainLooper()).post') && mainActivity.includes('Intent.ACTION_VIEW') && mainActivity.includes('Intent.ACTION_INSTALL_PACKAGE') && !mainActivity.includes('Intent.EXTRA_RETURN_RESULT') && mainActivity.includes('startActivityForResult(intent, updateInstallRequestCode)') && mainActivity.includes('startActivityForResult(installIntent, updateInstallRequestCode)') && !mainActivity.includes('Intent.FLAG_ACTIVITY_NEW_TASK'), 'Android updater uses the Package Installer handoff style without forced return-result', 'verified APK should open through ACTION_VIEW and keep ACTION_INSTALL_PACKAGE as fallback without forcing result mode');
 assert(mainActivity.includes('onInstallPermissionRequired()') && mainActivity.includes('ACTION_MANAGE_UNKNOWN_APP_SOURCES') && mainActivity.indexOf('onInstallPermissionRequired()') > mainActivity.indexOf('startActivity(settingsIntent)'), 'Android updater preserves APK after unknown-source permission handoff', 'permission settings should keep the verified APK ready for a second install tap');
 assert(codexScreen.includes('CodexNavigationPanel') && codexScreen.includes('CodexDrawerProjectRow') && codexScreen.includes('buildMobileCodexProjects') && modelsFile.includes('workspaceName'), 'Android exposes projects in Codex chat list', 'project drawer/thread workspace metadata should be visible to Android');
@@ -418,6 +426,7 @@ assert(codexScreen.includes('startNumber: Int = 1') && codexScreen.includes('"${
 assert(codexScreen.includes('mobileWorkSummary(events, running)') && codexScreen.includes('MOBILE_WORK_SUMMARY_IDLE_GAP_MS') && codexScreen.includes('на протяжении'), 'Android shows Codex-like work summary', 'mobile work summary should match Codex wording');
 assert(codexScreen.includes('val previewEvents = visibleEvents.takeLast(if (running) 4 else 3)') && codexScreen.includes('MobileTimelineEventPreview(event)') && codexScreen.includes('title.isNotBlank() && !event.type.contains("command")'), 'Android action timeline shows public work steps', 'mobile chat should expose recent public action/model progress lines without requiring expansion');
 assert(codexScreen.includes('summary.files.take(5)') && codexScreen.includes('fontSize = 14.sp') && codexScreen.includes('modifier = Modifier.width(24.dp)'), 'Android answer and change-card density matches Codex', 'mobile assistant text, ordered markers, and change cards should stay close to Codex density');
+assert(codexScreen.includes('changeHeaderTitle(summary)') && codexScreen.includes('changeFileCount(summary)') && codexScreen.includes('ChangeDeltaText("-${summary.deletions}", ErrorRed)') && codexScreen.includes('fileCount = headerTotals') && codexScreen.includes('extractMobileCommitHash(content)') && modelsFile.includes('val fileCount: Int = 0') && mainVm.includes('fileCount = (this["fileCount"]'), 'Android change-card stats fit and match Codex totals', 'mobile change cards should keep +/− totals visible and prefer Codex/header totals over partial row sums');
 assert(codexScreen.includes('MobileCodeBlock') && codexScreen.includes('MobileTextBlockKind.Code') && codexScreen.includes('previewBitmap()') && codexScreen.includes('MobileImagePreviewDialog'), 'Android renders Codex-style code blocks and image previews', 'mobile chat should render fenced code blocks and tappable image attachments');
 assert(remoteCodeApp.includes('ConnectionDiagnosticsCard') && remoteCodeApp.includes('/api/status') && remoteCodeApp.includes('APK endpoint'), 'Android shows external connection diagnostics', 'failed external connections should show URL/token/status/WebSocket/APK diagnostic steps');
 assert(mainActivity.includes('sourceLabel') && mainActivity.includes('Источник: ${update.sourceLabel}') && mainActivity.includes('SHA-256: ${update.sha256.take(12)}'), 'Android updater explains verified APK before install', 'update dialog should show source, version, size and SHA before opening the system installer');
