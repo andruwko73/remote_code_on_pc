@@ -1072,6 +1072,8 @@ export class RemoteServer {
                     return this.handleCodexActionResponse(req, res);
                 case pathname === '/api/codex/message':
                     return this.handleRemoteCodeMessageAction(req, res);
+                case pathname === '/api/codex/change':
+                    return this.handleRemoteCodeChangeAction(req, res);
                 case pathname === '/api/codex/models' && req.method === 'GET':
                     return this.handleCodexModels(req, res);
                 case pathname === '/api/codex/models' && req.method === 'POST':
@@ -3530,6 +3532,7 @@ export class RemoteServer {
             : 'Создаст токен для внешней сети и скопирует его в буфер обмена.';
         const items: Array<vscode.QuickPickItem & { action: string }> = [
             { label: tokenLabel, description: tokenState, detail: tokenDetail, action: 'tokenMenu' },
+            { label: 'Copy Android pairing payload', description: publicUrl || localUrl, detail: 'Copies URL and token as one remote-code-pair string.', action: 'copyPairingPayload' },
             { label: 'Скопировать локальный URL', description: localUrl, action: 'copyLocal' },
             { label: 'Сформировать Keenetic URL', description: publicUrl || keeneticHost || 'my.keenetic.net / name.keenetic.link', detail: publicUrl ? `Сохранено: ${publicUrl}` : 'Соберет адрес из KeenDNS-имени или попробует найти его через my.keenetic.net', action: 'autoPublic' },
             { label: 'Открыть порт на роутере (UPnP)', description: `TCP ${this._port} -> ${this._localIp || 'IP ПК'}:${this._port}`, detail: 'Попросит Keenetic/роутер автоматически создать проброс порта. Для внешней сети токен должен быть включен.', action: 'openUpnpPort' },
@@ -3553,6 +3556,9 @@ export class RemoteServer {
         });
         if (!picked) return;
         switch (picked.action) {
+            case 'copyPairingPayload':
+                await this.copyPairingPayload();
+                return;
             case 'copyLocal':
                 await vscode.env.clipboard.writeText(localUrl);
                 await vscode.window.setStatusBarMessage('Remote Code: локальный URL скопирован', 1800);
@@ -3854,6 +3860,25 @@ export class RemoteServer {
         return this._authToken;
     }
 
+    public async copyPairingPayload(): Promise<string> {
+        const token = await this.createOrCopyAuthToken(false);
+        const localUrl = `http://${this._localIp || '127.0.0.1'}:${this._port}`;
+        const publicUrl = this.getPublicUrl() || '';
+        const payload = {
+            type: 'remote-code-pairing',
+            version: 1,
+            url: publicUrl || localUrl,
+            localUrl,
+            publicUrl,
+            token
+        };
+        const encoded = Buffer.from(JSON.stringify(payload), 'utf8').toString('base64url');
+        const value = `remote-code-pair:${encoded}`;
+        await vscode.env.clipboard.writeText(value);
+        await vscode.window.setStatusBarMessage('Remote Code: pairing payload copied', 2200);
+        return value;
+    }
+
     private openPcChatPanel(): void {
         if (this.pcChatPanel) {
             this.pcChatPanel.reveal(vscode.ViewColumn.One, true);
@@ -4081,6 +4106,9 @@ export class RemoteServer {
             case 'createOrCopyToken':
                 await this.showAuthTokenMenu();
                 return;
+            case 'copyPairingPayload':
+                await this.copyPairingPayload();
+                return;
             case 'openSettings':
                 await vscode.commands.executeCommand('workbench.action.openSettings', 'remoteCodeOnPC');
                 return;
@@ -4165,8 +4193,12 @@ export class RemoteServer {
                 }
                 return;
             case 'undoChangeBlock':
-                await vscode.commands.executeCommand('workbench.view.scm');
-                await vscode.window.setStatusBarMessage('Remote Code: открыл Source Control для отмены изменений', 1800);
+                this.requestRemoteCodeUndoChange(
+                    typeof msg.path === 'string' ? msg.path : '',
+                    typeof msg.commit === 'string' ? msg.commit : '',
+                    typeof msg.cwd === 'string' ? msg.cwd : ''
+                );
+                await vscode.window.setStatusBarMessage('Remote Code: undo request is waiting for approval', 1800);
                 return;
             case 'stopGeneration':
                 this.stopActiveGeneration(true);
@@ -4331,6 +4363,103 @@ export class RemoteServer {
         this.activeChatCancellation.cancel();
         if (showStatus) void vscode.window.setStatusBarMessage('Remote Code: задача остановлена', 1800);
         this.refreshPcChatPanel(true);
+    }
+
+    private readRemoteCodeChangeDiff(
+        filePath: string,
+        commit?: string,
+        cwd?: string
+    ): { success: boolean; action: string; path: string; commit?: string; cwd: string; diff?: string; message?: string; error?: string } {
+        const finalCwd = this.resolveRemoteCodeChangeCwd(cwd);
+        const relativePath = this.normalizeGitFilePath(filePath, finalCwd);
+        if (!relativePath) {
+            return {
+                success: false,
+                action: 'diff',
+                path: filePath,
+                cwd: finalCwd,
+                error: 'Path must stay inside the active workspace.'
+            };
+        }
+
+        const safeCommit = commit && /^[0-9a-f]{7,40}$/i.test(commit) ? commit : '';
+        const attempts: string[][] = [];
+        if (safeCommit) attempts.push(['show', '--format=', '--find-renames', safeCommit, '--', relativePath]);
+        attempts.push(['diff', '--', relativePath]);
+        attempts.push(['diff', '--cached', '--', relativePath]);
+
+        let lastError = '';
+        for (const args of attempts) {
+            const result = spawnSync('git', args, {
+                cwd: finalCwd,
+                encoding: 'utf8',
+                windowsHide: true,
+                timeout: 3500
+            });
+            const stdout = (result.stdout || '').trim();
+            const stderr = (result.stderr || '').trim();
+            if (stdout) {
+                return {
+                    success: true,
+                    action: 'diff',
+                    path: relativePath,
+                    commit: safeCommit || undefined,
+                    cwd: finalCwd,
+                    diff: stdout.slice(0, 30000)
+                };
+            }
+            if (stderr) lastError = stderr;
+        }
+
+        return {
+            success: true,
+            action: 'diff',
+            path: relativePath,
+            commit: safeCommit || undefined,
+            cwd: finalCwd,
+            message: lastError || 'No diff available for this file.'
+        };
+    }
+
+    private requestRemoteCodeUndoChange(filePath?: string, commit?: string, cwd?: string): RemoteCodeActionEvent {
+        const finalCwd = this.resolveRemoteCodeChangeCwd(cwd);
+        const relativePath = filePath ? this.normalizeGitFilePath(filePath, finalCwd) : '';
+        const command = relativePath
+            ? `git restore -- ${this.quoteShellArg(relativePath)}`
+            : 'git restore -- .';
+        const event: RemoteCodeActionEvent = {
+            id: `change_undo_${Date.now()}_${Math.random().toString(16).slice(2, 8)}`,
+            type: 'command_approval',
+            title: 'Undo change',
+            detail: commit ? `${command}\ncommit: ${commit}` : command,
+            status: 'pending',
+            timestamp: Date.now(),
+            threadId: this.currentRemoteThreadId,
+            actionable: true,
+            command,
+            cwd: finalCwd,
+            filePath: relativePath || undefined
+        };
+        this.upsertActionEvent(event);
+        return event;
+    }
+
+    private resolveRemoteCodeChangeCwd(rawCwd?: string): string {
+        const roots = this.getWorkspaceRoots();
+        const fallback = roots[0] || process.cwd();
+        if (!rawCwd || !path.isAbsolute(rawCwd) || !fs.existsSync(rawCwd)) return fallback;
+        const resolved = path.resolve(rawCwd);
+        return roots.some(root => this.isInsideWorkspaceRoot(resolved, root)) ? resolved : fallback;
+    }
+
+    private normalizeGitFilePath(filePath: string, cwd: string): string | undefined {
+        const trimmed = filePath.trim();
+        if (!trimmed) return undefined;
+        const absolute = path.isAbsolute(trimmed) ? path.resolve(trimmed) : path.resolve(cwd, trimmed);
+        if (!this.isInsideWorkspaceRoot(absolute, cwd)) return undefined;
+        const relative = path.relative(cwd, absolute).replace(/\\/g, '/');
+        if (!relative || relative.startsWith('..') || path.isAbsolute(relative)) return undefined;
+        return relative;
     }
 
     private async openChangeFile(filePath: string): Promise<void> {
@@ -5351,6 +5480,7 @@ button.send:disabled{opacity:.55;cursor:default}
   </div>
   <div class="toolbar-spacer"></div>
   <button class="icon-btn token-btn" type="button" data-action="createOrCopyToken" title="${this._authToken ? '&#1052;&#1077;&#1085;&#1102; &#1090;&#1086;&#1082;&#1077;&#1085;&#1072;: &#1089;&#1082;&#1086;&#1087;&#1080;&#1088;&#1086;&#1074;&#1072;&#1090;&#1100; &#1080;&#1083;&#1080; &#1089;&#1086;&#1079;&#1076;&#1072;&#1090;&#1100; &#1085;&#1086;&#1074;&#1099;&#1081;' : '&#1057;&#1086;&#1079;&#1076;&#1072;&#1090;&#1100; &#1090;&#1086;&#1082;&#1077;&#1085; &#1076;&#1086;&#1089;&#1090;&#1091;&#1087;&#1072;'}">${icon.lock}<span>&#1058;&#1086;&#1082;&#1077;&#1085;</span></button>
+  <button class="icon-btn token-btn" type="button" data-action="copyPairingPayload" title="Copy Android pairing payload">${icon.copy}<span>Pair</span></button>
   <button class="icon-btn" type="button" id="topRun" title="${isBusy ? '&#1054;&#1089;&#1090;&#1072;&#1085;&#1086;&#1074;&#1080;&#1090;&#1100;' : '&#1054;&#1090;&#1087;&#1088;&#1072;&#1074;&#1080;&#1090;&#1100;'}">${isBusy ? icon.stop : icon.play}</button>
   <div class="connector-menu-wrap" id="connectorDrop">
     <button class="connector-btn" type="button" id="connectorBtn" title="VS Code">${icon.vscode}<span>VS Code</span><span class="chev">${icon.chevron}</span></button>
@@ -5758,11 +5888,11 @@ document.querySelectorAll('.change-action').forEach(button => {
       return;
     }
     if (action === 'undo') {
-      vscode.postMessage({ type: 'action', action: 'undoChangeBlock', commit: card?.dataset.commit || '' });
+      vscode.postMessage({ type: 'action', action: 'undoChangeBlock', commit: card?.dataset.commit || '', cwd: card?.dataset.cwd || '' });
       return;
     }
     if (action === 'review') {
-      vscode.postMessage({ type: 'action', action: 'reviewChangeBlock', commit: card?.dataset.commit || '' });
+      vscode.postMessage({ type: 'action', action: 'reviewChangeBlock', commit: card?.dataset.commit || '', cwd: card?.dataset.cwd || '' });
     }
   });
 });
@@ -6299,7 +6429,7 @@ prompt.addEventListener('keydown', event => {
         const fileWord = this.pluralRu(summary.files.length, 'файл', 'файла', 'файлов');
         const header = `Изменено ${summary.files.length} ${fileWord} <span class="delta plus">+${summary.additions}</span> <span class="delta minus">-${summary.deletions}</span>`;
         const rows = summary.files.map(file => this.renderChangeRow(file)).join('');
-        return `<div class="change-card collapsed" data-commit="${this.escapeHtml(summary.commit || '')}"><div class="change-head"><span class="change-summary">${header}</span><span class="change-actions"><button type="button" class="change-action" data-change-action="undo" title="Открыть Source Control для отмены изменений"><span>Отменить</span>${this.webIcon('undo')}</button><button type="button" class="change-action" data-change-action="review"><span>Проверить</span>${this.webIcon('external')}</button><button type="button" class="change-action icon-only" data-change-action="toggle" title="Свернуть/развернуть">${this.webIcon('expand')}</button></span></div>${rows}</div>`;
+        return `<div class="change-card collapsed" data-commit="${this.escapeHtml(summary.commit || '')}" data-cwd="${this.escapeHtml(summary.cwd || '')}"><div class="change-head"><span class="change-summary">${header}</span><span class="change-actions"><button type="button" class="change-action" data-change-action="undo" title="Открыть Source Control для отмены изменений"><span>Отменить</span>${this.webIcon('undo')}</button><button type="button" class="change-action" data-change-action="review"><span>Проверить</span>${this.webIcon('external')}</button><button type="button" class="change-action icon-only" data-change-action="toggle" title="Свернуть/развернуть">${this.webIcon('expand')}</button></span></div>${rows}</div>`;
     }
 
     private renderChangeRow(change: GitChangeFile): string {
@@ -7249,6 +7379,68 @@ prompt.addEventListener('keydown', event => {
             }
 
             this.jsonResponse(res, 400, { success: false, error: 'Unsupported message action' });
+        } catch (err: any) {
+            this.jsonResponse(res, 500, { success: false, error: err.message });
+        }
+    }
+
+    private async handleRemoteCodeChangeAction(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
+        try {
+            const body = JSON.parse(await this.readBody(req) || '{}');
+            const action = typeof body.action === 'string' ? body.action.trim() : '';
+            const filePath = typeof body.path === 'string' ? body.path.trim() : '';
+            const commit = typeof body.commit === 'string' ? body.commit.trim() : '';
+            const cwd = typeof body.cwd === 'string' ? body.cwd.trim() : '';
+
+            if (action === 'diff') {
+                if (!filePath) {
+                    this.jsonResponse(res, 400, { success: false, error: 'path is required for diff' });
+                    return;
+                }
+                const result = this.readRemoteCodeChangeDiff(filePath, commit, cwd);
+                this.jsonResponse(res, result.success ? 200 : 404, result);
+                return;
+            }
+
+            if (action === 'open') {
+                if (!filePath) {
+                    this.jsonResponse(res, 400, { success: false, error: 'path is required for open' });
+                    return;
+                }
+                await this.openChangeFile(filePath);
+                this.jsonResponse(res, 200, { success: true, action, path: filePath, message: 'File opened in VS Code.' });
+                return;
+            }
+
+            if (action === 'review') {
+                await vscode.commands.executeCommand('workbench.view.scm');
+                if (filePath) await this.openChangeFile(filePath);
+                this.jsonResponse(res, 200, {
+                    success: true,
+                    action,
+                    path: filePath || undefined,
+                    commit: commit || undefined,
+                    cwd: cwd || undefined,
+                    message: 'Source Control opened for review.'
+                });
+                return;
+            }
+
+            if (action === 'undo') {
+                const event = this.requestRemoteCodeUndoChange(filePath, commit, cwd);
+                this.jsonResponse(res, 202, {
+                    success: true,
+                    action,
+                    path: filePath || undefined,
+                    commit: commit || undefined,
+                    cwd: event.cwd,
+                    actionId: event.id,
+                    message: 'Undo request created. Approve it in the action timeline.'
+                });
+                return;
+            }
+
+            this.jsonResponse(res, 400, { success: false, error: 'Unsupported change action' });
         } catch (err: any) {
             this.jsonResponse(res, 500, { success: false, error: err.message });
         }

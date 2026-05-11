@@ -79,7 +79,9 @@ data class AppUiState(
     val currentCodexThreadId: String = "",
     val currentCodexProjectId: String = "",
     val isCodexLoading: Boolean = false,
-    val codexError: String? = null
+    val codexError: String? = null,
+    val codexChangeDiff: CodexChangeActionResponse? = null,
+    val isCodexDiffLoading: Boolean = false
 )
 
 class MainViewModel(application: Application) : AndroidViewModel(application) {
@@ -1477,6 +1479,86 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    fun loadCodexChangeDiff(path: String, commit: String? = null, cwd: String? = null) {
+        if (path.isBlank()) return
+        _uiState.value = _uiState.value.copy(
+            isCodexDiffLoading = true,
+            codexChangeDiff = null,
+            codexError = null
+        )
+        viewModelScope.launch {
+            try {
+                val api = ApiClient.getApi(_uiState.value.serverConfig)
+                val body = mutableMapOf("action" to "diff", "path" to path)
+                commit?.takeIf { it.isNotBlank() }?.let { body["commit"] = it }
+                cwd?.takeIf { it.isNotBlank() }?.let { body["cwd"] = it }
+                val response = api.codexChangeAction(body)
+                val result = response.body()
+                if (response.isSuccessful && result?.success == true) {
+                    _uiState.value = _uiState.value.copy(
+                        codexChangeDiff = result,
+                        isCodexDiffLoading = false,
+                        codexError = null
+                    )
+                } else {
+                    _uiState.value = _uiState.value.copy(
+                        isCodexDiffLoading = false,
+                        codexError = result?.error ?: "Diff failed: ${response.code()}"
+                    )
+                }
+            } catch (e: Exception) {
+                _uiState.value = _uiState.value.copy(isCodexDiffLoading = false, codexError = e.message)
+            }
+        }
+    }
+
+    fun clearCodexChangeDiff() {
+        _uiState.value = _uiState.value.copy(codexChangeDiff = null, isCodexDiffLoading = false)
+    }
+
+    fun reviewCodexChanges(commit: String? = null, cwd: String? = null, path: String? = null) {
+        viewModelScope.launch {
+            runCodexChangeCommand("review", commit, cwd, path)
+        }
+    }
+
+    fun undoCodexChanges(commit: String? = null, cwd: String? = null, path: String? = null) {
+        viewModelScope.launch {
+            val result = runCodexChangeCommand("undo", commit, cwd, path)
+            if (result?.success == true) {
+                loadCodexEvents()
+            }
+        }
+    }
+
+    private suspend fun runCodexChangeCommand(
+        action: String,
+        commit: String?,
+        cwd: String?,
+        path: String?
+    ): CodexChangeActionResponse? {
+        return try {
+            val api = ApiClient.getApi(_uiState.value.serverConfig)
+            val body = mutableMapOf("action" to action)
+            commit?.takeIf { it.isNotBlank() }?.let { body["commit"] = it }
+            cwd?.takeIf { it.isNotBlank() }?.let { body["cwd"] = it }
+            path?.takeIf { it.isNotBlank() }?.let { body["path"] = it }
+            val response = api.codexChangeAction(body)
+            val result = response.body()
+            if (!response.isSuccessful || result?.success != true) {
+                _uiState.value = _uiState.value.copy(
+                    codexError = result?.error ?: "Change action failed: ${response.code()}"
+                )
+            } else {
+                _uiState.value = _uiState.value.copy(codexError = null)
+            }
+            result
+        } catch (e: Exception) {
+            _uiState.value = _uiState.value.copy(codexError = e.message)
+            null
+        }
+    }
+
     fun stopCodexGeneration() {
         _uiState.value = _uiState.value.copy(isCodexLoading = false)
         viewModelScope.launch {
@@ -1725,16 +1807,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     // ===== NAVIGATION =====
 
     fun navigateTo(screen: String) {
-        _uiState.value = _uiState.value.copy(currentScreen = screen)
+        val normalizedScreen = when (screen) {
+            "vscode", "chat" -> "codex"
+            else -> screen
+        }
+        _uiState.value = _uiState.value.copy(currentScreen = normalizedScreen)
         // Load data for the destination screen.
-        when (screen) {
-            "vscode" -> {
-                loadFolders()
-                loadCodexStatus()
-                loadCodexModels()
-                    loadCodexThreads(loadCurrent = true)
-            }
-            "chat" -> { loadChatAgents(); loadChatHistory() }
+        when (normalizedScreen) {
             "files" -> loadFolders()
             "diagnostics" -> loadDiagnostics()
             "codex" -> { loadCodexStatus(); loadCodexModels(); loadCodexThreads(loadCurrent = true) }

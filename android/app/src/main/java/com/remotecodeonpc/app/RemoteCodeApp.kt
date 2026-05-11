@@ -1,5 +1,6 @@
 package com.remotecodeonpc.app
 
+import android.util.Base64
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.*
 import androidx.compose.foundation.background
@@ -24,6 +25,8 @@ import com.remotecodeonpc.app.ui.screens.*
 import com.remotecodeonpc.app.ui.theme.*
 import com.remotecodeonpc.app.viewmodel.MainViewModel
 import java.net.URI
+import java.net.URLDecoder
+import org.json.JSONObject
 
 private fun isTunnelUrlInputValid(raw: String): Boolean {
     val trimmed = raw.trim()
@@ -38,6 +41,55 @@ private fun isTunnelUrlInputValid(raw: String): Boolean {
     } catch (_: Exception) {
         false
     }
+}
+
+private data class PairingConfig(
+    val url: String,
+    val token: String
+)
+
+private fun parsePairingPayload(raw: String): PairingConfig? {
+    val trimmed = raw.trim()
+    if (trimmed.isBlank()) return null
+    return runCatching {
+        when {
+            trimmed.startsWith("remote-code-pair:", ignoreCase = true) -> {
+                val encoded = trimmed.substringAfter(':').trim()
+                val padded = encoded + "=".repeat((4 - encoded.length % 4) % 4)
+                val json = String(Base64.decode(padded, Base64.URL_SAFE or Base64.NO_WRAP), Charsets.UTF_8)
+                pairingFromJson(json)
+            }
+            trimmed.startsWith("{") -> pairingFromJson(trimmed)
+            trimmed.startsWith("remote-code://", ignoreCase = true) ||
+                trimmed.startsWith("http://", ignoreCase = true) ||
+                trimmed.startsWith("https://", ignoreCase = true) -> pairingFromUrl(trimmed)
+            else -> PairingConfig(url = trimmed, token = "")
+        }
+    }.getOrNull()?.takeIf { it.url.isNotBlank() }
+}
+
+private fun pairingFromJson(json: String): PairingConfig {
+    val obj = JSONObject(json)
+    return PairingConfig(
+        url = obj.optString("url").ifBlank { obj.optString("publicUrl") }.trim(),
+        token = obj.optString("token").ifBlank { obj.optString("authToken") }.trim()
+    )
+}
+
+private fun pairingFromUrl(raw: String): PairingConfig {
+    val uri = URI(raw)
+    val query = uri.rawQuery.orEmpty()
+    val values = query.split('&')
+        .mapNotNull { pair ->
+            val key = pair.substringBefore('=', "").takeIf { it.isNotBlank() } ?: return@mapNotNull null
+            val value = pair.substringAfter('=', "")
+            URLDecoder.decode(key, "UTF-8") to URLDecoder.decode(value, "UTF-8")
+        }
+        .toMap()
+    val url = values["url"]
+        ?: values["publicUrl"]
+        ?: if (raw.startsWith("http", ignoreCase = true)) raw.substringBefore('?') else ""
+    return PairingConfig(url = url.trim(), token = (values["token"] ?: values["authToken"]).orEmpty().trim())
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -62,57 +114,7 @@ fun RemoteCodeApp(
             if (state.isConnected) {
                 // Основные экраны
                 when (state.currentScreen) {
-                    "vscode" -> VSCodeScreen(
-                        folders = state.folders,
-                        currentFiles = state.currentFiles,
-                        fileContent = state.fileContent,
-                        isLoadingFiles = state.isLoadingFiles,
-                        codexModels = state.codexModels,
-                        codexSelectedModel = state.codexSelectedModel,
-                        codexReasoningEffort = state.codexReasoningEffort,
-                        codexProfile = state.codexProfile,
-                        codexIncludeContext = state.codexIncludeContext,
-                        codexChatHistory = state.codexChatHistory,
-                        codexActionEvents = state.codexActionEvents,
-                        codexSendResult = state.codexSendResult,
-                        codexThreads = state.codexThreads,
-                        codexProjects = state.codexProjects,
-                        currentCodexThreadId = state.currentCodexThreadId,
-                        currentCodexProjectId = state.currentCodexProjectId,
-                        isCodexLoading = state.isCodexLoading,
-                        codexError = state.codexError,
-                        onSendCodexMessage = { text, attachments -> viewModel.sendCodexMessage(text, attachments) },
-                        onSelectCodexModel = { viewModel.selectCodexModel(it) },
-                        onSelectCodexReasoningEffort = { viewModel.selectCodexReasoningEffort(it) },
-                        onSelectCodexProfile = { viewModel.selectCodexProfile(it) },
-                        onToggleCodexContext = { viewModel.toggleCodexContext() },
-                        onNewCodexThread = { viewModel.newCodexThread() },
-                        onLoadCodexThreads = { viewModel.loadCodexThreads() },
-                        onDeleteCodexThread = { viewModel.deleteCodexThread(it) },
-                        onDeleteCodexMessage = { viewModel.deleteCodexMessage(it) },
-                        onRegenerateCodexMessage = { viewModel.regenerateCodexMessage(it) },
-                        onStopCodexGeneration = { viewModel.stopCodexGeneration() },
-                        onRespondToCodexAction = { actionId, approve -> viewModel.respondToCodexAction(actionId, approve) },
-                        onNavigateToDir = { viewModel.loadFileTree(it) },
-                        onOpenFile = { viewModel.loadFileContent(it) },
-                        onOpenFolder = { viewModel.openFolder(it); viewModel.loadFileTree(it) },
-                        onGoUp = {
-                            state.currentFiles?.let { tree ->
-                                val cleanPath = tree.path.replace('\\', '/').trimEnd('/')
-                                val idx = cleanPath.lastIndexOf('/')
-                                if (idx >= 0) {
-                                    val parent = cleanPath.substring(0, idx).replace('/', '\\')
-                                    if (parent.length >= 3) {
-                                        viewModel.loadFileTree(
-                                            if (parent.endsWith(":")) "$parent\\" else parent
-                                        )
-                                    }
-                                }
-                            }
-                        },
-                        onNavigateToSettings = { viewModel.navigateTo("settings") }
-                    )
-                    "codex" -> CodexScreen(
+                    "codex", "vscode", "chat" -> CodexScreen(
                         models = state.codexModels,
                         selectedModel = state.codexSelectedModel,
                         selectedReasoningEffort = state.codexReasoningEffort,
@@ -127,6 +129,8 @@ fun RemoteCodeApp(
                         currentProjectId = state.currentCodexProjectId,
                         isLoading = state.isCodexLoading,
                         error = state.codexError,
+                        changeDiff = state.codexChangeDiff,
+                        isChangeDiffLoading = state.isCodexDiffLoading,
                         folders = state.folders,
                         currentFiles = state.currentFiles,
                         fileContent = state.fileContent,
@@ -142,6 +146,10 @@ fun RemoteCodeApp(
                         onDeleteThread = { viewModel.deleteCodexThread(it) },
                         onDeleteMessage = { viewModel.deleteCodexMessage(it) },
                         onRegenerateMessage = { viewModel.regenerateCodexMessage(it) },
+                        onLoadChangeDiff = { path, commit, cwd -> viewModel.loadCodexChangeDiff(path, commit, cwd) },
+                        onReviewChange = { commit, cwd, path -> viewModel.reviewCodexChanges(commit, cwd, path) },
+                        onUndoChange = { commit, cwd, path -> viewModel.undoCodexChanges(commit, cwd, path) },
+                        onClearChangeDiff = { viewModel.clearCodexChangeDiff() },
                         onStopGeneration = { viewModel.stopCodexGeneration() },
                         onRespondToAction = { actionId, approve -> viewModel.respondToCodexAction(actionId, approve) },
                         onNavigateToDir = { viewModel.loadFileTree(it) },
@@ -162,20 +170,6 @@ fun RemoteCodeApp(
                             }
                         },
                         onNavigateToSettings = { viewModel.navigateTo("settings") }
-                    )
-                    "chat" -> ChatScreen(
-                        agents = state.chatAgents,
-                        selectedAgent = state.selectedAgent,
-                        chatHistory = state.chatHistory,
-                        conversations = state.conversations,
-                        currentChatId = state.currentChatId,
-                        isChatLoading = state.isChatLoading,
-                        chatError = state.chatError,
-                        isThinking = state.isThinking,
-                        onSendMessage = { viewModel.sendChatMessage(it) },
-                        onSelectAgent = { viewModel.selectAgent(it) },
-                        onNewChat = { viewModel.newChat() },
-                        onSwitchChat = { viewModel.switchToChat(it) }
                     )
                     "files" -> FilesScreen(
                         folders = state.folders,
@@ -266,6 +260,9 @@ private fun ConnectionScreen(
     var host by remember(serverConfig.host) { mutableStateOf(serverConfig.host) }
     var authToken by remember(serverConfig.authToken) { mutableStateOf(serverConfig.authToken) }
     var showToken by remember { mutableStateOf(false) }
+    var showPairingInput by remember { mutableStateOf(false) }
+    var pairingPayload by remember { mutableStateOf("") }
+    var pairingError by remember { mutableStateOf<String?>(null) }
     var useTunnel by remember(serverConfig.useTunnel) { mutableStateOf(serverConfig.useTunnel) }
     var tunnelUrl by remember(serverConfig.tunnelUrl) { mutableStateOf(serverConfig.tunnelUrl) }
     var confirmClearLogs by remember { mutableStateOf(false) }
@@ -447,6 +444,88 @@ private fun ConnectionScreen(
             colors = outlinedFieldColors(),
             shape = androidx.compose.foundation.shape.RoundedCornerShape(12.dp)
         )
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            OutlinedButton(
+                onClick = {
+                    showPairingInput = !showPairingInput
+                    pairingError = null
+                },
+                modifier = Modifier.weight(1f)
+            ) {
+                Icon(Icons.Default.Link, contentDescription = null, modifier = Modifier.size(16.dp))
+                Spacer(modifier = Modifier.width(6.dp))
+                Text("Pairing", maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
+            TextButton(
+                onClick = {
+                    pairingPayload = ""
+                    pairingError = null
+                },
+                enabled = pairingPayload.isNotBlank()
+            ) {
+                Text("Clear")
+            }
+        }
+
+        AnimatedVisibility(visible = showPairingInput) {
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                OutlinedTextField(
+                    value = pairingPayload,
+                    onValueChange = {
+                        pairingPayload = it
+                        pairingError = null
+                    },
+                    label = { Text("Pairing payload", color = TextSecondary, fontSize = 12.sp) },
+                    placeholder = { Text("remote-code-pair:...", color = TextSecondary.copy(alpha = 0.5f)) },
+                    minLines = 2,
+                    maxLines = 3,
+                    modifier = Modifier.fillMaxWidth(),
+                    textStyle = LocalTextStyle.current.copy(fontSize = 12.sp),
+                    isError = pairingError != null,
+                    colors = outlinedFieldColors(),
+                    shape = RoundedCornerShape(12.dp)
+                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        pairingError ?: "Paste from VS Code connection menu",
+                        color = pairingError?.let { ErrorRed } ?: TextSecondary,
+                        fontSize = 11.sp,
+                        modifier = Modifier.weight(1f),
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    Button(
+                        onClick = {
+                            val parsed = parsePairingPayload(pairingPayload)
+                            if (parsed == null || !isTunnelUrlInputValid(parsed.url)) {
+                                pairingError = "Invalid pairing payload"
+                            } else {
+                                useTunnel = true
+                                tunnelUrl = parsed.url.trim().trimEnd('/')
+                                if (parsed.token.isNotBlank()) authToken = parsed.token
+                                pairingError = null
+                                emitConfig(
+                                    nextUseTunnel = true,
+                                    nextTunnelUrl = tunnelUrl,
+                                    nextToken = authToken
+                                )
+                            }
+                        },
+                        enabled = pairingPayload.isNotBlank()
+                    ) {
+                        Text("Apply")
+                    }
+                }
+            }
+        }
 
         if (externalTokenMissing) {
             Text(

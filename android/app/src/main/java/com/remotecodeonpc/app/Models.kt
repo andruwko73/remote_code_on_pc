@@ -275,6 +275,18 @@ data class CodexMessageActionResponse(
     val error: String? = null
 )
 
+data class CodexChangeActionResponse(
+    val success: Boolean = false,
+    val action: String = "",
+    val path: String? = null,
+    val commit: String? = null,
+    val cwd: String? = null,
+    val diff: String? = null,
+    val message: String? = null,
+    val actionId: String? = null,
+    val error: String? = null
+)
+
 data class CodexThread(
     val id: String = "",
     val title: String = "",

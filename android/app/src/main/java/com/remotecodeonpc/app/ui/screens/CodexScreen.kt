@@ -39,6 +39,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
@@ -53,6 +54,7 @@ import com.remotecodeonpc.app.CodexModel
 import com.remotecodeonpc.app.CodexSendResponse
 import com.remotecodeonpc.app.CodexChatMessage
 import com.remotecodeonpc.app.CodexActionEvent
+import com.remotecodeonpc.app.CodexChangeActionResponse
 import com.remotecodeonpc.app.CodexChangeFile
 import com.remotecodeonpc.app.CodexChangeSummary
 import com.remotecodeonpc.app.CodexProject
@@ -86,6 +88,8 @@ fun CodexScreen(
     currentProjectId: String,
     isLoading: Boolean,
     error: String?,
+    changeDiff: CodexChangeActionResponse? = null,
+    isChangeDiffLoading: Boolean = false,
     // Files params (same as VSCodeScreen)
     folders: FoldersResponse?,
     currentFiles: FileTreeItem?,
@@ -103,6 +107,10 @@ fun CodexScreen(
     onDeleteThread: (String) -> Unit,
     onDeleteMessage: (String) -> Unit = {},
     onRegenerateMessage: (String) -> Unit = {},
+    onLoadChangeDiff: (String, String?, String?) -> Unit = { _, _, _ -> },
+    onReviewChange: (String?, String?, String?) -> Unit = { _, _, _ -> },
+    onUndoChange: (String?, String?, String?) -> Unit = { _, _, _ -> },
+    onClearChangeDiff: () -> Unit = {},
     onStopGeneration: () -> Unit,
     onRespondToAction: (String, Boolean) -> Unit,
     // Files callbacks (same as VSCodeScreen)
@@ -114,6 +122,7 @@ fun CodexScreen(
 ) {
     val drawerState = rememberDrawerState(DrawerValue.Closed)
     val scope = rememberCoroutineScope()
+    val useWideSidebar = LocalConfiguration.current.screenWidthDp >= 840
     BackHandler(enabled = drawerState.isOpen) {
         scope.launch { drawerState.close() }
     }
@@ -125,28 +134,7 @@ fun CodexScreen(
         }
     }
 
-    ModalNavigationDrawer(
-        drawerState = drawerState,
-        drawerContent = {
-            ModalDrawerSheet(
-                drawerContainerColor = DarkSurface,
-                drawerContentColor = TextPrimary,
-                modifier = Modifier
-                    .fillMaxHeight()
-                    .width(332.dp)
-            ) {
-                CodexNavigationPanel(
-                    projects = projects,
-                    threads = threads,
-                    currentThreadId = currentThreadId,
-                    onNewThread = { closeDrawerThen(onNewThread) },
-                    onSwitchThread = { threadId -> closeDrawerThen { onSwitchThread(threadId) } },
-                    onOpenFolder = { path -> closeDrawerThen { onOpenFolder(path) } },
-                    onNavigateToSettings = { closeDrawerThen(onNavigateToSettings) }
-                )
-            }
-        }
-    ) {
+    val chatContent: @Composable () -> Unit = {
         CodexChatTab(
             models = models,
             selectedModel = selectedModel,
@@ -162,9 +150,11 @@ fun CodexScreen(
             currentProjectId = currentProjectId,
             isLoading = isLoading,
             error = error,
+            changeDiff = changeDiff,
+            isChangeDiffLoading = isChangeDiffLoading,
             onOpenNavigation = {
                 onLoadThreads()
-                scope.launch { drawerState.open() }
+                if (!useWideSidebar) scope.launch { drawerState.open() }
             },
             onSendMessage = onSendMessage,
             onSelectModel = onSelectModel,
@@ -176,11 +166,65 @@ fun CodexScreen(
             onDeleteThread = onDeleteThread,
             onDeleteMessage = onDeleteMessage,
             onRegenerateMessage = onRegenerateMessage,
+            onLoadChangeDiff = onLoadChangeDiff,
+            onReviewChange = onReviewChange,
+            onUndoChange = onUndoChange,
+            onClearChangeDiff = onClearChangeDiff,
             onStopGeneration = onStopGeneration,
             onRespondToAction = onRespondToAction,
             onNavigateToSettings = onNavigateToSettings,
             onOpenFile = onOpenFile
         )
+    }
+
+    if (useWideSidebar) {
+        Row(modifier = Modifier.fillMaxSize()) {
+            Surface(
+                color = DarkSurface,
+                modifier = Modifier
+                    .fillMaxHeight()
+                    .width(332.dp)
+            ) {
+                CodexNavigationPanel(
+                    projects = projects,
+                    threads = threads,
+                    currentThreadId = currentThreadId,
+                    onNewThread = onNewThread,
+                    onSwitchThread = onSwitchThread,
+                    onOpenFolder = onOpenFolder,
+                    onNavigateToSettings = onNavigateToSettings
+                )
+            }
+            VerticalDivider(color = DividerColor, thickness = 1.dp)
+            Box(modifier = Modifier.weight(1f)) {
+                chatContent()
+            }
+        }
+    } else {
+        ModalNavigationDrawer(
+            drawerState = drawerState,
+            drawerContent = {
+                ModalDrawerSheet(
+                    drawerContainerColor = DarkSurface,
+                    drawerContentColor = TextPrimary,
+                    modifier = Modifier
+                        .fillMaxHeight()
+                        .width(332.dp)
+                ) {
+                    CodexNavigationPanel(
+                        projects = projects,
+                        threads = threads,
+                        currentThreadId = currentThreadId,
+                        onNewThread = { closeDrawerThen(onNewThread) },
+                        onSwitchThread = { threadId -> closeDrawerThen { onSwitchThread(threadId) } },
+                        onOpenFolder = { path -> closeDrawerThen { onOpenFolder(path) } },
+                        onNavigateToSettings = { closeDrawerThen(onNavigateToSettings) }
+                    )
+                }
+            }
+        ) {
+            chatContent()
+        }
     }
 }
 
@@ -510,6 +554,8 @@ fun CodexChatTab(
     currentProjectId: String,
     isLoading: Boolean,
     error: String?,
+    changeDiff: CodexChangeActionResponse? = null,
+    isChangeDiffLoading: Boolean = false,
     onOpenNavigation: () -> Unit = {},
     onSendMessage: (String, List<MessageAttachment>) -> Unit,
     onSelectModel: (String) -> Unit,
@@ -521,6 +567,10 @@ fun CodexChatTab(
     onDeleteThread: (String) -> Unit,
     onDeleteMessage: (String) -> Unit = {},
     onRegenerateMessage: (String) -> Unit = {},
+    onLoadChangeDiff: (String, String?, String?) -> Unit = { _, _, _ -> },
+    onReviewChange: (String?, String?, String?) -> Unit = { _, _, _ -> },
+    onUndoChange: (String?, String?, String?) -> Unit = { _, _, _ -> },
+    onClearChangeDiff: () -> Unit = {},
     onStopGeneration: () -> Unit,
     onRespondToAction: (String, Boolean) -> Unit,
     onNavigateToSettings: () -> Unit = {},
@@ -770,6 +820,13 @@ fun CodexChatTab(
             )
         }
 
+        changeDiff?.let { diff ->
+            MobileChangeDiffDialog(
+                diff = diff,
+                onDismiss = onClearChangeDiff
+            )
+        }
+
         if (error != null) Text(error, color = ErrorRed, fontSize = 13.sp, modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp))
 
         Box(modifier = Modifier.fillMaxWidth().weight(1f)) {
@@ -783,6 +840,10 @@ fun CodexChatTab(
                         CodexMessageBubble(
                             message = msg,
                             onOpenFile = onOpenFile,
+                            isChangeDiffLoading = isChangeDiffLoading,
+                            onLoadChangeDiff = onLoadChangeDiff,
+                            onReviewChange = onReviewChange,
+                            onUndoChange = onUndoChange,
                             onEditMessage = { text ->
                                 messageText = text
                             },
@@ -1379,7 +1440,7 @@ private fun MobileActionLine(event: CodexActionEvent) {
         }
         Spacer(modifier = Modifier.width(7.dp))
         Text(
-            actionStatusText(event),
+            "${actionKindLabel(event)}: ${actionStatusText(event)}",
             color = TextSecondary,
             fontSize = 11.5.sp,
             fontWeight = FontWeight.Medium,
@@ -1398,6 +1459,20 @@ private fun MobileActionLine(event: CodexActionEvent) {
                 modifier = Modifier.weight(1f)
             )
         }
+    }
+}
+
+private fun actionKindLabel(event: CodexActionEvent): String {
+    val text = listOf(event.type, event.title, event.detail).joinToString(" ").lowercase(Locale.getDefault())
+    return when {
+        "test" in text || "gradle" in text || "npm test" in text -> "Tests"
+        "git" in text || "commit" in text || "push" in text || "stage" in text -> "Git"
+        "diff" in text || "patch" in text || "change" in text || "restore" in text -> "Changes"
+        "diagnostic" in text || "problem" in text || "error" in text -> "Diagnostics"
+        "read-file" in text || "file" in text -> "Files"
+        event.type == "model_progress" -> "Codex"
+        event.type.contains("command") -> "Command"
+        else -> "Action"
     }
 }
 
@@ -1504,6 +1579,10 @@ private fun CodexActionStrip(
 private fun CodexMessageBubble(
     message: CodexChatMessage,
     onOpenFile: (String) -> Unit,
+    isChangeDiffLoading: Boolean,
+    onLoadChangeDiff: (String, String?, String?) -> Unit,
+    onReviewChange: (String?, String?, String?) -> Unit,
+    onUndoChange: (String?, String?, String?) -> Unit,
     onEditMessage: (String) -> Unit,
     onDeleteMessage: (String) -> Unit,
     onRegenerateMessage: (String) -> Unit
@@ -1572,7 +1651,14 @@ private fun CodexMessageBubble(
             }
             if (changeSummary != null) {
                 Spacer(modifier = Modifier.height(7.dp))
-                MobileChangeCard(changeSummary, onOpenFile)
+                MobileChangeCard(
+                    summary = changeSummary,
+                    isDiffLoading = isChangeDiffLoading,
+                    onOpenFile = onOpenFile,
+                    onLoadDiff = onLoadChangeDiff,
+                    onReview = onReviewChange,
+                    onUndo = onUndoChange
+                )
             }
             MobileMessageToolbar(
                 isUser = false,
@@ -1824,10 +1910,15 @@ private fun mobileTextBlocks(text: String): List<MobileTextBlock> {
 @Composable
 private fun MobileChangeCard(
     summary: CodexChangeSummary,
-    onOpenFile: (String) -> Unit
+    isDiffLoading: Boolean,
+    onOpenFile: (String) -> Unit,
+    onLoadDiff: (String, String?, String?) -> Unit,
+    onReview: (String?, String?, String?) -> Unit,
+    onUndo: (String?, String?, String?) -> Unit
 ) {
     var expanded by remember(summary.files) { mutableStateOf(false) }
     val visibleFiles = if (expanded) summary.files else summary.files.take(5)
+    val primaryPath = summary.files.firstOrNull()?.path
     Surface(
         color = Color(0xFF242424),
         shape = RoundedCornerShape(8.dp),
@@ -1850,7 +1941,13 @@ private fun MobileChangeCard(
                     modifier = Modifier.weight(1f)
                 )
                 TextButton(
-                    onClick = { summary.files.firstOrNull()?.let { onOpenFile(it.path) } },
+                    onClick = { onUndo(summary.commit, summary.cwd, null) },
+                    contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp)
+                ) {
+                    Text("Undo", color = ErrorRed, fontSize = 11.5.sp, fontWeight = FontWeight.SemiBold)
+                }
+                TextButton(
+                    onClick = { onReview(summary.commit, summary.cwd, primaryPath) },
                     enabled = summary.files.isNotEmpty(),
                     contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp)
                 ) {
@@ -1867,8 +1964,19 @@ private fun MobileChangeCard(
                     )
                 }
             }
+            if (isDiffLoading) {
+                LinearProgressIndicator(
+                    modifier = Modifier.fillMaxWidth(),
+                    color = AccentBlue,
+                    trackColor = Color(0xFF303030)
+                )
+            }
             visibleFiles.forEach { file ->
-                ChangeFileRow(file, onOpenFile)
+                ChangeFileRow(
+                    file = file,
+                    onOpenFile = onOpenFile,
+                    onLoadDiff = { onLoadDiff(file.path, summary.commit, summary.cwd) }
+                )
             }
         }
     }
@@ -1890,12 +1998,13 @@ private fun changeHeaderText(summary: CodexChangeSummary): AnnotatedString {
 @Composable
 private fun ChangeFileRow(
     file: CodexChangeFile,
-    onOpenFile: (String) -> Unit
+    onOpenFile: (String) -> Unit,
+    onLoadDiff: () -> Unit
 ) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable { onOpenFile(file.path) }
+            .clickable { onLoadDiff() }
             .padding(horizontal = 10.dp, vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
@@ -1905,8 +2014,64 @@ private fun ChangeFileRow(
             Spacer(modifier = Modifier.width(6.dp))
             Text("-${file.deletions}", color = ErrorRed, fontSize = 11.75.sp, fontFamily = FontFamily.Monospace)
         }
-        Icon(Icons.Default.NorthEast, contentDescription = null, tint = TextSecondary, modifier = Modifier.size(13.dp))
+        IconButton(onClick = { onOpenFile(file.path) }, modifier = Modifier.size(26.dp)) {
+            Icon(Icons.Default.NorthEast, contentDescription = "Open file", tint = TextSecondary, modifier = Modifier.size(13.dp))
+        }
     }
+}
+
+@Composable
+private fun MobileChangeDiffDialog(
+    diff: CodexChangeActionResponse,
+    onDismiss: () -> Unit
+) {
+    val context = LocalContext.current
+    val diffText = diff.diff.orEmpty().ifBlank { diff.message ?: "No diff available." }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Column {
+                Text("Diff", color = TextBright, fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
+                diff.path?.takeIf { it.isNotBlank() }?.let {
+                    Text(it, color = TextSecondary, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
+            }
+        },
+        text = {
+            Surface(
+                color = Color(0xFF171717),
+                shape = RoundedCornerShape(8.dp),
+                border = BorderStroke(1.dp, Color(0xFF303030)),
+                modifier = Modifier.fillMaxWidth().heightIn(max = 420.dp)
+            ) {
+                LazyColumn(modifier = Modifier.padding(10.dp)) {
+                    item {
+                        Text(
+                            diffText,
+                            color = TextPrimary,
+                            fontSize = 11.5.sp,
+                            lineHeight = 15.sp,
+                            fontFamily = FontFamily.Monospace
+                        )
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = {
+                context.copyMessageToClipboard(diffText)
+                onDismiss()
+            }) {
+                Text("Copy")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Close")
+            }
+        },
+        containerColor = Color(0xFF242424)
+    )
 }
 
 private fun highlightedText(text: String): AnnotatedString {
