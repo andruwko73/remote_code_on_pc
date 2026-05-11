@@ -667,6 +667,8 @@ fun CodexChatTab(
     val approvalActionEvents = actionEvents
         .filter { it.actionable && it.status == "pending" }
         .takeLast(8)
+    val chatConfiguration = LocalConfiguration.current
+    val chatHorizontalPadding = if (chatConfiguration.screenWidthDp >= 600) 32.dp else 14.dp
 
     fun submitMessage() {
         if (messageText.isBlank() && attachments.isEmpty()) return
@@ -696,7 +698,7 @@ fun CodexChatTab(
         }
     }
 
-    Column(modifier = Modifier.fillMaxSize().imePadding().background(DarkBackground)) {
+    Column(modifier = Modifier.fillMaxSize().navigationBarsPadding().imePadding().background(DarkBackground)) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -791,6 +793,7 @@ fun CodexChatTab(
                 Icon(Icons.Outlined.Edit, contentDescription = "\u041D\u043E\u0432\u044B\u0439 \u0447\u0430\u0442", tint = TextSecondary, modifier = Modifier.size(20.dp))
             }
         }
+        HorizontalDivider(color = DividerColor.copy(alpha = 0.72f), thickness = 1.dp)
 
         pendingDeleteThread?.let { thread ->
             AlertDialog(
@@ -840,7 +843,7 @@ fun CodexChatTab(
         if (error != null) Text(error, color = ErrorRed, fontSize = 13.sp, modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp))
 
         Box(modifier = Modifier.fillMaxWidth().weight(1f)) {
-            LazyColumn(state = listState, modifier = Modifier.fillMaxSize().padding(horizontal = 14.dp), verticalArrangement = Arrangement.spacedBy(4.dp), contentPadding = PaddingValues(top = 7.dp, bottom = 6.dp)) {
+            LazyColumn(state = listState, modifier = Modifier.fillMaxSize().padding(horizontal = chatHorizontalPadding), verticalArrangement = Arrangement.spacedBy(6.dp), contentPadding = PaddingValues(top = 10.dp, bottom = 6.dp)) {
                 val timelineInsertIndex = visibleChatHistory.indexOfLast { it.role == "assistant" }
                 visibleChatHistory.forEachIndexed { index, msg ->
                     if (timelineActionEvents.isNotEmpty() && index == timelineInsertIndex) {
@@ -889,7 +892,7 @@ fun CodexChatTab(
             }
         }
 
-        Surface(modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp), color = Color(0xFF2D2D2D), shape = RoundedCornerShape(22.dp), border = BorderStroke(1.dp, Color(0xFF363636))) {
+        Surface(modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp), color = Color(0xFF2D2D2D), shape = RoundedCornerShape(18.dp), border = BorderStroke(1.dp, Color(0xFF3A3A3F))) {
             Column(modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp)) {
                 if (attachments.isNotEmpty()) {
                     LazyColumn(modifier = Modifier.heightIn(max = 90.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -1599,6 +1602,8 @@ private fun CodexMessageBubble(
 ) {
     val isUser = message.role == "user"
     val context = LocalContext.current
+    val configuration = LocalConfiguration.current
+    val userBubbleMaxWidth = (configuration.screenWidthDp * 0.82f).coerceAtMost(680f).dp
     val cleanedContent = remember(message.content) { cleanMobileMessageContent(message.content) }
     val changeSummary = remember(message.content, message.changeSummary) {
         message.changeSummary?.takeIf { it.files.isNotEmpty() } ?: parseMobileChangeSummary(message.content)
@@ -1612,16 +1617,16 @@ private fun CodexMessageBubble(
             Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
                 Surface(
                     color = Color(0xFF242424),
-                    shape = RoundedCornerShape(17.dp),
+                    shape = RoundedCornerShape(16.dp),
                     border = BorderStroke(1.dp, Color(0xFF2F2F2F)),
-                    modifier = Modifier.widthIn(max = 330.dp)
+                    modifier = Modifier.widthIn(max = userBubbleMaxWidth)
                 ) {
                     Column {
                         Text(
                             highlightedText(cleanedContent.ifBlank { "..." }),
                             color = TextBright,
-                            fontSize = 12.75.sp,
-                            lineHeight = 18.sp,
+                            fontSize = 14.sp,
+                            lineHeight = 20.sp,
                             modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
                         )
                         if (message.attachments.isNotEmpty()) {
@@ -1774,14 +1779,14 @@ private fun MobileMessageAttachments(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .background(Color(0xFF242424), RoundedCornerShape(10.dp))
+                    .background(Color(0xFF242424), RoundedCornerShape(8.dp))
                     .padding(horizontal = 9.dp, vertical = 8.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Box(
                     modifier = Modifier
                         .size(32.dp)
-                        .background(Color(0xFF171717), RoundedCornerShape(9.dp)),
+                        .background(Color(0xFF171717), RoundedCornerShape(8.dp)),
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(Icons.AutoMirrored.Outlined.InsertDriveFile, contentDescription = null, tint = TextSecondary, modifier = Modifier.size(18.dp))
@@ -1827,8 +1832,8 @@ private fun HighlightedMessageText(text: String) {
                 else -> Text(
                     highlightedText(block.lines.joinToString("\n")),
                     color = TextPrimary,
-                    fontSize = 12.75.sp,
-                    lineHeight = 18.sp
+                    fontSize = 14.sp,
+                    lineHeight = 20.sp
                 )
             }
         }
@@ -1843,15 +1848,15 @@ private fun MobileBulletList(lines: List<String>, ordered: Boolean, startNumber:
                 Text(
                     if (ordered) "${startNumber + index}." else "•",
                     color = TextSecondary,
-                    fontSize = 12.75.sp,
-                    lineHeight = 18.sp,
-                    modifier = Modifier.width(22.dp)
+                    fontSize = 14.sp,
+                    lineHeight = 20.sp,
+                    modifier = Modifier.width(24.dp)
                 )
                 Text(
                     highlightedText(line),
                     color = TextPrimary,
-                    fontSize = 12.75.sp,
-                    lineHeight = 18.sp,
+                    fontSize = 14.sp,
+                    lineHeight = 20.sp,
                     modifier = Modifier.weight(1f)
                 )
             }
@@ -1877,10 +1882,17 @@ private fun mobileTextBlocks(text: String): List<MobileTextBlock> {
     }
     var index = 0
     val lines = text.replace("\r\n", "\n").lines()
+    val bulletRegex = Regex("""^\s*[-*•]\s+(.+)$""")
+    val orderedRegex = Regex("""^\s*(\d+)[.)]\s+(.+)$""")
+    fun nextListItemIndex(start: Int, regex: Regex): Int? {
+        var probe = start
+        while (probe < lines.size && lines[probe].isBlank()) probe++
+        return probe.takeIf { it < lines.size && regex.find(lines[it]) != null }
+    }
     while (index < lines.size) {
         val raw = lines[index]
-        val bullet = Regex("""^\s*[-*•]\s+(.+)$""").find(raw)
-        val ordered = Regex("""^\s*(\d+)[.)]\s+(.+)$""").find(raw)
+        val bullet = bulletRegex.find(raw)
+        val ordered = orderedRegex.find(raw)
         when {
             raw.isBlank() -> {
                 flushParagraph()
@@ -1890,7 +1902,12 @@ private fun mobileTextBlocks(text: String): List<MobileTextBlock> {
                 flushParagraph()
                 val items = mutableListOf<String>()
                 while (index < lines.size) {
-                    val match = Regex("""^\s*[-*•]\s+(.+)$""").find(lines[index]) ?: break
+                    if (lines[index].isBlank()) {
+                        val nextIndex = nextListItemIndex(index + 1, bulletRegex)
+                        if (nextIndex == null) break
+                        index = nextIndex
+                    }
+                    val match = bulletRegex.find(lines[index]) ?: break
                     items += match.groupValues[1].trim()
                     index++
                 }
@@ -1901,7 +1918,12 @@ private fun mobileTextBlocks(text: String): List<MobileTextBlock> {
                 val items = mutableListOf<String>()
                 val startNumber = ordered.groupValues[1].toIntOrNull() ?: 1
                 while (index < lines.size) {
-                    val match = Regex("""^\s*(\d+)[.)]\s+(.+)$""").find(lines[index]) ?: break
+                    if (lines[index].isBlank()) {
+                        val nextIndex = nextListItemIndex(index + 1, orderedRegex)
+                        if (nextIndex == null) break
+                        index = nextIndex
+                    }
+                    val match = orderedRegex.find(lines[index]) ?: break
                     items += match.groupValues[2].trim()
                     index++
                 }
@@ -1946,7 +1968,7 @@ private fun MobileChangeCard(
                 Text(
                     changeHeaderText(summary),
                     color = TextPrimary,
-                    fontSize = 12.75.sp,
+                    fontSize = 13.sp,
                     fontWeight = FontWeight.SemiBold,
                     modifier = Modifier.weight(1f)
                 )

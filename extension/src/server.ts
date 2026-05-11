@@ -5332,7 +5332,7 @@ svg{width:15px;height:15px;display:block;fill:none;stroke:currentColor;stroke-wi
 .thread-row:hover .thread-delete{opacity:1}
 .thread-delete:hover{background:#463033;color:#f2b0b0}
 .content-shell{flex:1;min-height:0;display:flex;overflow:hidden}
-.wide-sidebar{width:246px;flex:0 0 246px;background:var(--codex-sidebar);border-right:1px solid #25302d;display:flex;flex-direction:column;min-height:0;color:#cfcfcf;padding:11px 10px 10px;box-sizing:border-box}
+.wide-sidebar{width:246px;flex:0 0 246px;background:var(--codex-sidebar);border-right:1px solid var(--codex-border);display:flex;flex-direction:column;min-height:0;color:#cfcfcf;padding:11px 10px 10px;box-sizing:border-box}
 .sidebar-actions{display:flex;flex-direction:column;gap:2px;margin-bottom:18px}
 .sidebar-action{width:100%;height:31px;border:0;background:transparent;color:#cfd0d2;border-radius:8px;display:flex;align-items:center;gap:10px;padding:0 10px;cursor:pointer;text-align:left;font:inherit;font-size:13px}
 .sidebar-action:hover{background:rgba(255,255,255,.055);color:#fff}
@@ -5371,7 +5371,7 @@ svg{width:15px;height:15px;display:block;fill:none;stroke:currentColor;stroke-wi
 .sidebar-empty{font-size:12.5px;color:#777;padding:7px 10px}.sidebar-empty.compact{padding:3px 8px 6px;font-size:11.5px}
 .sidebar-bottom{margin-top:auto;padding-top:10px;border-top:1px solid rgba(255,255,255,.055)}
 .messages{flex:1;min-width:0;overflow:auto;padding:18px clamp(18px,4vw,70px) 138px;scrollbar-gutter:stable}
-.progress-panel{width:240px;max-width:20vw;align-self:flex-start;margin:18px min(1vw,14px) 18px 0;background:rgba(36,36,36,.96);border:1px solid var(--codex-border);border-radius:14px;padding:13px;box-shadow:0 16px 42px rgba(0,0,0,.30);max-height:calc(100% - 36px);overflow:auto;color:#cfcfcf}
+.progress-panel{width:240px;max-width:20vw;align-self:flex-start;margin:18px min(1vw,14px) 18px 0;background:rgba(36,36,36,.97);border:1px solid var(--codex-border);border-radius:8px;padding:12px;box-shadow:0 12px 30px rgba(0,0,0,.22);max-height:calc(100% - 36px);overflow:auto;color:#cfcfcf}
 .progress-title{font-size:13px;font-weight:650;color:#9e9e9e;margin-bottom:8px}
 .progress-list,.progress-section{display:flex;flex-direction:column;gap:7px}
 .progress-item{display:grid;grid-template-columns:20px 1fr;gap:8px;align-items:start;color:#b9b9b9;font-size:12.25px;line-height:1.38}
@@ -5415,14 +5415,14 @@ svg{width:15px;height:15px;display:block;fill:none;stroke:currentColor;stroke-wi
 .msg.user .message-text code,.msg.user .message-text .inline-chip{background:#303030}
 .attachments-list,.message-file-cards{display:flex;flex-direction:column;gap:8px;margin:12px 0 0;width:100%;max-width:var(--chat-max)}
 .msg.user .attachments-list,.msg.user .message-file-cards{max-width:min(74%,var(--bubble-max));margin-left:auto;margin-right:auto}
-.attachment-card{border:1px solid var(--codex-strong-border);background:var(--codex-surface);color:#dcdcdc;border-radius:10px;padding:9px 10px;display:grid;grid-template-columns:34px minmax(0,1fr) auto;align-items:center;gap:10px;max-width:100%;text-align:left;font:inherit}
+.attachment-card{border:1px solid var(--codex-strong-border);background:var(--codex-surface);color:#dcdcdc;border-radius:8px;padding:9px 10px;display:grid;grid-template-columns:34px minmax(0,1fr) auto;align-items:center;gap:10px;max-width:100%;text-align:left;font:inherit}
 .attachment-card.clickable{cursor:pointer}
 .attachment-card.clickable:hover{background:var(--codex-surface-2)}
-.attachment-card-icon{width:34px;height:34px;border-radius:9px;background:#171717;display:flex;align-items:center;justify-content:center;color:#bfc1c5}
+.attachment-card-icon{width:34px;height:34px;border-radius:8px;background:#171717;display:flex;align-items:center;justify-content:center;color:#bfc1c5}
 .attachment-card-icon svg{width:19px;height:19px}
 .attachment-card-title{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#e7e7e7;font-weight:600;font-size:13.75px}
 .attachment-card-subtitle{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#909399;font-size:12px;margin-top:2px}
-.attachment-card-action{border:1px solid var(--codex-strong-border);background:transparent;color:#dcdcdc;border-radius:9px;padding:5px 9px;font-size:12.5px}
+.attachment-card-action{border:1px solid var(--codex-strong-border);background:transparent;color:#dcdcdc;border-radius:8px;padding:5px 9px;font-size:12.5px}
 .inline-file-link{border:0;background:var(--codex-chip);color:#e4e4e4;border-radius:6px;padding:1px 6px;font:inherit;font-family:var(--codex-mono);cursor:pointer}
 .inline-file-link:hover{background:var(--codex-selected);color:#fff}
 .change-card{margin:10px 0 13px;background:var(--codex-surface);border:1px solid var(--codex-border);border-radius:8px;overflow:hidden;color:var(--codex-text);white-space:normal;box-shadow:0 10px 24px rgba(0,0,0,.12)}
@@ -5446,7 +5446,10 @@ svg{width:15px;height:15px;display:block;fill:none;stroke:currentColor;stroke-wi
 .change-card.collapsed .change-row:nth-of-type(n+6){display:none}
 pre{margin:0;white-space:pre-wrap;word-wrap:break-word;font:inherit}
 .msg-tools{position:absolute;right:0;bottom:-20px;display:flex;gap:5px;opacity:0;transform:translateY(2px);transition:opacity .12s ease, transform .12s ease}
+.msg.assistant .msg-tools,.msg.system .msg-tools{right:auto;left:0}
+.msg.user .msg-tools{right:auto;left:50%;transform:translate(-50%,2px)}
 .msg:hover .msg-tools{opacity:1;transform:translateY(0)}
+.msg.user:hover .msg-tools{transform:translate(-50%,0)}
 .hover-btn{width:23px;height:23px;border:0;border-radius:6px;background:var(--codex-bg);color:#909399;display:inline-flex;align-items:center;justify-content:center;padding:0;cursor:pointer}
 .hover-btn svg{width:14px;height:14px}
 .hover-btn:hover{background:var(--codex-surface);color:#e6e6e6}
@@ -5482,7 +5485,8 @@ pre{margin:0;white-space:pre-wrap;word-wrap:break-word;font:inherit}
 .action-buttons button{border:1px solid var(--codex-strong-border);background:var(--codex-selected);color:var(--codex-text);border-radius:8px;padding:6px 10px;cursor:pointer}
 .action-buttons button:hover{background:#3a3740}
 .composer-wrap{padding:8px clamp(18px,4vw,72px) 10px;background:var(--codex-bg)}
-.composer{max-width:var(--composer-max);margin:0 auto;border:1px solid var(--codex-strong-border);background:#2d2d2d;border-radius:18px;padding:9px 11px 8px;display:flex;flex-direction:column;gap:5px;box-shadow:0 10px 26px rgba(0,0,0,.18)}
+.composer{max-width:var(--composer-max);margin:0 auto;border:1px solid var(--codex-strong-border);background:#2d2d2d;border-radius:18px;padding:9px 11px 8px;display:flex;flex-direction:column;gap:5px;box-shadow:0 10px 26px rgba(0,0,0,.18);transition:border-color .12s ease,box-shadow .12s ease}
+.composer:focus-within{border-color:#4a4a4f;box-shadow:0 12px 32px rgba(0,0,0,.26)}
 .controls{display:flex;gap:8px;align-items:center;min-width:0}
 .controls-spacer{flex:1 1 auto;min-width:16px}
 .subcontrols{display:flex;gap:12px;align-items:center;margin:5px auto 0;max-width:var(--composer-max);color:#8e8e8e;font-size:12px}
@@ -6434,11 +6438,21 @@ prompt.addEventListener('keydown', event => {
                 flushParagraph();
                 const ordered = Boolean(orderedMatch);
                 const items: string[] = [];
+                const matchListItem = (value: string) => ordered
+                    ? value.match(/^\s*\d+[.)]\s+(.+)$/)
+                    : value.match(/^\s*[-*•]\s+(.+)$/);
                 while (i < lines.length) {
                     const current = lines[i];
-                    const currentMatch = ordered
-                        ? current.match(/^\s*\d+[.)]\s+(.+)$/)
-                        : current.match(/^\s*[-*•]\s+(.+)$/);
+                    if (!current.trim()) {
+                        let next = i + 1;
+                        while (next < lines.length && !lines[next].trim()) next++;
+                        if (next < lines.length && matchListItem(lines[next])) {
+                            i = next;
+                            continue;
+                        }
+                        break;
+                    }
+                    const currentMatch = matchListItem(current);
                     if (!currentMatch) {
                         i--;
                         break;

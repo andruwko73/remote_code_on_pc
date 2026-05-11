@@ -4,9 +4,9 @@ import androidx.compose.ui.graphics.Color
 
 // Тёмная тема (как VS Code)
 val DarkBackground = Color(0xFF181818)
-val DarkSurface = Color(0xFF141C1A)
+val DarkSurface = Color(0xFF17191D)
 val DarkSurfaceVariant = Color(0xFF242424)
-val SidebarBg = Color(0xFF141C1A)
+val SidebarBg = Color(0xFF17191D)
 val EditorBg = Color(0xFF181818)
 
 val AccentBlue = Color(0xFF5AA7FF)
