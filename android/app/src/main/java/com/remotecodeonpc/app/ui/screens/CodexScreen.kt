@@ -7,6 +7,7 @@ import android.content.ClipboardManager
 import android.database.Cursor
 import android.content.Context
 import android.content.Intent
+import android.graphics.BitmapFactory
 import android.net.Uri
 import android.provider.OpenableColumns
 import android.speech.RecognizerIntent
@@ -17,6 +18,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.*
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -40,6 +42,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.AnnotatedString
@@ -1771,6 +1775,13 @@ private fun MobileMessageAttachments(
     attachments: List<MessageAttachment>,
     modifier: Modifier = Modifier
 ) {
+    var previewAttachment by remember { mutableStateOf<MessageAttachment?>(null) }
+    previewAttachment?.let { attachment ->
+        MobileImagePreviewDialog(
+            attachment = attachment,
+            onDismiss = { previewAttachment = null }
+        )
+    }
     Column(
         modifier = modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(6.dp)
@@ -1780,16 +1791,31 @@ private fun MobileMessageAttachments(
                 modifier = Modifier
                     .fillMaxWidth()
                     .background(Color(0xFF242424), RoundedCornerShape(8.dp))
+                    .clickable(enabled = attachment.isImageAttachment() && attachment.base64.isNotBlank()) {
+                        previewAttachment = attachment
+                    }
                     .padding(horizontal = 9.dp, vertical = 8.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Box(
-                    modifier = Modifier
-                        .size(32.dp)
-                        .background(Color(0xFF171717), RoundedCornerShape(8.dp)),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(Icons.AutoMirrored.Outlined.InsertDriveFile, contentDescription = null, tint = TextSecondary, modifier = Modifier.size(18.dp))
+                val imageBitmap = remember(attachment.base64, attachment.mimeType) { attachment.previewBitmap() }
+                if (imageBitmap != null) {
+                    Image(
+                        bitmap = imageBitmap,
+                        contentDescription = attachment.name,
+                        modifier = Modifier
+                            .size(width = 58.dp, height = 42.dp)
+                            .background(Color(0xFF171717), RoundedCornerShape(8.dp)),
+                        contentScale = ContentScale.Crop
+                    )
+                } else {
+                    Box(
+                        modifier = Modifier
+                            .size(32.dp)
+                            .background(Color(0xFF171717), RoundedCornerShape(8.dp)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(Icons.AutoMirrored.Outlined.InsertDriveFile, contentDescription = null, tint = TextSecondary, modifier = Modifier.size(18.dp))
+                    }
                 }
                 Spacer(modifier = Modifier.width(9.dp))
                 Column(modifier = Modifier.weight(1f)) {
@@ -1800,6 +1826,51 @@ private fun MobileMessageAttachments(
         }
     }
 }
+
+@Composable
+private fun MobileImagePreviewDialog(
+    attachment: MessageAttachment,
+    onDismiss: () -> Unit
+) {
+    val imageBitmap = remember(attachment.base64, attachment.mimeType) { attachment.previewBitmap() }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Text(attachment.name.ifBlank { "Изображение" }, color = TextBright, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        },
+        text = {
+            if (imageBitmap != null) {
+                Image(
+                    bitmap = imageBitmap,
+                    contentDescription = attachment.name,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(max = 460.dp)
+                        .background(Color(0xFF111111), RoundedCornerShape(8.dp)),
+                    contentScale = ContentScale.Fit
+                )
+            } else {
+                Text("Не удалось открыть изображение.", color = TextSecondary)
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Закрыть")
+            }
+        },
+        containerColor = Color(0xFF242424)
+    )
+}
+
+private fun MessageAttachment.isImageAttachment(): Boolean {
+    return mimeType.startsWith("image/", ignoreCase = true)
+}
+
+private fun MessageAttachment.previewBitmap() = runCatching {
+    if (!isImageAttachment() || base64.isBlank()) return@runCatching null
+    val bytes = Base64.decode(base64, Base64.DEFAULT)
+    BitmapFactory.decodeByteArray(bytes, 0, bytes.size)?.asImageBitmap()
+}.getOrNull()
 
 private fun fileSubtitle(attachment: MessageAttachment): String {
     val ext = attachment.name.substringAfterLast('.', "").uppercase(Locale.getDefault()).takeIf { it.isNotBlank() }
@@ -1829,6 +1900,7 @@ private fun HighlightedMessageText(text: String) {
             when (block.kind) {
                 MobileTextBlockKind.Bullet -> MobileBulletList(block.lines, ordered = false)
                 MobileTextBlockKind.Ordered -> MobileBulletList(block.lines, ordered = true, startNumber = block.startNumber)
+                MobileTextBlockKind.Code -> MobileCodeBlock(block.lines, block.language)
                 else -> Text(
                     highlightedText(block.lines.joinToString("\n")),
                     color = TextPrimary,
@@ -1836,6 +1908,36 @@ private fun HighlightedMessageText(text: String) {
                     lineHeight = 20.sp
                 )
             }
+        }
+    }
+}
+
+@Composable
+private fun MobileCodeBlock(lines: List<String>, language: String = "text") {
+    Surface(
+        color = Color(0xFF171717),
+        shape = RoundedCornerShape(8.dp),
+        border = BorderStroke(1.dp, DividerColor),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column {
+            Text(
+                language.ifBlank { "text" },
+                color = TextSecondary,
+                fontSize = 11.sp,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(Color(0xFF202020))
+                    .padding(horizontal = 10.dp, vertical = 7.dp)
+            )
+            Text(
+                lines.joinToString("\n"),
+                color = TextPrimary,
+                fontSize = 12.5.sp,
+                lineHeight = 18.sp,
+                fontFamily = FontFamily.Monospace,
+                modifier = Modifier.padding(horizontal = 10.dp, vertical = 9.dp)
+            )
         }
     }
 }
@@ -1864,12 +1966,13 @@ private fun MobileBulletList(lines: List<String>, ordered: Boolean, startNumber:
     }
 }
 
-private enum class MobileTextBlockKind { Paragraph, Bullet, Ordered }
+private enum class MobileTextBlockKind { Paragraph, Bullet, Ordered, Code }
 
 private data class MobileTextBlock(
     val kind: MobileTextBlockKind,
     val lines: List<String>,
-    val startNumber: Int = 1
+    val startNumber: Int = 1,
+    val language: String = "text"
 )
 
 private fun mobileTextBlocks(text: String): List<MobileTextBlock> {
@@ -1891,9 +1994,22 @@ private fun mobileTextBlocks(text: String): List<MobileTextBlock> {
     }
     while (index < lines.size) {
         val raw = lines[index]
+        val fence = Regex("""^\s*```([A-Za-z0-9_+.#-]*)\s*$""").find(raw)
         val bullet = bulletRegex.find(raw)
         val ordered = orderedRegex.find(raw)
         when {
+            fence != null -> {
+                flushParagraph()
+                val codeLines = mutableListOf<String>()
+                val language = fence.groupValues.getOrNull(1).orEmpty().ifBlank { "text" }
+                index++
+                while (index < lines.size && !Regex("""^\s*```\s*$""").matches(lines[index])) {
+                    codeLines += lines[index]
+                    index++
+                }
+                if (index < lines.size) index++
+                blocks += MobileTextBlock(MobileTextBlockKind.Code, codeLines, language = language)
+            }
             raw.isBlank() -> {
                 flushParagraph()
                 index++

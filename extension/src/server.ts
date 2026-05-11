@@ -3536,8 +3536,8 @@ export class RemoteServer {
             : 'Создаст токен для внешней сети и скопирует его в буфер обмена.';
         const items: Array<vscode.QuickPickItem & { action: string }> = [
             { label: tokenLabel, description: tokenState, detail: tokenDetail, action: 'tokenMenu' },
-            { label: 'Show Android QR code', description: publicUrl || localUrl, detail: 'Opens a QR code for the Android app and copies the same pairing code to clipboard.', action: 'showPairingQr' },
-            { label: 'Copy Android pairing code', description: publicUrl || localUrl, detail: 'Copies URL and token as one remote-code-pair string.', action: 'copyPairingPayload' },
+            { label: 'QR для телефона', description: publicUrl || localUrl, detail: 'Открывает QR для Android-приложения и копирует тот же код подключения.', action: 'showPairingQr' },
+            { label: 'Код для телефона', description: publicUrl || localUrl, detail: 'Копирует URL и токен как одну строку remote-code-pair.', action: 'copyPairingPayload' },
             { label: 'Скопировать локальный URL', description: localUrl, action: 'copyLocal' },
             { label: 'Сформировать Keenetic URL', description: publicUrl || keeneticHost || 'my.keenetic.net / name.keenetic.link', detail: publicUrl ? `Сохранено: ${publicUrl}` : 'Соберет адрес из KeenDNS-имени или попробует найти его через my.keenetic.net', action: 'autoPublic' },
             { label: 'Открыть порт на роутере (UPnP)', description: `TCP ${this._port} -> ${this._localIp || 'IP ПК'}:${this._port}`, detail: 'Попросит Keenetic/роутер автоматически создать проброс порта. Для внешней сети токен должен быть включен.', action: 'openUpnpPort' },
@@ -3949,20 +3949,20 @@ ol{padding-left:20px}li{margin:6px 0}.note{margin-top:12px;font-size:13px;color:
 </head>
 <body>
 <main class="wrap">
-<h1>Android pairing QR</h1>
-<p>Open the Android app, tap <strong>Scan QR</strong>, and point the camera at this code.</p>
+<h1>QR для телефона</h1>
+<p>В Android-приложении нажмите <strong>QR</strong> и наведите камеру на этот код.</p>
 <section class="panel">
 <div class="qr">${qrSvg}</div>
 <ol>
-<li>In the Android app choose external network if you connect from outside Wi-Fi.</li>
-<li>Tap <strong>Scan QR</strong>. The app fills URL and token automatically.</li>
-<li>If scanning is unavailable, tap <strong>Paste code</strong> in the app and paste the copied code below.</li>
+<li>Если подключение будет снаружи домашней сети, выберите в приложении внешнюю сеть.</li>
+<li>Нажмите <strong>QR</strong>. Приложение заполнит URL и токен автоматически.</li>
+<li>Если камера недоступна, нажмите <strong>Код</strong> и вставьте строку ниже.</li>
 </ol>
 <div class="meta">
 <div><div class="label">${safeLabel}</div><code>${safeUrl}</code></div>
-<div><div class="label">Pairing code copied to clipboard</div><code>${safeCode}</code></div>
+<div><div class="label">Код подключения скопирован в буфер</div><code>${safeCode}</code></div>
 </div>
-<p class="note">The QR contains the connection URL and access token. Do not share it publicly.</p>
+<p class="note">QR содержит URL подключения и токен доступа. Не публикуйте его.</p>
 </section>
 </main>
 </body>
@@ -5412,17 +5412,29 @@ svg{width:15px;height:15px;display:block;fill:none;stroke:currentColor;stroke-wi
 .message-text .plain-line{white-space:pre-wrap}
 .msg.user .message-text{white-space:pre-wrap}
 .message-text code,.message-text .inline-chip{font-family:var(--codex-mono);font-size:.9em;background:var(--codex-chip);color:#e4e4e4;border-radius:5px;padding:1px 5px;white-space:break-spaces}
+.code-block{margin:10px 0 12px;border:1px solid var(--codex-border);border-radius:8px;overflow:hidden;background:#171717;color:#dedede}
+.code-head{height:28px;display:flex;align-items:center;padding:0 10px;border-bottom:1px solid var(--codex-border);background:#202020;color:#8f9094;font:12px/1 var(--codex-font)}
+.code-block pre{padding:10px 12px;overflow:auto;font:12.5px/1.5 var(--codex-mono);white-space:pre;color:#d8d8d8}
 .msg.user .message-text code,.msg.user .message-text .inline-chip{background:#303030}
 .attachments-list,.message-file-cards{display:flex;flex-direction:column;gap:8px;margin:12px 0 0;width:100%;max-width:var(--chat-max)}
 .msg.user .attachments-list,.msg.user .message-file-cards{max-width:min(74%,var(--bubble-max));margin-left:auto;margin-right:auto}
 .attachment-card{border:1px solid var(--codex-strong-border);background:var(--codex-surface);color:#dcdcdc;border-radius:8px;padding:9px 10px;display:grid;grid-template-columns:34px minmax(0,1fr) auto;align-items:center;gap:10px;max-width:100%;text-align:left;font:inherit}
 .attachment-card.clickable{cursor:pointer}
 .attachment-card.clickable:hover{background:var(--codex-surface-2)}
+.attachment-card.image-card{grid-template-columns:82px minmax(0,1fr) auto;cursor:default}
+.image-thumb{width:82px;height:58px;border:0;border-radius:8px;background:#171717;overflow:hidden;padding:0;cursor:pointer;display:block}
+.image-thumb img{width:100%;height:100%;object-fit:cover;display:block}
 .attachment-card-icon{width:34px;height:34px;border-radius:8px;background:#171717;display:flex;align-items:center;justify-content:center;color:#bfc1c5}
 .attachment-card-icon svg{width:19px;height:19px}
 .attachment-card-title{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#e7e7e7;font-weight:600;font-size:13.75px}
 .attachment-card-subtitle{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#909399;font-size:12px;margin-top:2px}
 .attachment-card-action{border:1px solid var(--codex-strong-border);background:transparent;color:#dcdcdc;border-radius:8px;padding:5px 9px;font-size:12.5px}
+.image-preview-overlay{position:fixed;inset:0;background:rgba(0,0,0,.78);z-index:40;display:none;align-items:center;justify-content:center;padding:24px}
+.image-preview-overlay.open{display:flex}
+.image-preview-panel{max-width:min(1100px,96vw);max-height:92vh;display:flex;flex-direction:column;gap:10px}
+.image-preview-panel img{max-width:100%;max-height:82vh;object-fit:contain;border-radius:8px;background:#111}
+.image-preview-caption{display:flex;align-items:center;justify-content:space-between;gap:12px;color:#d8d8d8;font-size:13px}
+.image-preview-close{border:1px solid var(--codex-strong-border);background:var(--codex-surface);color:#f3f3f3;border-radius:8px;padding:6px 10px;cursor:pointer}
 .inline-file-link{border:0;background:var(--codex-chip);color:#e4e4e4;border-radius:6px;padding:1px 6px;font:inherit;font-family:var(--codex-mono);cursor:pointer}
 .inline-file-link:hover{background:var(--codex-selected);color:#fff}
 .change-card{margin:10px 0 13px;background:var(--codex-surface);border:1px solid var(--codex-border);border-radius:8px;overflow:hidden;color:var(--codex-text);white-space:normal;box-shadow:0 10px 24px rgba(0,0,0,.12)}
@@ -5578,8 +5590,8 @@ button.send:disabled{opacity:.55;cursor:default}
   </div>
   <div class="toolbar-spacer"></div>
   <button class="icon-btn token-btn" type="button" data-action="createOrCopyToken" title="${this._authToken ? '&#1052;&#1077;&#1085;&#1102; &#1090;&#1086;&#1082;&#1077;&#1085;&#1072;: &#1089;&#1082;&#1086;&#1087;&#1080;&#1088;&#1086;&#1074;&#1072;&#1090;&#1100; &#1080;&#1083;&#1080; &#1089;&#1086;&#1079;&#1076;&#1072;&#1090;&#1100; &#1085;&#1086;&#1074;&#1099;&#1081;' : '&#1057;&#1086;&#1079;&#1076;&#1072;&#1090;&#1100; &#1090;&#1086;&#1082;&#1077;&#1085; &#1076;&#1086;&#1089;&#1090;&#1091;&#1087;&#1072;'}">${icon.lock}<span>&#1058;&#1086;&#1082;&#1077;&#1085;</span></button>
-  <button class="icon-btn token-btn" type="button" data-action="showPairingQr" title="Show Android pairing QR">${icon.qr}<span>QR</span></button>
-  <button class="icon-btn token-btn" type="button" data-action="copyPairingPayload" title="Copy Android pairing code">${icon.copy}<span>Code</span></button>
+  <button class="icon-btn token-btn" type="button" data-action="showPairingQr" title="QR для телефона">${icon.qr}<span>QR для телефона</span></button>
+  <button class="icon-btn token-btn" type="button" data-action="copyPairingPayload" title="Код для телефона">${icon.copy}<span>Код</span></button>
   <button class="icon-btn" type="button" id="topRun" title="${isBusy ? '&#1054;&#1089;&#1090;&#1072;&#1085;&#1086;&#1074;&#1080;&#1090;&#1100;' : '&#1054;&#1090;&#1087;&#1088;&#1072;&#1074;&#1080;&#1090;&#1100;'}">${isBusy ? icon.stop : icon.play}</button>
   <div class="connector-menu-wrap" id="connectorDrop">
     <button class="connector-btn" type="button" id="connectorBtn" title="VS Code">${icon.vscode}<span>VS Code</span><span class="chev">${icon.chevron}</span></button>
@@ -5600,6 +5612,12 @@ ${actionRows}
   ${progressPanel}
 </div>
 <button class="scroll-bottom hidden" id="scrollBottom" type="button" title="&#1050; &#1085;&#1086;&#1074;&#1099;&#1084; &#1089;&#1086;&#1086;&#1073;&#1097;&#1077;&#1085;&#1080;&#1103;&#1084;">${icon.scrollDown}</button>
+<div class="image-preview-overlay" id="imagePreview" role="dialog" aria-modal="true">
+  <div class="image-preview-panel">
+    <img id="imagePreviewImg" alt="">
+    <div class="image-preview-caption"><span id="imagePreviewCaption"></span><button class="image-preview-close" id="imagePreviewClose" type="button">Закрыть</button></div>
+  </div>
+</div>
 <div class="composer-wrap">
   <form class="composer" id="composer">
     <textarea id="prompt" placeholder="Запросите внесение дополнительных изменений" spellcheck="true" lang="ru" autocomplete="on" autocapitalize="sentences" autocorrect="on" inputmode="text" autofocus></textarea>
@@ -5994,6 +6012,32 @@ document.querySelectorAll('.change-action').forEach(button => {
       vscode.postMessage({ type: 'action', action: 'reviewChangeBlock', commit: card?.dataset.commit || '', cwd: card?.dataset.cwd || '' });
     }
   });
+});
+const imagePreview = document.getElementById('imagePreview');
+const imagePreviewImg = document.getElementById('imagePreviewImg');
+const imagePreviewCaption = document.getElementById('imagePreviewCaption');
+function closeImagePreview() {
+  imagePreview?.classList.remove('open');
+  if (imagePreviewImg) imagePreviewImg.removeAttribute('src');
+}
+document.querySelectorAll('[data-preview-src]').forEach(button => {
+  button.addEventListener('click', event => {
+    event.preventDefault();
+    event.stopPropagation();
+    const source = event.currentTarget.dataset.previewSrc;
+    if (!source || !imagePreviewImg) return;
+    imagePreviewImg.src = source;
+    imagePreviewImg.alt = event.currentTarget.dataset.previewName || '';
+    if (imagePreviewCaption) imagePreviewCaption.textContent = event.currentTarget.dataset.previewName || '';
+    imagePreview?.classList.add('open');
+  });
+});
+document.getElementById('imagePreviewClose')?.addEventListener('click', closeImagePreview);
+imagePreview?.addEventListener('click', event => {
+  if (event.target === imagePreview) closeImagePreview();
+});
+document.addEventListener('keydown', event => {
+  if (event.key === 'Escape') closeImagePreview();
 });
 form.addEventListener('submit', event => {
   event.preventDefault();
@@ -6428,6 +6472,19 @@ prompt.addEventListener('keydown', event => {
 
         for (let i = 0; i < lines.length; i++) {
             const line = lines[i];
+            const fenceMatch = line.match(/^\s*```([A-Za-z0-9_+.#-]*)\s*$/);
+            if (fenceMatch) {
+                flushParagraph();
+                const language = fenceMatch[1]?.trim() || 'text';
+                const codeLines: string[] = [];
+                i++;
+                while (i < lines.length && !/^\s*```\s*$/.test(lines[i])) {
+                    codeLines.push(lines[i]);
+                    i++;
+                }
+                parts.push(`<div class="code-block"><div class="code-head">${this.escapeHtml(language)}</div><pre>${this.escapeHtml(codeLines.join('\n'))}</pre></div>`);
+                continue;
+            }
             if (!line.trim()) {
                 flushParagraph();
                 continue;
@@ -6492,6 +6549,7 @@ prompt.addEventListener('keydown', event => {
     }
 
     private renderAttachmentCard(file: { name: string; path?: string; mimeType?: string; size?: number }): string {
+        const dataUri = this.imageDataUri(file);
         const subtitle = [
             this.fileKindLabel(file.name, file.mimeType),
             file.size ? this.formatBytes(file.size) : ''
@@ -6499,6 +6557,16 @@ prompt.addEventListener('keydown', event => {
         const openAttrs = file.path
             ? `data-action="openProgressFile" data-path="${this.escapeHtml(file.path)}"`
             : '';
+        if (dataUri) {
+            return `<div class="attachment-card image-card" title="${this.escapeHtml(file.path || file.name)}">
+                <button type="button" class="image-thumb" data-preview-src="${this.escapeHtml(dataUri)}" data-preview-name="${this.escapeHtml(file.name || 'image')}"><img src="${this.escapeHtml(dataUri)}" alt="${this.escapeHtml(file.name || 'image')}"></button>
+                <span>
+                    <span class="attachment-card-title">${this.escapeHtml(file.name || 'image')}</span>
+                    <span class="attachment-card-subtitle">${this.escapeHtml(subtitle || 'Изображение')}</span>
+                </span>
+                ${file.path ? `<button type="button" class="attachment-card-action" ${openAttrs}>Открыть</button>` : ''}
+            </div>`;
+        }
         return `<button type="button" class="attachment-card ${file.path ? 'clickable' : ''}" ${openAttrs} title="${this.escapeHtml(file.path || file.name)}">
             <span class="attachment-card-icon">${this.webIcon('file')}</span>
             <span>
@@ -6507,6 +6575,29 @@ prompt.addEventListener('keydown', event => {
             </span>
             <span class="attachment-card-action">Открыть</span>
         </button>`;
+    }
+
+    private imageDataUri(file: { path?: string; mimeType?: string; size?: number }): string | undefined {
+        if (!file.path || !file.mimeType?.startsWith('image/') || (file.size || 0) > 6 * 1024 * 1024) return undefined;
+        try {
+            const filePath = path.resolve(file.path);
+            if (!this.isAttachmentPreviewPathAllowed(filePath)) return undefined;
+            const stat = fs.statSync(filePath);
+            if (!stat.isFile() || stat.size > 6 * 1024 * 1024) return undefined;
+            const data = fs.readFileSync(filePath);
+            return `data:${this.normalizeAttachmentMime(filePath, file.mimeType)};base64,${data.toString('base64')}`;
+        } catch {
+            return undefined;
+        }
+    }
+
+    private isAttachmentPreviewPathAllowed(filePath: string): boolean {
+        const resolved = path.resolve(filePath);
+        const roots = [
+            ...this.getWorkspaceRoots(),
+            path.resolve(this._context.globalStorageUri.fsPath)
+        ];
+        return roots.some(root => this.isInsideWorkspaceRoot(resolved, root));
     }
 
     private fileKindLabel(name: string, mimeType?: string): string {

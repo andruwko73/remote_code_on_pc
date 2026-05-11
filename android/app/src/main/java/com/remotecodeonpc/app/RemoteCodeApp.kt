@@ -9,6 +9,7 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.*
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -19,6 +20,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -533,6 +535,16 @@ private fun ConnectionScreen(
             shape = androidx.compose.foundation.shape.RoundedCornerShape(12.dp)
         )
 
+        Text(
+            "QR и код берутся в VS Code: Remote Code on PC -> Подключение.",
+            color = TextSecondary,
+            fontSize = 10.5.sp,
+            lineHeight = 12.sp,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.fillMaxWidth()
+        )
+
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -555,7 +567,7 @@ private fun ConnectionScreen(
             ) {
                 Icon(Icons.Default.QrCodeScanner, contentDescription = null, modifier = Modifier.size(16.dp))
                 Spacer(modifier = Modifier.width(6.dp))
-                Text("Скан QR", maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text("QR", maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
             TextButton(
                 onClick = {
@@ -591,7 +603,7 @@ private fun ConnectionScreen(
                 )
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
-                        pairingError ?: "В VS Code откройте Remote Code on PC: Подключение -> Show Android QR code или Copy Android pairing code",
+                        pairingError ?: "В VS Code откройте Remote Code on PC: Подключение -> QR для телефона или Код для телефона.",
                         color = pairingError?.let { ErrorRed } ?: TextSecondary,
                         fontSize = 11.sp,
                         modifier = Modifier.weight(1f),
@@ -643,6 +655,15 @@ private fun ConnectionScreen(
                     )
                 }
             }
+        }
+
+        AnimatedVisibility(visible = error != null) {
+            ConnectionDiagnosticsCard(
+                useTunnel = useTunnel,
+                targetUrl = if (useTunnel) trimmedTunnelUrl else host,
+                hasToken = authToken.trim().isNotBlank(),
+                error = error
+            )
         }
 
         Button(
@@ -750,6 +771,78 @@ private fun ConnectionScreen(
         )
     }
 }
+
+
+@Composable
+private fun ConnectionDiagnosticsCard(
+    useTunnel: Boolean,
+    targetUrl: String,
+    hasToken: Boolean,
+    error: String?
+) {
+    val targetOk = if (useTunnel) isTunnelUrlInputValid(targetUrl) else targetUrl.trim().isNotBlank()
+    val rows = listOf(
+        DiagnosticRowState(
+            label = if (useTunnel) "Публичный URL / DNS" else "IP ПК в локальной сети",
+            detail = targetUrl.ifBlank { "адрес не указан" },
+            ok = targetOk
+        ),
+        DiagnosticRowState(
+            label = "Токен доступа",
+            detail = if (hasToken) "указан" else if (useTunnel) "обязателен для внешней сети" else "не обязателен в локальной сети",
+            ok = hasToken || !useTunnel
+        ),
+        DiagnosticRowState(
+            label = "/api/status",
+            detail = if (error == null) "будет проверен при подключении" else "последняя проверка завершилась ошибкой",
+            ok = error == null
+        ),
+        DiagnosticRowState(
+            label = "WebSocket и чат",
+            detail = "проверяются после успешного /api/status",
+            ok = error == null
+        ),
+        DiagnosticRowState(
+            label = "APK endpoint",
+            detail = "используется кнопкой «Обновить» после подключения",
+            ok = true
+        )
+    )
+    Surface(
+        color = Color(0xFF202020),
+        shape = RoundedCornerShape(8.dp),
+        border = BorderStroke(1.dp, DividerColor),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(5.dp)
+        ) {
+            Text("Диагностика подключения", color = TextPrimary, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+            rows.forEach { row ->
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        if (row.ok) Icons.Default.CheckCircle else Icons.Default.Error,
+                        contentDescription = null,
+                        tint = if (row.ok) AccentGreen else ErrorRed,
+                        modifier = Modifier.size(14.dp)
+                    )
+                    Spacer(modifier = Modifier.width(7.dp))
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(row.label, color = TextPrimary, fontSize = 11.5.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Text(row.detail, color = TextSecondary, fontSize = 10.5.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    }
+                }
+            }
+        }
+    }
+}
+
+private data class DiagnosticRowState(
+    val label: String,
+    val detail: String,
+    val ok: Boolean
+)
 
 
 

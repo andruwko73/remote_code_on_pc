@@ -338,7 +338,8 @@ class MainActivity : ComponentActivity() {
                                         versionName = archiveVersionName,
                                         versionCode = archiveVersionCode,
                                         sizeBytes = apkFile.length(),
-                                        sha256 = expectedSha256
+                                        sha256 = expectedSha256,
+                                        sourceLabel = source.downloadLabel
                                     )
                                 )
                             }
@@ -669,9 +670,15 @@ private fun UpdateReadyDialog(
         onDismissRequest = onDismiss,
         title = { Text("APK готов к установке") },
         text = {
-            Text(
-                "Версия ${update.versionName} проверена. Нажмите «Установить», затем подтвердите обновление в системном окне. Если Android попросит разрешение на установку, вернитесь сюда и нажмите «Установить» ещё раз."
-            )
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("Версия ${update.versionName} проверена. Нажмите «Установить», затем подтвердите обновление в системном окне.")
+                Text("Сейчас: ${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})")
+                Text("Будет: ${update.versionName} (${update.versionCode})")
+                Text("Источник: ${update.sourceLabel}")
+                Text("Размер: ${formatApkBytes(update.sizeBytes)}")
+                Text("SHA-256: ${update.sha256.take(12)}…${update.sha256.takeLast(8)}")
+                Text("Если Android попросит разрешение на установку, вернитесь сюда и нажмите «Установить» ещё раз.")
+            }
         },
         confirmButton = {
             Button(onClick = onInstall) {
@@ -691,8 +698,13 @@ private data class PendingVerifiedApk(
     val versionName: String,
     val versionCode: Long,
     val sizeBytes: Long,
-    val sha256: String
+    val sha256: String,
+    val sourceLabel: String
 )
+
+private fun formatApkBytes(bytes: Long): String {
+    return "${"%.1f".format(bytes / (1024.0 * 1024.0))} MB"
+}
 
 private data class UpdateSource(
     val apkUrl: String,
