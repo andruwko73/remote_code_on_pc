@@ -5295,7 +5295,8 @@ svg{width:15px;height:15px;display:block;fill:none;stroke:currentColor;stroke-wi
 .toolbar-spacer{flex:1}
 .icon-btn{width:26px;height:26px;border:0;border-radius:7px;background:transparent;color:#9ea0a4;display:inline-flex;align-items:center;justify-content:center;cursor:pointer;padding:0}
 .icon-btn svg{width:16px;height:16px;stroke-width:1.65}
-.icon-btn:hover{background:var(--codex-surface);color:var(--codex-bright)}
+.icon-btn:hover,.icon-btn.active{background:var(--codex-surface);color:var(--codex-bright)}
+.progress-toggle.active{box-shadow:inset 0 0 0 1px var(--codex-strong-border)}
 .thread-menu-wrap{position:relative;min-width:0;display:flex;align-items:center;gap:7px}
 .thread-menu-btn{border:0;background:transparent;color:var(--codex-bright);display:flex;align-items:center;gap:6px;min-width:0;max-width:680px;cursor:pointer;border-radius:8px;padding:5px 6px}
 .thread-menu-btn:hover,.thread-menu-wrap.open .thread-menu-btn{background:var(--codex-surface)}
@@ -5547,9 +5548,9 @@ button.send:disabled{opacity:.55;cursor:default}
 @keyframes pulse{0%,100%{opacity:.35;transform:scale(.82)}50%{opacity:1;transform:scale(1)}}
 @keyframes spin{to{transform:rotate(360deg)}}
 @media (min-width: 760px){.composer-wrap{margin-left:246px}.messages{padding-left:clamp(20px,3vw,64px);padding-right:clamp(20px,3vw,64px)}}
-@media (min-width: 1120px){:root{--progress-offset:0}.composer-wrap{margin-right:0}.progress-panel{display:none}}
-@media (min-width: 1500px){:root{--chat-max:900px;--composer-max:940px}.progress-panel{width:246px}}
-@media (max-width: 1119px){:root{--progress-offset:0}.progress-panel{display:none}}
+@media (min-width: 1120px){:root{--progress-offset:0}.content-shell.progress-open .progress-panel{display:block}.content-shell.progress-open ~ .composer-wrap{margin-right:252px}}
+@media (min-width: 1500px){:root{--chat-max:900px;--composer-max:940px}.progress-panel{width:246px}.content-shell.progress-open ~ .composer-wrap{margin-right:258px}}
+@media (max-width: 1119px){:root{--progress-offset:0}.content-shell.progress-open .progress-panel{display:block;position:fixed;right:12px;top:56px;bottom:calc(var(--composer-height,132px) + 12px);width:min(340px,calc(100vw - 24px));max-width:none;max-height:none;margin:0;z-index:7}}
 @media (max-width: 759px){.wide-sidebar{display:none}.content-shell{display:flex;overflow:hidden}.messages{height:auto;overflow:auto}.scroll-bottom{display:none}}
 @media (max-width: 680px){.top{padding:0 10px}.messages{padding-left:14px;padding-right:14px;padding-bottom:132px}.composer-wrap{padding-left:8px;padding-right:8px}.controls{flex-wrap:wrap}button.send{margin-left:auto}.subcontrols{gap:8px;flex-wrap:wrap}.dropdown.profile{flex-basis:132px}.msg.user .message-text,.msg.user .attachments-list,.msg.user .message-file-cards{max-width:88%}}
 </style>
@@ -5567,6 +5568,7 @@ button.send:disabled{opacity:.55;cursor:default}
     </div>
   </div>
   <div class="toolbar-spacer"></div>
+  <button class="icon-btn progress-toggle" type="button" id="progressToggle" data-progress-toggle title="Панель работы" aria-pressed="false">${icon.panel}</button>
   <div class="top-menu-wrap" id="topMoreDrop">
     <button class="icon-btn" type="button" id="topMoreBtn" title="&#1052;&#1077;&#1085;&#1102;">${icon.more}</button>
     <div class="top-menu">
@@ -5584,6 +5586,7 @@ button.send:disabled{opacity:.55;cursor:default}
       <button class="item icon-item" type="button" data-action="showPairingQr">${icon.qr}<span>QR для телефона</span></button>
       <button class="item icon-item" type="button" data-action="copyPairingPayload">${icon.copy}<span>Код для телефона</span></button>
       <div class="menu-separator"></div>
+      <button class="item icon-item" type="button" data-progress-toggle>${icon.panel}<span>Панель работы</span></button>
       <button class="item icon-item" type="button" data-action="showProblems">${icon.panel}<span>Диагностика</span></button>
       <button class="item icon-item" type="button" data-action="openScm">${icon.branch}<span>Изменения Git</span></button>
       <button class="item icon-item" type="button" data-action="openTerminal">${icon.terminal}<span>Терминал</span></button>
@@ -5596,7 +5599,7 @@ button.send:disabled{opacity:.55;cursor:default}
     </div>
   </div>
 </div>
-<div class="content-shell">
+<div class="content-shell" id="contentShell">
   ${sidebarHtml}
   <main class="messages" id="messages">
 ${rows || (actionTimelineRows || actionRows ? actionTimelineRows : '<div class="msg system"><div class="role">Система</div><pre>Жду сообщение с телефона или из VS Code.</pre></div>')}
@@ -5650,6 +5653,8 @@ let selectedProfile = ${JSON.stringify(this.selectedProfile)};
 let attachedFiles = [];
 const isBusy = ${JSON.stringify(isBusy)};
 const includeContext = true;
+const savedViewState = vscode.getState?.() || {};
+let progressOpen = Boolean(savedViewState.progressOpen);
 let submitLocked = false;
 function formatBytes(bytes) {
   if (!bytes || bytes < 1) return '';
@@ -5784,6 +5789,37 @@ document.getElementById('topMoreBtn').addEventListener('click', event => {
   event.stopPropagation();
   document.getElementById('topMoreDrop').classList.toggle('open');
 });
+const contentShell = document.getElementById('contentShell');
+const progressToggleButtons = Array.from(document.querySelectorAll('[data-progress-toggle]'));
+function saveViewState() {
+  const previous = vscode.getState?.() || {};
+  vscode.setState?.({ ...previous, progressOpen });
+}
+function updateProgressOffset() {
+  const offset = progressOpen && window.matchMedia('(min-width: 1120px)').matches ? '252px' : '0px';
+  document.documentElement.style.setProperty('--progress-offset', offset);
+}
+function setProgressPanelOpen(open, persist = true) {
+  progressOpen = Boolean(open);
+  contentShell?.classList.toggle('progress-open', progressOpen);
+  progressToggleButtons.forEach(button => {
+    button.classList.toggle('active', progressOpen);
+    button.setAttribute('aria-pressed', progressOpen ? 'true' : 'false');
+    if (button.id === 'progressToggle') button.title = progressOpen ? 'Скрыть панель работы' : 'Панель работы';
+  });
+  updateProgressOffset();
+  if (persist) saveViewState();
+  updateComposerHeight();
+  updateScrollBottomButton();
+}
+progressToggleButtons.forEach(button => {
+  button.addEventListener('click', event => {
+    event.preventDefault();
+    event.stopPropagation();
+    document.getElementById('topMoreDrop')?.classList.remove('open');
+    setProgressPanelOpen(!progressOpen);
+  });
+});
 document.querySelectorAll('[data-thread-id]').forEach(button => {
   button.addEventListener('click', () => {
     vscode.postMessage({ type: 'action', action: 'switchThread', threadId: button.dataset.threadId });
@@ -5883,9 +5919,11 @@ scrollBottom?.addEventListener('click', () => {
 messages.addEventListener('scroll', updateScrollBottomButton, { passive: true });
 updateComposerHeight();
 updateScrollBottomButton();
+setProgressPanelOpen(progressOpen, false);
 scheduleScrollMessagesToBottom();
 window.addEventListener('resize', () => {
   updateComposerHeight();
+  updateProgressOffset();
   scheduleScrollMessagesToBottom();
 }, { passive: true });
 function autoGrowPrompt() {

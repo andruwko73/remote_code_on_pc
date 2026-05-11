@@ -2095,13 +2095,12 @@ private fun MobileChangeCard(
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
-                    Row(
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        ChangeDeltaText("+${summary.additions}", AccentGreen)
-                        ChangeDeltaText("-${summary.deletions}", ErrorRed)
-                    }
+                    ChangeDeltaStrip(
+                        additions = summary.additions,
+                        deletions = summary.deletions,
+                        alwaysShowZero = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
                 }
                 TextButton(
                     onClick = { onUndo(summary.commit, summary.cwd, null) },
@@ -2151,6 +2150,26 @@ private fun changeHeaderTitle(summary: CodexChangeSummary): String {
 
 private fun changeFileCount(summary: CodexChangeSummary): Int {
     return summary.fileCount.takeIf { it > 0 } ?: summary.files.size
+}
+
+@Composable
+private fun ChangeDeltaStrip(
+    additions: Int,
+    deletions: Int,
+    alwaysShowZero: Boolean = false,
+    modifier: Modifier = Modifier
+) {
+    Row(
+        modifier = modifier.widthIn(min = 92.dp),
+        horizontalArrangement = Arrangement.End,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        val showAdditions = alwaysShowZero || additions > 0
+        val showDeletions = alwaysShowZero || deletions > 0
+        if (showAdditions) ChangeDeltaText("+$additions", AccentGreen)
+        if (showAdditions && showDeletions) Spacer(modifier = Modifier.width(7.dp))
+        if (showDeletions) ChangeDeltaText("-$deletions", ErrorRed)
+    }
 }
 
 @Composable
@@ -2208,19 +2227,11 @@ private fun ChangeFileRow(
             overflow = TextOverflow.Ellipsis,
             modifier = Modifier.weight(1f)
         )
-        Row(
-            modifier = Modifier
-                .widthIn(min = 68.dp)
-                .padding(start = 8.dp),
-            horizontalArrangement = Arrangement.End,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            if (file.additions > 0) ChangeDeltaText("+${file.additions}", AccentGreen)
-            if (file.deletions > 0) {
-                Spacer(modifier = Modifier.width(7.dp))
-                ChangeDeltaText("-${file.deletions}", ErrorRed)
-            }
-        }
+        ChangeDeltaStrip(
+            additions = file.additions,
+            deletions = file.deletions,
+            modifier = Modifier.padding(start = 8.dp)
+        )
         IconButton(onClick = { onOpenFile(file.path) }, modifier = Modifier.size(26.dp)) {
             Icon(Icons.Default.NorthEast, contentDescription = "Open file", tint = TextSecondary, modifier = Modifier.size(13.dp))
         }
