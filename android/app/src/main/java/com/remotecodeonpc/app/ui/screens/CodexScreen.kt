@@ -21,6 +21,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
@@ -90,7 +91,7 @@ fun CodexScreen(
     error: String?,
     changeDiff: CodexChangeActionResponse? = null,
     isChangeDiffLoading: Boolean = false,
-    // Files params (same as VSCodeScreen)
+    // Optional file context for the Codex workspace surface.
     folders: FoldersResponse?,
     currentFiles: FileTreeItem?,
     fileContent: FileContent?,
@@ -113,7 +114,7 @@ fun CodexScreen(
     onClearChangeDiff: () -> Unit = {},
     onStopGeneration: () -> Unit,
     onRespondToAction: (String, Boolean) -> Unit,
-    // Files callbacks (same as VSCodeScreen)
+    // Optional file callbacks.
     onNavigateToDir: (String) -> Unit,
     onOpenFile: (String) -> Unit,
     onOpenFolder: (String) -> Unit,
@@ -821,8 +822,17 @@ fun CodexChatTab(
         }
 
         changeDiff?.let { diff ->
+            val diffSummary = findMobileChangeSummaryForDiff(diff, visibleChatHistory)
             MobileChangeDiffDialog(
                 diff = diff,
+                files = diffSummary?.files.orEmpty(),
+                onSelectFile = { file ->
+                    onLoadChangeDiff(
+                        file.path,
+                        diffSummary?.commit ?: diff.commit,
+                        diffSummary?.cwd ?: diff.cwd
+                    )
+                },
                 onDismiss = onClearChangeDiff
             )
         }
@@ -1995,6 +2005,27 @@ private fun changeHeaderText(summary: CodexChangeSummary): AnnotatedString {
     }
 }
 
+private fun findMobileChangeSummaryForDiff(
+    diff: CodexChangeActionResponse,
+    messages: List<CodexChatMessage>
+): CodexChangeSummary? {
+    val targetPath = diff.path.orEmpty().replace('\\', '/')
+    val summaries = messages.mapNotNull { message ->
+        message.changeSummary?.takeIf { it.files.isNotEmpty() } ?: parseMobileChangeSummary(message.content)
+    }
+    return summaries.firstOrNull { summary ->
+        val sameCommit = diff.commit.isNullOrBlank() || summary.commit == diff.commit
+        val sameCwd = diff.cwd.isNullOrBlank() || summary.cwd == diff.cwd
+        val hasFile = summary.files.any { file ->
+            val candidate = file.path.replace('\\', '/')
+            candidate == targetPath || candidate.endsWith("/$targetPath") || targetPath.endsWith("/$candidate")
+        }
+        hasFile && (sameCommit || sameCwd)
+    } ?: summaries.firstOrNull { summary ->
+        summary.files.any { file -> file.path.replace('\\', '/') == targetPath }
+    }
+}
+
 @Composable
 private fun ChangeFileRow(
     file: CodexChangeFile,
@@ -2023,10 +2054,13 @@ private fun ChangeFileRow(
 @Composable
 private fun MobileChangeDiffDialog(
     diff: CodexChangeActionResponse,
+    files: List<CodexChangeFile>,
+    onSelectFile: (CodexChangeFile) -> Unit,
     onDismiss: () -> Unit
 ) {
     val context = LocalContext.current
     val diffText = diff.diff.orEmpty().ifBlank { diff.message ?: "No diff available." }
+    val activePath = diff.path.orEmpty().replace('\\', '/')
     AlertDialog(
         onDismissRequest = onDismiss,
         title = {
@@ -2038,21 +2072,51 @@ private fun MobileChangeDiffDialog(
             }
         },
         text = {
-            Surface(
-                color = Color(0xFF171717),
-                shape = RoundedCornerShape(8.dp),
-                border = BorderStroke(1.dp, Color(0xFF303030)),
-                modifier = Modifier.fillMaxWidth().heightIn(max = 420.dp)
-            ) {
-                LazyColumn(modifier = Modifier.padding(10.dp)) {
-                    item {
-                        Text(
-                            diffText,
-                            color = TextPrimary,
-                            fontSize = 11.5.sp,
-                            lineHeight = 15.sp,
-                            fontFamily = FontFamily.Monospace
-                        )
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                if (files.size > 1) {
+                    LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        items(files) { file ->
+                            val selected = file.path.replace('\\', '/') == activePath
+                            AssistChip(
+                                onClick = { onSelectFile(file) },
+                                label = {
+                                    Text(
+                                        file.path.substringAfterLast('/').substringAfterLast('\\'),
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                },
+                                leadingIcon = {
+                                    Icon(Icons.AutoMirrored.Outlined.InsertDriveFile, contentDescription = null, modifier = Modifier.size(15.dp))
+                                },
+                                colors = AssistChipDefaults.assistChipColors(
+                                    containerColor = if (selected) Color(0xFF34343A) else Color(0xFF202020),
+                                    labelColor = if (selected) TextBright else TextSecondary,
+                                    leadingIconContentColor = if (selected) AccentBlue else TextSecondary
+                                ),
+                                border = AssistChipDefaults.assistChipBorder(
+                                    enabled = true,
+                                    borderColor = if (selected) AccentBlue.copy(alpha = 0.55f) else Color(0xFF303030)
+                                )
+                            )
+                        }
+                    }
+                }
+                Surface(
+                    color = Color(0xFF171717),
+                    shape = RoundedCornerShape(8.dp),
+                    border = BorderStroke(1.dp, Color(0xFF303030)),
+                    modifier = Modifier.fillMaxWidth().heightIn(max = 420.dp)
+                ) {
+                    LazyColumn(modifier = Modifier.padding(10.dp)) {
+                        item {
+                            Text(
+                                highlightedDiffText(diffText),
+                                fontSize = 11.5.sp,
+                                lineHeight = 15.sp,
+                                fontFamily = FontFamily.Monospace
+                            )
+                        }
                     }
                 }
             }
@@ -2072,6 +2136,24 @@ private fun MobileChangeDiffDialog(
         },
         containerColor = Color(0xFF242424)
     )
+}
+
+private fun highlightedDiffText(text: String): AnnotatedString {
+    return buildAnnotatedString {
+        text.lineSequence().forEach { line ->
+            val start = length
+            append(line)
+            append('\n')
+            val color = when {
+                line.startsWith("+++") || line.startsWith("---") || line.startsWith("@@") -> AccentBlue
+                line.startsWith("+") -> AccentGreen
+                line.startsWith("-") -> ErrorRed
+                line.startsWith("diff ") || line.startsWith("index ") -> TextSecondary
+                else -> TextPrimary
+            }
+            addStyle(SpanStyle(color = color), start, length)
+        }
+    }
 }
 
 private fun highlightedText(text: String): AnnotatedString {

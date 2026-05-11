@@ -3017,11 +3017,11 @@ export class RemoteServer {
             'android/app/src/main/java/com/remotecodeonpc/app/viewmodel/MainViewModel.kt',
             'android/app/src/main/java/com/remotecodeonpc/app/network/ApiClient.kt',
             'android/app/src/main/java/com/remotecodeonpc/app/network/WebSocketClient.kt',
+            'android/app/src/main/java/com/remotecodeonpc/app/ui/navigation/Screen.kt',
             'android/app/src/main/java/com/remotecodeonpc/app/ui/screens/CodexScreen.kt',
             'android/app/src/main/java/com/remotecodeonpc/app/ui/screens/FilesScreen.kt',
             'android/app/src/main/java/com/remotecodeonpc/app/ui/screens/DiagnosticsScreen.kt',
-            'android/app/src/main/java/com/remotecodeonpc/app/ui/screens/TerminalScreen.kt',
-            'android/app/src/main/java/com/remotecodeonpc/app/ui/screens/VSCodeScreen.kt'
+            'android/app/src/main/java/com/remotecodeonpc/app/ui/screens/TerminalScreen.kt'
         ];
 
         for (const root of roots) {

@@ -309,7 +309,6 @@ const androidFiles = [
     'app/src/main/java/com/remotecodeonpc/app/viewmodel/MainViewModel.kt',
     'app/src/main/java/com/remotecodeonpc/app/network/ApiClient.kt',
     'app/src/main/java/com/remotecodeonpc/app/network/WebSocketClient.kt',
-    'app/src/main/java/com/remotecodeonpc/app/ui/screens/VSCodeScreen.kt',
     'app/src/main/java/com/remotecodeonpc/app/ui/screens/CodexScreen.kt',
     'app/src/main/java/com/remotecodeonpc/app/ui/navigation/Screen.kt',
     'app/src/main/java/com/remotecodeonpc/app/ui/theme/Color.kt',
@@ -346,13 +345,32 @@ assert(
     'APK downloads must be verified before install'
 );
 assert(androidManifest.includes('REQUEST_INSTALL_PACKAGES') && mainActivity.includes('canRequestPackageInstalls') && mainActivity.includes('ACTION_MANAGE_UNKNOWN_APP_SOURCES'), 'Android updater declares and gates APK install permission', 'PackageInstaller requires REQUEST_INSTALL_PACKAGES and an unknown-source settings gate');
-assert(androidBuildGradle.includes('versionCode = 98') && androidBuildGradle.includes('versionName = "1.0.98"') && androidBuildGradle.includes('signingConfig = signingConfigs.getByName("debug")'), 'Android release artifact can update existing sideload installs', 'release APK should be version-bumped and signed for sideload updates');
+assert(androidBuildGradle.includes('versionCode = 99') && androidBuildGradle.includes('versionName = "1.0.99"') && androidBuildGradle.includes('signingConfig = signingConfigs.getByName("debug")'), 'Android release artifact can update existing sideload installs', 'release APK should be version-bumped and signed for sideload updates');
 assert(mainActivity.includes('UpdateReadyDialog') && mainActivity.includes('UpdateStatusDialog') && mainActivity.includes('onStatus("Скачивание обновления') && mainActivity.includes('onStatus("Проверка APK') && mainActivity.includes('PendingVerifiedApk') && mainActivity.includes('onReadyDialogFinished = { pendingVerifiedApk = null }') && mainActivity.includes('onInstallPermissionRequired = { pendingVerifiedApk = update }') && mainActivity.includes('Handler(Looper.getMainLooper()).post') && mainActivity.includes('Intent.ACTION_VIEW') && mainActivity.includes('Intent.ACTION_INSTALL_PACKAGE') && !mainActivity.includes('Intent.EXTRA_RETURN_RESULT') && mainActivity.includes('startActivityForResult(intent, updateInstallRequestCode)') && mainActivity.includes('startActivityForResult(installIntent, updateInstallRequestCode)') && !mainActivity.includes('Intent.FLAG_ACTIVITY_NEW_TASK'), 'Android updater uses the Package Installer handoff style without forced return-result', 'verified APK should open through ACTION_VIEW and keep ACTION_INSTALL_PACKAGE as fallback without forcing result mode');
 assert(mainActivity.includes('onInstallPermissionRequired()') && mainActivity.includes('ACTION_MANAGE_UNKNOWN_APP_SOURCES') && mainActivity.indexOf('onInstallPermissionRequired()') > mainActivity.indexOf('startActivity(settingsIntent)'), 'Android updater preserves APK after unknown-source permission handoff', 'permission settings should keep the verified APK ready for a second install tap');
 assert(codexScreen.includes('CodexNavigationPanel') && codexScreen.includes('CodexDrawerProjectRow') && codexScreen.includes('buildMobileCodexProjects') && modelsFile.includes('workspaceName'), 'Android exposes projects in Codex chat list', 'project drawer/thread workspace metadata should be visible to Android');
-assert(!remoteCodeApp.includes('VSCodeScreen(') && !remoteCodeApp.includes('ChatScreen(') && remoteCodeApp.includes('"codex", "vscode", "chat" -> CodexScreen('), 'Android uses one Codex work surface', 'legacy VSCode/Chat entry points should route into CodexScreen');
+assert(
+    !remoteCodeApp.includes('VSCodeScreen(') &&
+    !remoteCodeApp.includes('ChatScreen(') &&
+    remoteCodeApp.includes('"codex", "vscode", "chat" -> CodexScreen(') &&
+    !fs.existsSync(path.join(androidBase, 'app/src/main/java/com/remotecodeonpc/app/ui/screens/VSCodeScreen.kt')) &&
+    !fs.existsSync(path.join(androidBase, 'app/src/main/java/com/remotecodeonpc/app/ui/screens/ChatScreen.kt')),
+    'Android uses one Codex work surface',
+    'legacy VSCode/Chat UI files should be removed and old routes should route into CodexScreen'
+);
 assert(codexScreen.includes('LocalConfiguration.current.screenWidthDp >= 840') && codexScreen.includes('VerticalDivider') && codexScreen.includes('ModalNavigationDrawer'), 'Android sidebar is adaptive', 'wide screens should keep a persistent project sidebar while phones use a drawer');
-assert(remoteCodeApp.includes('parsePairingPayload') && remoteCodeApp.includes('remote-code-pair:') && remoteCodeApp.includes('Pairing payload') && remoteCodeApp.includes('Base64.URL_SAFE'), 'Android can import pairing payloads', 'pairing paste/import UI missing from connection screen');
+assert(
+    remoteCodeApp.includes('parsePairingPayload') &&
+    remoteCodeApp.includes('remote-code-pair:') &&
+    remoteCodeApp.includes('Pairing payload') &&
+    remoteCodeApp.includes('Base64.URL_SAFE') &&
+    remoteCodeApp.includes('scanPairingQrBitmap') &&
+    remoteCodeApp.includes('QrCodeScanner') &&
+    androidManifest.includes('android.permission.CAMERA') &&
+    androidBuildGradle.includes('com.google.mlkit:barcode-scanning'),
+    'Android can import and scan pairing payloads',
+    'pairing paste/import or QR scanning UI missing from connection screen'
+);
 assert(codexScreen.includes('Icons.Outlined.Extension') && codexScreen.includes('Icons.Outlined.Schedule') && codexScreen.includes('Плагины') && codexScreen.includes('Автоматизации') && codexScreen.includes('PaddingValues(bottom = 64.dp)'), 'Android drawer mirrors Codex navigation actions', 'drawer should expose Codex-like plugins and automations entries');
 assert(connectionUrl.includes('trimmed.startsWith("//")') && connectionUrl.includes('"http:$trimmed"'), 'Android normalizes protocol-relative public URLs', 'protocol-relative public URL should become http://host');
 assert(
@@ -411,10 +429,13 @@ assert(
     mainVm.includes('loadCodexChangeDiff') &&
     mainVm.includes('undoCodexChanges') &&
     codexScreen.includes('MobileChangeDiffDialog') &&
+    codexScreen.includes('findMobileChangeSummaryForDiff') &&
+    codexScreen.includes('LazyRow') &&
+    codexScreen.includes('highlightedDiffText') &&
     codexScreen.includes('onLoadDiff(file.path, summary.commit, summary.cwd)') &&
     codexScreen.includes('actionKindLabel(event)'),
-    'Android change cards expose diff/review/undo and richer timeline labels',
-    'Android should show file diffs from change cards and route undo through approval'
+    'Android change cards expose multi-file diff/review/undo and richer timeline labels',
+    'Android should show multi-file diffs from change cards and route undo through approval'
 );
 assert(
     modelsFile.includes('val projectId: String? = null') &&

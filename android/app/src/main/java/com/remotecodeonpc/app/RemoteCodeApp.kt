@@ -1,7 +1,13 @@
 package com.remotecodeonpc.app
 
+import android.Manifest
+import android.content.pm.PackageManager
+import android.graphics.Bitmap
 import android.util.Base64
+import android.widget.Toast
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
@@ -13,6 +19,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
@@ -20,7 +27,10 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.content.ContextCompat
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.google.mlkit.vision.barcode.BarcodeScanning
+import com.google.mlkit.vision.common.InputImage
 import com.remotecodeonpc.app.ui.screens.*
 import com.remotecodeonpc.app.ui.theme.*
 import com.remotecodeonpc.app.viewmodel.MainViewModel
@@ -90,6 +100,29 @@ private fun pairingFromUrl(raw: String): PairingConfig {
         ?: values["publicUrl"]
         ?: if (raw.startsWith("http", ignoreCase = true)) raw.substringBefore('?') else ""
     return PairingConfig(url = url.trim(), token = (values["token"] ?: values["authToken"]).orEmpty().trim())
+}
+
+private fun scanPairingQrBitmap(
+    bitmap: Bitmap,
+    onPayload: (String) -> Unit,
+    onError: (String) -> Unit
+) {
+    val scanner = BarcodeScanning.getClient()
+    val image = InputImage.fromBitmap(bitmap, 0)
+    scanner.process(image)
+        .addOnSuccessListener { barcodes ->
+            val payload = barcodes
+                .mapNotNull { it.rawValue?.trim() }
+                .firstOrNull { parsePairingPayload(it) != null }
+            if (payload != null) {
+                onPayload(payload)
+            } else {
+                onError("QR payload is not recognized")
+            }
+        }
+        .addOnFailureListener { error ->
+            onError(error.message ?: "QR scan failed")
+        }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -266,6 +299,7 @@ private fun ConnectionScreen(
     var useTunnel by remember(serverConfig.useTunnel) { mutableStateOf(serverConfig.useTunnel) }
     var tunnelUrl by remember(serverConfig.tunnelUrl) { mutableStateOf(serverConfig.tunnelUrl) }
     var confirmClearLogs by remember { mutableStateOf(false) }
+    val context = LocalContext.current
     val trimmedTunnelUrl = tunnelUrl.trim().trimEnd('/')
     val tunnelFormatOk = isTunnelUrlInputValid(trimmedTunnelUrl)
     val externalTokenMissing = useTunnel && authToken.trim().isBlank()
@@ -290,6 +324,60 @@ private fun ConnectionScreen(
                 tunnelUrl = cleanTunnelUrl
             )
         )
+    }
+
+    fun applyPairingPayload(rawPayload: String) {
+        val parsed = parsePairingPayload(rawPayload)
+        if (parsed == null || !isTunnelUrlInputValid(parsed.url)) {
+            pairingError = "Invalid pairing payload"
+            return
+        }
+        useTunnel = true
+        tunnelUrl = parsed.url.trim().trimEnd('/')
+        if (parsed.token.isNotBlank()) authToken = parsed.token
+        pairingError = null
+        showPairingInput = true
+        emitConfig(
+            nextUseTunnel = true,
+            nextTunnelUrl = tunnelUrl,
+            nextToken = authToken
+        )
+    }
+
+    val qrPreviewLauncher = rememberLauncherForActivityResult(ActivityResultContracts.TakePicturePreview()) { bitmap ->
+        if (bitmap == null) {
+            pairingError = "QR scan cancelled"
+            return@rememberLauncherForActivityResult
+        }
+        scanPairingQrBitmap(
+            bitmap = bitmap,
+            onPayload = { payload ->
+                pairingPayload = payload
+                applyPairingPayload(payload)
+                Toast.makeText(context, "Pairing applied", Toast.LENGTH_SHORT).show()
+            },
+            onError = { message ->
+                pairingError = message
+                showPairingInput = true
+                Toast.makeText(context, message, Toast.LENGTH_LONG).show()
+            }
+        )
+    }
+    val cameraPermissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        if (granted) {
+            qrPreviewLauncher.launch(null)
+        } else {
+            pairingError = "Camera permission is required to scan QR"
+            showPairingInput = true
+        }
+    }
+
+    fun startQrScan() {
+        if (ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
+            qrPreviewLauncher.launch(null)
+        } else {
+            cameraPermissionLauncher.launch(Manifest.permission.CAMERA)
+        }
     }
 
     Column(
@@ -461,6 +549,14 @@ private fun ConnectionScreen(
                 Spacer(modifier = Modifier.width(6.dp))
                 Text("Pairing", maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
+            OutlinedButton(
+                onClick = { startQrScan() },
+                modifier = Modifier.weight(1f)
+            ) {
+                Icon(Icons.Default.QrCodeScanner, contentDescription = null, modifier = Modifier.size(16.dp))
+                Spacer(modifier = Modifier.width(6.dp))
+                Text("Scan QR", maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
             TextButton(
                 onClick = {
                     pairingPayload = ""
@@ -504,20 +600,7 @@ private fun ConnectionScreen(
                     )
                     Button(
                         onClick = {
-                            val parsed = parsePairingPayload(pairingPayload)
-                            if (parsed == null || !isTunnelUrlInputValid(parsed.url)) {
-                                pairingError = "Invalid pairing payload"
-                            } else {
-                                useTunnel = true
-                                tunnelUrl = parsed.url.trim().trimEnd('/')
-                                if (parsed.token.isNotBlank()) authToken = parsed.token
-                                pairingError = null
-                                emitConfig(
-                                    nextUseTunnel = true,
-                                    nextTunnelUrl = tunnelUrl,
-                                    nextToken = authToken
-                                )
-                            }
+                            applyPairingPayload(pairingPayload)
                         },
                         enabled = pairingPayload.isNotBlank()
                     ) {
