@@ -271,20 +271,18 @@ class MainActivity : ComponentActivity() {
                     .readTimeout(120, TimeUnit.SECONDS)
                     .build()
                 var lastError: Exception? = null
+                var foundInstalledMatch = false
+                val installedSha256 = currentInstalledApkSha256()
                 for (source in updateSources) {
                     try {
                         val updateUrl = source.apkUrl
                         CrashLogger.i("MainActivity", "Downloading update from $updateUrl")
                         runOnUiThread { onStatus("Проверка обновления...") }
                         val manifest = preflightUpdateSource(client, source, config)
-                        val installedSha256 = currentInstalledApkSha256()
                         if (manifest?.sha256 != null && installedSha256 != null && manifest.sha256.equals(installedSha256, ignoreCase = true)) {
-                            runOnUiThread {
-                                isUpdateInProgress = false
-                                onStatus(null)
-                                Toast.makeText(this, "Уже установлена актуальная версия приложения", Toast.LENGTH_LONG).show()
-                            }
-                            return@Thread
+                            foundInstalledMatch = true
+                            CrashLogger.i("MainActivity", "Update source already matches installed APK, checking next source: ${source.apkUrl}")
+                            continue
                         }
                         runOnUiThread {
                             val sizeText = manifest?.sizeBytes?.takeIf { it > 0 }?.let { " (${formatBytes(it)})" }.orEmpty()
@@ -349,6 +347,14 @@ class MainActivity : ComponentActivity() {
                         lastError = e
                         CrashLogger.w("MainActivity", "Update source failed: ${source.apkUrl} -> ${e.message}")
                     }
+                }
+                if (foundInstalledMatch) {
+                    runOnUiThread {
+                        isUpdateInProgress = false
+                        onStatus(null)
+                        Toast.makeText(this, "Уже установлена актуальная версия приложения", Toast.LENGTH_LONG).show()
+                    }
+                    return@Thread
                 }
                 throw lastError ?: IllegalStateException("Не удалось скачать обновление ни из одного источника")
             } catch (e: Exception) {
