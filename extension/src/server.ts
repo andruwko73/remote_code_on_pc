@@ -159,6 +159,7 @@ export class RemoteServer {
     private httpServer?: http.Server;
     private wss?: WebSocketServer;
     private wsClients: Set<WebSocket> = new Set();
+    private wsClientKeys: Map<WebSocket, string> = new Map();
     private _isRunning = false;
     private _port: number;
     private _host: string;
@@ -735,6 +736,54 @@ export class RemoteServer {
         return value || '';
     }
 
+    private getWsClientKey(req: http.IncomingMessage): string {
+        const clientHeader = this.headerToString(req.headers['x-remote-code-client']).trim();
+        const forwarded = this.headerToString(req.headers['x-forwarded-for']).split(',')[0]?.trim() || '';
+        const ip = forwarded || req.socket.remoteAddress || 'unknown';
+        const userAgent = this.headerToString(req.headers['user-agent']).trim() || 'unknown';
+        return `${clientHeader || userAgent}|${ip}`;
+    }
+
+    private liveClientCount(): number {
+        for (const ws of Array.from(this.wsClients)) {
+            if (ws.readyState === WebSocket.CLOSED || ws.readyState === WebSocket.CLOSING) {
+                this.wsClients.delete(ws);
+                this.wsClientKeys.delete(ws);
+            }
+        }
+        const keys = Array.from(this.wsClients, ws => this.wsClientKeys.get(ws) || 'unknown');
+        return new Set(keys).size;
+    }
+
+    private async withTimeout<T>(
+        promise: PromiseLike<T>,
+        timeoutMs: number,
+        message: string,
+        cancellationToken?: vscode.CancellationToken
+    ): Promise<T> {
+        if (cancellationToken?.isCancellationRequested) {
+            throw new Error('cancelled');
+        }
+
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        let disposable: vscode.Disposable | undefined;
+        const timeoutPromise = new Promise<T>((_, reject) => {
+            timer = setTimeout(() => reject(new Error(message)), timeoutMs);
+        });
+        const cancellationPromise = cancellationToken
+            ? new Promise<T>((_, reject) => {
+                disposable = cancellationToken.onCancellationRequested(() => reject(new Error('cancelled')));
+            })
+            : new Promise<T>(() => undefined);
+
+        try {
+            return await Promise.race([promise, timeoutPromise, cancellationPromise]);
+        } finally {
+            if (timer) clearTimeout(timer);
+            disposable?.dispose();
+        }
+    }
+
     private async createKeeneticSessionCookie(targetUrl: string, username: string, password: string): Promise<string> {
         const parsed = new URL(targetUrl);
         const authUrl = new URL('/auth', `${parsed.protocol}//${parsed.host}`).toString();
@@ -988,6 +1037,7 @@ export class RemoteServer {
             ws.close(1001, 'Server shutting down');
         }
         this.wsClients.clear();
+        this.wsClientKeys.clear();
 
         return new Promise((resolve) => {
             if (this.wss) {
@@ -1838,11 +1888,13 @@ export class RemoteServer {
         }
 
         this.wsClients.add(ws);
+        this.wsClientKeys.set(ws, this.getWsClientKey(req));
         console.log('[RemoteCodeOnPC] WebSocket клиент подключился');
         this.startWsCodexMirrorPolling();
 
         ws.on('close', () => {
             this.wsClients.delete(ws);
+            this.wsClientKeys.delete(ws);
             if (this.wsClients.size === 0) {
                 this.stopWsCodexMirrorPolling();
             }
@@ -2004,6 +2056,7 @@ export class RemoteServer {
                 ws.send(message);
             } catch (e) {
                 this.wsClients.delete(ws);
+                this.wsClientKeys.delete(ws);
             }
         }
     }
@@ -2435,9 +2488,22 @@ export class RemoteServer {
 
         this.lmModelsInflight = (async () => {
             try {
-                let models = await vscode.lm.selectChatModels({ vendor: 'copilot' });
+                let models: readonly vscode.LanguageModelChat[] = [];
+                try {
+                    models = await this.withTimeout(
+                        vscode.lm.selectChatModels({ vendor: 'copilot' }),
+                        7000,
+                        'VS Code не вернул список моделей за 7 секунд.'
+                    );
+                } catch (err: any) {
+                    console.warn('[RemoteCodeOnPC] VS Code LM vendor lookup timed out or failed:', err?.message || String(err));
+                }
                 if (!models || models.length === 0) {
-                    models = await vscode.lm.selectChatModels({});
+                    models = await this.withTimeout(
+                        vscode.lm.selectChatModels({}),
+                        7000,
+                        'VS Code не вернул список моделей за 7 секунд.'
+                    );
                 }
                 this.lmModelsCache = { timestamp: Date.now(), models };
                 return models;
@@ -3302,19 +3368,38 @@ export class RemoteServer {
             ];
 
             // Отправляем запрос и собираем стриминг-ответ
-            const response = await model.sendRequest(messages, {}, cancellationToken);
+            const response = await this.withTimeout(
+                model.sendRequest(messages, {}, cancellationToken),
+                45000,
+                'Модель не начала отвечать за 45 секунд. Проверьте авторизацию VS Code/Copilot и попробуйте ещё раз.',
+                cancellationToken
+            );
 
             let result = '';
-            for await (const chunk of response.text) {
+            const iterator = response.text[Symbol.asyncIterator]();
+            while (true) {
                 if (cancellationToken?.isCancellationRequested) {
                     throw new Error('cancelled');
                 }
+                const next = await this.withTimeout(
+                    iterator.next(),
+                    result ? 60000 : 45000,
+                    result
+                        ? 'Модель перестала присылать ответ больше чем на 60 секунд.'
+                        : 'Модель не прислала первый фрагмент ответа за 45 секунд.',
+                    cancellationToken
+                );
+                if (next.done) break;
+                const chunk = next.value || '';
                 result += chunk;
                 onChunk?.(result);
             }
             return result || '(пустой ответ)';
         } catch (err: any) {
             const errorMessage = err?.message || String(err);
+            if (cancellationToken?.isCancellationRequested || errorMessage === 'cancelled') {
+                throw new Error('cancelled');
+            }
             if (this.isLanguageModelRateLimitError(err)) {
                 this.lmModelsBlockedUntil = Date.now() + 2 * 60 * 1000;
             }
@@ -3531,7 +3616,19 @@ export class RemoteServer {
                 err?.message || String(err),
                 'failed'
             );
-            throw err;
+            const errorText = err?.message || String(err);
+            const failed: CodexChatMessage = {
+                ...thinking,
+                id: `codex_assistant_failed_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+                content: `Не удалось получить ответ модели.\n\n${errorText}\n\nПопробуйте отправить сообщение ещё раз или выберите другую модель.`,
+                timestamp: Date.now(),
+                isStreaming: false
+            };
+            this.codexHistory = this.codexHistory.filter(m => m.id !== thinking.id).concat(failed).slice(-200);
+            this.saveRemoteCodeState();
+            this.refreshPcChatPanel(true);
+            this.broadcast({ type: 'codex:message', message: failed, threadId, timestamp: Date.now() });
+            return;
         } finally {
             if (this.activeChatCancellation === cancellation) {
                 this.activeChatCancellation = undefined;
@@ -3540,6 +3637,72 @@ export class RemoteServer {
             cancellation.dispose();
             this.refreshPcChatPanel(true);
         }
+    }
+
+    private finalizeStaleStreamingMessages(maxAgeMs = 2 * 60 * 1000, notify = true): boolean {
+        const now = Date.now();
+        const activeThreadId = this.activeChatThreadId || '';
+        const hasActiveGeneration = !!this.activeChatCancellation
+            && !this.activeChatCancellation.token.isCancellationRequested
+            && !!activeThreadId;
+        const staleIds = new Set<string>();
+        const staleThreadIds = new Set<string>();
+
+        for (const message of this.codexHistory) {
+            if (!message.isStreaming) continue;
+            const threadId = message.threadId || this.currentRemoteThreadId || '';
+            if (hasActiveGeneration && threadId === activeThreadId) continue;
+            const timestamp = Number.isFinite(message.timestamp) ? message.timestamp : now;
+            if (now - timestamp < maxAgeMs) continue;
+            staleIds.add(message.id);
+            if (threadId) staleThreadIds.add(threadId);
+        }
+
+        if (staleIds.size === 0) return false;
+
+        let replacementIndex = 0;
+        this.codexHistory = this.codexHistory.map(message => {
+            if (!staleIds.has(message.id)) return message;
+            const prefix = message.content && message.content.trim() && message.content.trim() !== '...'
+                ? `${message.content.trim()}\n\n`
+                : '';
+            return {
+                ...message,
+                id: `codex_assistant_timeout_${now}_${replacementIndex++}`,
+                content: `${prefix}Запрос к модели не завершился и был остановлен по таймауту. Отправьте сообщение ещё раз.`,
+                timestamp: now,
+                isStreaming: false
+            };
+        });
+
+        this.codexActionEvents = this.codexActionEvents.map(event => {
+            const belongsToStaleMessage = Array.from(staleIds).some(id => event.id.includes(id));
+            if (!belongsToStaleMessage || !['pending', 'approved', 'running'].includes(event.status)) {
+                return event;
+            }
+            return {
+                ...event,
+                title: 'Запрос к модели не завершился',
+                detail: 'Таймаут ожидания ответа модели.',
+                status: 'failed' as const,
+                timestamp: now
+            };
+        });
+
+        this.saveRemoteCodeState(true);
+        if (notify) {
+            this.refreshPcChatPanel(true);
+        }
+        for (const threadId of staleThreadIds) {
+            this.broadcast({
+                type: 'codex:message-refresh',
+                threadId,
+                messages: this.getMessagesForRemoteThread(threadId, 120).filter(m => m.role !== 'system'),
+                events: this.getActionEventsForThread(threadId),
+                timestamp: Date.now()
+            });
+        }
+        return true;
     }
 
     private async enqueueRemoteCodeMessage(
@@ -4135,6 +4298,7 @@ ol{padding-left:20px}li{margin:6px 0}.note{margin-top:12px;font-size:13px;color:
 
     private renderPcChatPanelNow(): void {
         if (!this.pcChatPanel) return;
+        this.finalizeStaleStreamingMessages(2 * 60 * 1000, false);
         const messages = this.getMessagesForRemoteThread(this.currentRemoteThreadId, 80)
             .filter(m => m.role !== 'system');
         const actions = this.getActionEventsForThread(this.currentRemoteThreadId);
@@ -6705,7 +6869,7 @@ prompt.addEventListener('keydown', event => {
             ? `APK ${apkMetadata.versionName}${apkMetadata.versionCode ? ` (${apkMetadata.versionCode})` : ''}`
             : 'APK не найден';
         const apkSha = apkMetadata?.sha256 ? `SHA ${apkMetadata.sha256.slice(0, 12)}…${apkMetadata.sha256.slice(-8)}` : 'SHA недоступен';
-        const wsClientCount = this.wsClients.size;
+        const wsClientCount = this.liveClientCount();
         const liveLabel = wsClientCount === 1 ? 'Подключен 1 клиент' : `Подключено клиентов: ${wsClientCount}`;
 
         return `<aside class="progress-panel" aria-label="Прогресс задачи">
@@ -6761,13 +6925,13 @@ prompt.addEventListener('keydown', event => {
     }
 
     private liveChipLabel(isBusy: boolean): string {
-        const clients = this.wsClients.size;
+        const clients = this.liveClientCount();
         if (isBusy) return clients > 0 ? `Live · ${clients}` : 'Live';
         return clients > 0 ? `Live · ${clients}` : 'Live';
     }
 
     private liveChipTitle(isBusy: boolean): string {
-        const clients = this.wsClients.size;
+        const clients = this.liveClientCount();
         const state = isBusy ? 'Codex работает сейчас' : 'Готов к live-обновлениям';
         const phoneLine = clients === 1
             ? 'Подключен телефон/web-клиент: 1'
@@ -7961,6 +8125,7 @@ prompt.addEventListener('keydown', event => {
 
     // GET /api/codex/history
     private async handleCodexHistory(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
+        this.finalizeStaleStreamingMessages();
         const params = url.parse(req.url || '', true).query;
         const firstThreadId = this.getRemoteCodeThreads()[0]?.id || '';
         const requestedThreadId = typeof params.threadId === 'string' && params.threadId.trim()
@@ -8036,6 +8201,7 @@ prompt.addEventListener('keydown', event => {
     }
 
     private async handleCodexEvents(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
+        this.finalizeStaleStreamingMessages();
         const params = url.parse(req.url || '', true).query;
         const threadId = (params.threadId as string) || this.currentRemoteThreadId;
         this.jsonResponse(res, 200, {

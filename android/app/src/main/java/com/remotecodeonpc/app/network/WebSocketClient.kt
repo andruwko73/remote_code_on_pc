@@ -1,5 +1,6 @@
 package com.remotecodeonpc.app.network
 
+import android.os.Build
 import android.util.Log
 import com.google.gson.Gson
 import com.remotecodeonpc.app.CrashLogger
@@ -58,6 +59,7 @@ class WebSocketClient(private val config: ServerConfig) {
             .url(wsUrl)
             .header("Cache-Control", "no-cache")
             .header("bypass-tunnel-reminder", "true")
+            .header("X-Remote-Code-Client", "android-app:${sanitizeHeaderPart(Build.MANUFACTURER)}:${sanitizeHeaderPart(Build.MODEL)}")
             .apply {
                 if (config.authToken.isNotBlank()) {
                     addHeader("Authorization", "Bearer ${config.authToken}")
@@ -106,6 +108,9 @@ class WebSocketClient(private val config: ServerConfig) {
             }
         })
     }
+
+    private fun sanitizeHeaderPart(value: String): String =
+        value.replace(Regex("[^A-Za-z0-9._-]+"), "_").trim('_').ifBlank { "unknown" }
 
     private fun scheduleReconnect() {
         if (!shouldReconnect) return
