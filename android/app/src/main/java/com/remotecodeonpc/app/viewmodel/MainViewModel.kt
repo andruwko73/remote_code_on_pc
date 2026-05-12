@@ -91,9 +91,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private var wsClient: WebSocketClient? = null
     private var healthCheckJob: kotlinx.coroutines.Job? = null
     private var healthCheckFailures = 0
+    private var autoConnectAttempted = false
 
     init {
         loadSavedConfig()
+        autoConnectSavedConfig()
     }
 
     private fun loadSavedConfig() {
@@ -123,6 +125,27 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             }
         } catch (e: Exception) {
             CrashLogger.e("ViewModel", "Error loading saved config", e)
+        }
+    }
+
+    private fun autoConnectSavedConfig() {
+        val config = _uiState.value.serverConfig
+        if (autoConnectAttempted || !hasUsableSavedConnection(config)) return
+        autoConnectAttempted = true
+        viewModelScope.launch {
+            delay(250)
+            connect()
+        }
+    }
+
+    private fun hasUsableSavedConnection(config: ServerConfig): Boolean {
+        return if (config.useTunnel) {
+            config.tunnelUrl.isNotBlank() &&
+                config.authToken.isNotBlank() &&
+                !ConnectionUrl.isUnsafePublicHttp(config) &&
+                !isUnsupportedExternalUrl(config.tunnelUrl)
+        } else {
+            config.host.isNotBlank()
         }
     }
 

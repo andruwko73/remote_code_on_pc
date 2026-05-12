@@ -95,6 +95,7 @@ fun CodexScreen(
     currentThreadId: String,
     currentProjectId: String,
     workspaceStatus: WorkspaceStatus? = null,
+    isRealtimeConnected: Boolean = false,
     isLoading: Boolean,
     error: String?,
     changeDiff: CodexChangeActionResponse? = null,
@@ -160,6 +161,7 @@ fun CodexScreen(
             currentThreadId = currentThreadId,
             currentProjectId = currentProjectId,
             workspaceStatus = workspaceStatus,
+            isRealtimeConnected = isRealtimeConnected,
             isLoading = isLoading,
             error = error,
             changeDiff = changeDiff,
@@ -633,6 +635,7 @@ fun CodexChatTab(
     currentThreadId: String,
     currentProjectId: String,
     workspaceStatus: WorkspaceStatus? = null,
+    isRealtimeConnected: Boolean = false,
     isLoading: Boolean,
     error: String?,
     changeDiff: CodexChangeActionResponse? = null,
@@ -742,8 +745,10 @@ fun CodexChatTab(
         ?: projectGroups.firstOrNull { project -> project.threads.any { it.id == currentThreadId } }
     val currentProjectLabel = currentProject?.name ?: currentThread?.let { threadProjectName(it) }
     val versionLabel = mobileChatVersionLabel(workspaceStatus)
+    val liveStatusLabel = if (isRealtimeConnected) "Live" else "HTTP"
     val projectVersionLine = listOf(
         currentProjectLabel?.takeIf { it.isNotBlank() } ?: "Выберите проект",
+        liveStatusLabel,
         versionLabel.takeIf { it.isNotBlank() }
     ).joinToString(" · ")
     val visibleChatHistory = remember(chatHistory) {

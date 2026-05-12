@@ -163,6 +163,7 @@ fun RemoteCodeApp(
                         currentThreadId = state.currentCodexThreadId,
                         currentProjectId = state.currentCodexProjectId,
                         workspaceStatus = state.status,
+                        isRealtimeConnected = state.isWebSocketConnected,
                         isLoading = state.isCodexLoading,
                         error = state.codexError,
                         changeDiff = state.codexChangeDiff,

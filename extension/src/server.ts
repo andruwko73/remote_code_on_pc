@@ -5681,6 +5681,8 @@ ol{padding-left:20px}li{margin:6px 0}.note{margin-top:12px;font-size:13px;color:
         const apkMetadata = this.getAppApkMetadata();
         const versionChipLabel = this.versionChipLabel(apkMetadata);
         const versionChipTitle = this.versionChipTitle(apkMetadata);
+        const liveChipLabel = this.liveChipLabel(isBusy);
+        const liveChipTitle = this.liveChipTitle(isBusy);
         const effortOptions = [
             { id: 'low', name: 'Низкий' },
             { id: 'medium', name: 'Средний' },
@@ -5853,8 +5855,10 @@ svg{width:15px;height:15px;display:block;fill:none;stroke:currentColor;stroke-wi
 .edit-icon{color:#a5a6a8}
 .thread-title{font-size:13px;color:var(--codex-bright);font-weight:650;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:660px;line-height:1.2}
 .toolbar-spacer{flex:1}
-.version-chip{height:26px;border:1px solid var(--codex-border);background:transparent;color:#8f9297;border-radius:999px;padding:0 9px;font-size:11.5px;line-height:1;display:inline-flex;align-items:center;gap:5px;white-space:nowrap;cursor:pointer}
-.version-chip:hover{background:var(--codex-surface);color:#d8d8d8}
+.version-chip,.live-chip{height:26px;border:1px solid var(--codex-border);background:transparent;color:#8f9297;border-radius:999px;padding:0 9px;font-size:11.5px;line-height:1;display:inline-flex;align-items:center;gap:6px;white-space:nowrap;cursor:pointer}
+.version-chip:hover,.live-chip:hover{background:var(--codex-surface);color:#d8d8d8}
+.live-chip::before{content:'';width:7px;height:7px;border-radius:999px;background:var(--codex-green);box-shadow:0 0 0 3px rgba(80,207,142,.14);flex:0 0 auto}
+.live-chip.busy::before{animation:pulse 1.1s ease-in-out infinite}
 .icon-btn{width:26px;height:26px;border:0;border-radius:7px;background:transparent;color:#9ea0a4;display:inline-flex;align-items:center;justify-content:center;cursor:pointer;padding:0}
 .icon-btn svg{width:16px;height:16px;stroke-width:1.65}
 .icon-btn:hover,.icon-btn.active{background:var(--codex-surface);color:var(--codex-bright)}
@@ -6134,6 +6138,7 @@ button.send:disabled{opacity:.55;cursor:default}
     </div>
   </div>
   <div class="toolbar-spacer"></div>
+  <button class="live-chip ${isBusy ? 'busy' : ''}" type="button" data-action="showUsageStatus" title="${this.escapeHtml(liveChipTitle)}">${this.escapeHtml(liveChipLabel)}</button>
   <button class="version-chip" type="button" data-action="showUsageStatus" title="${this.escapeHtml(versionChipTitle)}">${this.escapeHtml(versionChipLabel)}</button>
   <button class="icon-btn progress-toggle" type="button" id="progressToggle" data-progress-toggle title="Панель работы" aria-pressed="false">${icon.panel}</button>
   <div class="top-menu-wrap" id="topMoreDrop">
@@ -6700,10 +6705,18 @@ prompt.addEventListener('keydown', event => {
             ? `APK ${apkMetadata.versionName}${apkMetadata.versionCode ? ` (${apkMetadata.versionCode})` : ''}`
             : 'APK не найден';
         const apkSha = apkMetadata?.sha256 ? `SHA ${apkMetadata.sha256.slice(0, 12)}…${apkMetadata.sha256.slice(-8)}` : 'SHA недоступен';
+        const wsClientCount = this.wsClients.size;
+        const liveLabel = wsClientCount === 1 ? 'Подключен 1 клиент' : `Подключено клиентов: ${wsClientCount}`;
 
         return `<aside class="progress-panel" aria-label="Прогресс задачи">
             <div class="progress-title">Прогресс</div>
             <div class="progress-list">${progressHtml}</div>
+            <div class="progress-divider"></div>
+            <div class="progress-subtitle">Live-канал</div>
+            <div class="progress-section">
+                <div class="progress-item done"><span class="progress-dot"></span><span>WebSocket обновления включены</span></div>
+                <div class="progress-item ${wsClientCount > 0 ? 'done' : 'pending'}"><span class="progress-dot"></span><span>${this.escapeHtml(liveLabel)}</span></div>
+            </div>
             <div class="progress-divider"></div>
             <div class="progress-subtitle">Версии</div>
             <div class="progress-section">
@@ -6745,6 +6758,21 @@ prompt.addEventListener('keydown', event => {
             apkMetadata?.sizeBytes ? `Size: ${this.formatBytes(apkMetadata.sizeBytes)}` : ''
         ].filter(Boolean);
         return parts.join('\n');
+    }
+
+    private liveChipLabel(isBusy: boolean): string {
+        const clients = this.wsClients.size;
+        if (isBusy) return clients > 0 ? `Live · ${clients}` : 'Live';
+        return clients > 0 ? `Live · ${clients}` : 'Live';
+    }
+
+    private liveChipTitle(isBusy: boolean): string {
+        const clients = this.wsClients.size;
+        const state = isBusy ? 'Codex работает сейчас' : 'Готов к live-обновлениям';
+        const phoneLine = clients === 1
+            ? 'Подключен телефон/web-клиент: 1'
+            : `Подключено телефонов/web-клиентов: ${clients}`;
+        return [state, phoneLine, 'Чат, действия и прогресс передаются через WebSocket.'].join('\n');
     }
 
     private isActionResultMessage(message: CodexChatMessage): boolean {
