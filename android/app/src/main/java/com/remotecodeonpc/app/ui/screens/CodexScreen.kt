@@ -2219,8 +2219,8 @@ private fun MobileChangeCard(
     onReview: (String?, String?, String?) -> Unit,
     onUndo: (String?, String?, String?) -> Unit
 ) {
-    var expanded by remember(summary.files) { mutableStateOf(false) }
-    val visibleFiles = if (expanded) summary.files else summary.files.take(5)
+    var expanded by remember(summary.commit, summary.cwd, summary.files.map { it.path }) { mutableStateOf(false) }
+    val visibleFiles = if (expanded) summary.files else emptyList()
     val primaryPath = summary.files.firstOrNull()?.path
     Surface(
         color = Color(0xFF242424),
@@ -2232,22 +2232,23 @@ private fun MobileChangeCard(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .heightIn(min = 56.dp)
+                    .heightIn(min = 42.dp)
                     .background(Color(0xFF242424))
-                    .padding(horizontal = 12.dp, vertical = 8.dp),
+                    .clickable { expanded = !expanded }
+                    .padding(horizontal = 10.dp, vertical = 5.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Row(
                     modifier = Modifier
                         .weight(1f)
-                        .padding(end = 6.dp),
-                    horizontalArrangement = Arrangement.spacedBy(9.dp),
+                        .padding(end = 4.dp),
+                    horizontalArrangement = Arrangement.spacedBy(7.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
                         changeHeaderTitle(summary),
                         color = TextPrimary,
-                        fontSize = 14.5.sp,
+                        fontSize = 13.sp,
                         fontWeight = FontWeight.SemiBold,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
@@ -2260,31 +2261,25 @@ private fun MobileChangeCard(
                         modifier = Modifier.padding(start = 2.dp)
                     )
                 }
-                TextButton(
+                IconButton(
                     onClick = { onUndo(summary.commit, summary.cwd, null) },
-                    modifier = Modifier.height(34.dp),
-                    contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp)
+                    modifier = Modifier.size(28.dp)
                 ) {
-                    Text("Отменить", color = TextSecondary, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Icon(Icons.AutoMirrored.Filled.Undo, contentDescription = null, tint = TextSecondary, modifier = Modifier.size(14.dp))
+                    Icon(Icons.AutoMirrored.Filled.Undo, contentDescription = "Отменить", tint = TextSecondary, modifier = Modifier.size(14.dp))
                 }
-                TextButton(
+                IconButton(
                     onClick = { onReview(summary.commit, summary.cwd, primaryPath) },
                     enabled = summary.files.isNotEmpty(),
-                    modifier = Modifier.height(34.dp),
-                    contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp)
+                    modifier = Modifier.size(28.dp)
                 ) {
-                    Text("Проверить", color = TextSecondary, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Icon(Icons.Default.NorthEast, contentDescription = null, tint = TextSecondary, modifier = Modifier.size(14.dp))
+                    Icon(Icons.Default.NorthEast, contentDescription = "Проверить", tint = TextSecondary, modifier = Modifier.size(14.dp))
                 }
-                IconButton(onClick = { expanded = !expanded }, modifier = Modifier.size(30.dp)) {
+                IconButton(onClick = { expanded = !expanded }, modifier = Modifier.size(28.dp)) {
                     Icon(
                         if (expanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
                         contentDescription = if (expanded) "Свернуть" else "Развернуть",
                         tint = TextSecondary,
-                        modifier = Modifier.size(17.dp)
+                        modifier = Modifier.size(16.dp)
                     )
                 }
             }
@@ -2295,12 +2290,16 @@ private fun MobileChangeCard(
                     trackColor = Color(0xFF303030)
                 )
             }
-            visibleFiles.forEach { file ->
-                ChangeFileRow(
-                    file = file,
-                    onOpenFile = onOpenFile,
-                    onLoadDiff = { onLoadDiff(file.path, summary.commit, summary.cwd) }
-                )
+            AnimatedVisibility(visible = expanded) {
+                Column {
+                    visibleFiles.forEach { file ->
+                        ChangeFileRow(
+                            file = file,
+                            onOpenFile = onOpenFile,
+                            onLoadDiff = { onLoadDiff(file.path, summary.commit, summary.cwd) }
+                        )
+                    }
+                }
             }
         }
     }
@@ -2323,14 +2322,14 @@ private fun ChangeDeltaStrip(
     modifier: Modifier = Modifier
 ) {
     Row(
-        modifier = modifier.widthIn(min = 92.dp),
+        modifier = modifier.widthIn(min = 74.dp),
         horizontalArrangement = Arrangement.End,
         verticalAlignment = Alignment.CenterVertically
     ) {
         val showAdditions = alwaysShowZero || additions > 0
         val showDeletions = alwaysShowZero || deletions > 0
         if (showAdditions) ChangeDeltaText("+$additions", AccentGreen)
-        if (showAdditions && showDeletions) Spacer(modifier = Modifier.width(7.dp))
+        if (showAdditions && showDeletions) Spacer(modifier = Modifier.width(5.dp))
         if (showDeletions) ChangeDeltaText("-$deletions", ErrorRed)
     }
 }
@@ -2340,7 +2339,7 @@ private fun ChangeDeltaText(value: String, color: Color) {
     Text(
         value,
         color = color,
-        fontSize = 11.75.sp,
+        fontSize = 11.sp,
         lineHeight = 14.sp,
         fontFamily = FontFamily.Monospace,
         maxLines = 1,
@@ -2379,13 +2378,13 @@ private fun ChangeFileRow(
         modifier = Modifier
             .fillMaxWidth()
             .clickable { onLoadDiff() }
-            .padding(horizontal = 10.dp, vertical = 6.dp),
+            .padding(horizontal = 9.dp, vertical = 4.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Text(
             file.path,
             color = TextPrimary,
-            fontSize = 11.75.sp,
+            fontSize = 11.25.sp,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
             modifier = Modifier.weight(1f)
@@ -2395,8 +2394,8 @@ private fun ChangeFileRow(
             deletions = file.deletions,
             modifier = Modifier.padding(start = 8.dp)
         )
-        IconButton(onClick = { onOpenFile(file.path) }, modifier = Modifier.size(26.dp)) {
-            Icon(Icons.Default.NorthEast, contentDescription = "Open file", tint = TextSecondary, modifier = Modifier.size(13.dp))
+        IconButton(onClick = { onOpenFile(file.path) }, modifier = Modifier.size(24.dp)) {
+            Icon(Icons.Default.NorthEast, contentDescription = "Open file", tint = TextSecondary, modifier = Modifier.size(12.dp))
         }
     }
 }

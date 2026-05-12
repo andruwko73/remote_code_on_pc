@@ -5692,7 +5692,7 @@ ol{padding-left:20px}li{margin:6px 0}.note{margin-top:12px;font-size:13px;color:
 <style>
 html,body{height:100%}
 :root{--codex-bg:#181818;--codex-sidebar:#17191d;--codex-sidebar-2:#1c1d22;--codex-surface:#242424;--codex-surface-2:#2b2b2b;--codex-selected:#303039;--codex-chip:#232323;--codex-border:#2d2d32;--codex-strong-border:#37373c;--codex-text:#d8d8d8;--codex-bright:#f5f5f5;--codex-muted:#96999a;--codex-green:#50cf8e;--codex-red:#ee7070;--codex-blue:#5aa7ff;--codex-font:-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;--codex-mono:var(--vscode-editor-font-family,"Cascadia Mono",Consolas,monospace);--chat-max:850px;--composer-max:880px;--bubble-max:680px}
-body{margin:0;background:var(--codex-bg);color:var(--codex-text);font:13px/1.46 var(--codex-font);display:flex;flex-direction:column;letter-spacing:0;-webkit-font-smoothing:antialiased;text-rendering:geometricPrecision}
+body{margin:0;background:var(--codex-bg);color:var(--codex-text);font:12.5px/1.44 var(--codex-font);display:flex;flex-direction:column;letter-spacing:0;-webkit-font-smoothing:antialiased;text-rendering:geometricPrecision}
 button{font:inherit}
 svg{width:15px;height:15px;display:block;fill:none;stroke:currentColor;stroke-width:1.75;stroke-linecap:round;stroke-linejoin:round;shape-rendering:geometricPrecision}
 .top{height:44px;border-bottom:1px solid var(--codex-border);background:var(--codex-bg);display:flex;align-items:center;gap:7px;padding:0 min(3vw,30px)}
@@ -5809,7 +5809,7 @@ svg{width:15px;height:15px;display:block;fill:none;stroke:currentColor;stroke-wi
 .assistant .role{color:var(--codex-text)}.system .role{color:#e8b66b}
 .msg.streaming .meta-bottom::before{content:'Думаю';display:inline-flex;margin-right:8px;color:var(--codex-muted)}
 .msg.streaming .meta-bottom::after{content:'';display:inline-block;width:6px;height:6px;margin-left:6px;border-radius:999px;background:var(--codex-muted);vertical-align:middle;animation:pulse 1.1s ease-in-out infinite}
-.message-text{margin:0;white-space:normal;word-wrap:break-word;font:inherit;color:var(--codex-text);font-size:13.5px;line-height:1.45}
+.message-text{margin:0;white-space:normal;word-wrap:break-word;font:inherit;color:var(--codex-text);font-size:13px;line-height:1.43}
 .message-text p{margin:0 0 10px}
 .message-text p:last-child,.message-text ul:last-child,.message-text ol:last-child{margin-bottom:0}
 .message-text ul,.message-text ol{margin:0 0 10px 1.25em;padding:0}
@@ -5842,26 +5842,28 @@ svg{width:15px;height:15px;display:block;fill:none;stroke:currentColor;stroke-wi
 .image-preview-close{border:1px solid var(--codex-strong-border);background:var(--codex-surface);color:#f3f3f3;border-radius:8px;padding:6px 10px;cursor:pointer}
 .inline-file-link{border:0;background:var(--codex-chip);color:#e4e4e4;border-radius:6px;padding:1px 6px;font:inherit;font-family:var(--codex-mono);cursor:pointer}
 .inline-file-link:hover{background:var(--codex-selected);color:#fff}
-.change-card{margin:14px 0 16px;background:var(--codex-surface);border:1px solid var(--codex-border);border-radius:8px;overflow:hidden;color:var(--codex-text);white-space:normal;box-shadow:0 10px 24px rgba(0,0,0,.12)}
-.change-head{display:flex;align-items:center;justify-content:space-between;gap:18px;min-height:56px;padding:0 14px 0 17px;background:#242424;border-bottom:1px solid var(--codex-border);font-weight:600;line-height:1.2;white-space:normal}
-.change-summary{display:flex;align-items:center;gap:10px;min-width:0;flex:1 1 auto;color:#dedede;font-size:17px;white-space:normal}
+.change-card{margin:10px 0 12px;background:var(--codex-surface);border:1px solid var(--codex-border);border-radius:8px;overflow:hidden;color:var(--codex-text);white-space:normal;box-shadow:0 8px 18px rgba(0,0,0,.1)}
+.change-head{display:flex;align-items:center;justify-content:space-between;gap:10px;min-height:38px;padding:0 9px 0 12px;background:#242424;border-bottom:1px solid var(--codex-border);font-weight:600;line-height:1.2;white-space:normal}
+.change-card.collapsed .change-head{border-bottom:0}
+.change-summary{display:flex;align-items:center;gap:8px;min-width:0;flex:1 1 auto;color:#dedede;font-size:13px;white-space:normal}
 .change-title{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.change-actions{display:flex;align-items:center;gap:28px;color:#9a9a9a;font-weight:600;white-space:normal;flex:0 0 auto}
-.change-action{border:0;background:transparent;color:#9a9a9a;height:30px;padding:0 1px;border-radius:6px;cursor:pointer;font:inherit;font-size:15.5px;line-height:1;display:inline-flex;align-items:center;justify-content:center;gap:7px;opacity:.9}
-.change-action svg{width:18px;height:18px;stroke-width:1.7}
-.change-action.icon-only{width:20px;padding:0}
+.change-actions{display:flex;align-items:center;gap:10px;color:#9a9a9a;font-weight:600;white-space:normal;flex:0 0 auto}
+.change-action{border:0;background:transparent;color:#9a9a9a;height:26px;padding:0 3px;border-radius:6px;cursor:pointer;font:inherit;font-size:12.5px;line-height:1;display:inline-flex;align-items:center;justify-content:center;gap:5px;opacity:.9}
+.change-action svg{width:14px;height:14px;stroke-width:1.8}
+.change-action.icon-only{width:22px;padding:0}
+.change-card:not(.collapsed) .change-action.icon-only svg{transform:rotate(180deg)}
 .change-action:hover{background:transparent;color:#d8d8d8;opacity:1}
-.change-row{display:flex;align-items:center;gap:10px;min-height:34px;padding:0 10px 0 12px;border:0;border-top:1px solid var(--codex-border);background:transparent;color:var(--codex-text);width:100%;text-align:left;cursor:pointer;font:inherit;font-size:13px;line-height:1.2;white-space:normal}
+.change-row{display:flex;align-items:center;gap:8px;min-height:28px;padding:0 8px 0 10px;border:0;border-top:1px solid var(--codex-border);background:transparent;color:var(--codex-text);width:100%;text-align:left;cursor:pointer;font:inherit;font-size:12px;line-height:1.2;white-space:normal}
 .change-row:hover{background:var(--codex-surface-2)}
 .change-row:first-of-type{border-top:0}
 .change-path{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.delta{font-family:var(--codex-mono);font-size:12.5px}.change-summary>.delta{font-size:16px;font-weight:500}
+.delta{font-family:var(--codex-mono);font-size:11.5px}.change-summary>.delta{font-size:12.5px;font-weight:500}
 .delta.plus{color:var(--codex-green)}.delta.minus{color:var(--codex-red)}
 .chev{color:#9b9b9b}
 .row-chev{width:20px;height:24px;border-radius:6px;display:inline-flex;align-items:center;justify-content:center;color:#a2a4a8;flex:0 0 auto}
 .row-chev svg{width:14px;height:14px;stroke-width:1.7}
 .change-row:hover .row-chev{color:#d1d1d1;background:transparent}
-.change-card.collapsed .change-row:nth-of-type(n+6){display:none}
+.change-card.collapsed .change-row{display:none}
 pre{margin:0;white-space:pre-wrap;word-wrap:break-word;font:inherit}
 .msg-tools{position:absolute;right:0;bottom:-20px;display:flex;gap:5px;opacity:0;transform:translateY(2px);transition:opacity .12s ease, transform .12s ease}
 .msg.assistant .msg-tools,.msg.system .msg-tools{right:auto;left:0}
@@ -5910,7 +5912,7 @@ pre{margin:0;white-space:pre-wrap;word-wrap:break-word;font:inherit}
 .subcontrols{display:flex;gap:12px;align-items:center;margin:5px auto 0;max-width:var(--composer-max);color:#8e8e8e;font-size:12px}
 .plus{color:#c0c0c0;background:transparent;border:0;width:30px;height:30px;display:inline-flex;align-items:center;justify-content:center;padding:0;cursor:pointer;border-radius:8px;flex:0 0 auto}
 .plus:hover{background:var(--codex-selected);color:#ededed}
-textarea{width:100%;box-sizing:border-box;resize:none;min-height:40px;max-height:152px;overflow:hidden;border:0;background:transparent;color:#e9e9e9;padding:0;font:inherit;font-size:13.5px;outline:none;line-height:1.44}
+textarea{width:100%;box-sizing:border-box;resize:none;min-height:40px;max-height:152px;overflow:hidden;border:0;background:transparent;color:#e9e9e9;padding:0;font:inherit;font-size:13px;outline:none;line-height:1.44}
 textarea.scroll{overflow:auto}
 textarea::placeholder{color:#818389}
 .composer-attachments{display:none;flex-wrap:wrap;gap:6px;margin:-1px 0 2px}
@@ -5959,7 +5961,7 @@ button.send:disabled{opacity:.55;cursor:default}
 @media (min-width: 1500px){:root{--chat-max:900px;--composer-max:940px}.progress-panel{width:246px}.content-shell.progress-open ~ .composer-wrap{margin-right:258px}}
 @media (max-width: 1119px){:root{--progress-offset:0}.content-shell.progress-open .progress-panel{display:block;position:fixed;right:12px;top:56px;bottom:calc(var(--composer-height,132px) + 12px);width:min(340px,calc(100vw - 24px));max-width:none;max-height:none;margin:0;z-index:7}}
 @media (max-width: 759px){.wide-sidebar{display:none}.content-shell{display:flex;overflow:hidden}.messages{height:auto;overflow:auto}.scroll-bottom{display:none}}
-@media (max-width: 760px){.change-head{min-height:54px;padding:0 10px 0 12px;gap:10px}.change-summary{font-size:15px;gap:8px}.change-summary>.delta{font-size:14px}.change-actions{gap:10px}.change-action{font-size:0;width:26px;gap:0}.change-action span{display:none}.change-action svg{width:16px;height:16px}}
+@media (max-width: 760px){.change-head{min-height:38px;padding:0 8px 0 10px;gap:8px}.change-summary{font-size:12.5px;gap:7px}.change-summary>.delta{font-size:12px}.change-actions{gap:8px}.change-action{font-size:0;width:24px;gap:0}.change-action span{display:none}.change-action svg{width:14px;height:14px}}
 @media (max-width: 680px){.top{padding:0 10px}.messages{padding-left:14px;padding-right:14px;padding-bottom:132px}.composer-wrap{padding-left:8px;padding-right:8px}.controls{flex-wrap:wrap}button.send{margin-left:auto}.subcontrols{gap:8px;flex-wrap:wrap}.dropdown.profile{flex-basis:132px}.msg.user .message-text,.msg.user .attachments-list,.msg.user .message-file-cards{max-width:88%}}
 </style>
 </head>
@@ -6063,6 +6065,7 @@ const isBusy = ${JSON.stringify(isBusy)};
 const includeContext = true;
 const savedViewState = vscode.getState?.() || {};
 let progressOpen = Boolean(savedViewState.progressOpen);
+let expandedChangeCards = new Set(Array.isArray(savedViewState.expandedChangeCards) ? savedViewState.expandedChangeCards : []);
 let submitLocked = false;
 function formatBytes(bytes) {
   if (!bytes || bytes < 1) return '';
@@ -6201,7 +6204,7 @@ const contentShell = document.getElementById('contentShell');
 const progressToggleButtons = Array.from(document.querySelectorAll('[data-progress-toggle]'));
 function saveViewState() {
   const previous = vscode.getState?.() || {};
-  vscode.setState?.({ ...previous, progressOpen });
+  vscode.setState?.({ ...previous, progressOpen, expandedChangeCards: Array.from(expandedChangeCards).slice(-60) });
 }
 function updateProgressOffset() {
   const offset = progressOpen && window.matchMedia('(min-width: 1120px)').matches ? '252px' : '0px';
@@ -6227,6 +6230,28 @@ progressToggleButtons.forEach(button => {
     document.getElementById('topMoreDrop')?.classList.remove('open');
     setProgressPanelOpen(!progressOpen);
   });
+});
+function changeCardKey(card) {
+  if (!card) return '';
+  const rows = Array.from(card.querySelectorAll('.change-row'))
+    .map(row => row.dataset.path || '')
+    .filter(Boolean)
+    .join('|');
+  return [card.dataset.commit || '', card.dataset.cwd || '', rows || card.querySelector('.change-title')?.textContent || ''].join('::');
+}
+function setChangeCardExpanded(card, expanded) {
+  const key = changeCardKey(card);
+  card?.classList.toggle('collapsed', !expanded);
+  if (key) {
+    if (expanded) expandedChangeCards.add(key);
+    else expandedChangeCards.delete(key);
+    saveViewState();
+  }
+}
+document.querySelectorAll('.change-card').forEach(card => {
+  if (expandedChangeCards.has(changeCardKey(card))) {
+    card.classList.remove('collapsed');
+  }
 });
 document.querySelectorAll('[data-thread-id]').forEach(button => {
   button.addEventListener('click', () => {
@@ -6419,7 +6444,7 @@ document.querySelectorAll('.change-action').forEach(button => {
     const action = event.currentTarget.dataset.changeAction;
     const card = event.currentTarget.closest('.change-card');
     if (action === 'toggle') {
-      card?.classList.toggle('collapsed');
+      setChangeCardExpanded(card, card?.classList.contains('collapsed'));
       return;
     }
     if (action === 'undo') {
