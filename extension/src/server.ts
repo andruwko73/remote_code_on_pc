@@ -171,6 +171,8 @@ export class RemoteServer {
     private liveDraftThreadIds: Set<string> = new Set();
     private pcChatPanel?: vscode.WebviewPanel;
     private pcChatRefreshTimer?: ReturnType<typeof setTimeout>;
+    private pcCodexMirrorTimer?: ReturnType<typeof setInterval>;
+    private pcCodexMirrorSignature = '';
     private remoteCodeStateSaveTimer?: ReturnType<typeof setTimeout>;
     private remoteCodeThreadsCache?: { timestamp: number; threads: RemoteCodeThreadSummary[] };
     private gitChangeSummaryCache: Map<string, GitChangeSummary | undefined> = new Map();
@@ -182,6 +184,7 @@ export class RemoteServer {
     private archivedThreadIds: Set<string> = new Set();
     private workspaceStorageCache?: { timestamp: number; dirs: string[] };
     private workspaceFileHintsCache?: { timestamp: number; limit: number; hints: string };
+    private codexSessionFilesCache?: { timestamp: number; maxFiles: number; files: string[] };
 
     // Internet tunnel
     private _tunnelUrl: string | null = null;
@@ -950,6 +953,7 @@ export class RemoteServer {
     async stop(): Promise<void> {
         this._isRunning = false;
         this.diagnosticDisposable?.dispose();
+        this.stopPcCodexMirrorPolling();
         this.stopTunnel(); // останавливаем туннель
 
         // Останавливаем File Watcher'ы
@@ -1908,6 +1912,9 @@ export class RemoteServer {
                 const codexWatcher = fs.watch(codexRoot, { recursive: true }, (_eventType, filename) => {
                     if (!filename || !filename.toString().endsWith('.jsonl')) return;
                     setTimeout(() => {
+                        this.codexSessionFilesCache = undefined;
+                        this.remoteCodeThreadsCache = undefined;
+                        this.refreshPcChatPanelForExternalCodexChange();
                         this.broadcast({
                             ...this.getRemoteCodeThreadsUpdatePayload(),
                             type: 'codex:sessions-update'
@@ -2848,7 +2855,7 @@ export class RemoteServer {
         let fileMessages: CodexChatMessage[] = [];
         if (fileId) {
             const filePath = this.findCodexSessionFile(fileId);
-            const parsed = filePath ? this.parseCodexSessionFile(filePath, this.getCodexSessionIndex()) : undefined;
+            const parsed = filePath ? this.parseCodexSessionFileTail(filePath, this.getCodexSessionIndex(), limit) : undefined;
             fileMessages = parsed?.messages.map(message => ({ ...message, threadId })) || [];
         }
         const localMessages = this.codexHistory.filter(message =>
@@ -3981,6 +3988,7 @@ ol{padding-left:20px}li{margin:6px 0}.note{margin-top:12px;font-size:13px;color:
     private openPcChatPanel(): void {
         if (this.pcChatPanel) {
             this.pcChatPanel.reveal(vscode.ViewColumn.One, true);
+            this.startPcCodexMirrorPolling();
             return;
         }
         this.pcChatPanel = vscode.window.createWebviewPanel(
@@ -4026,9 +4034,11 @@ ol{padding-left:20px}li{margin:6px 0}.note{margin-top:12px;font-size:13px;color:
                 this.remoteCodeStateSaveTimer = undefined;
                 this.persistRemoteCodeState();
             }
+            this.stopPcCodexMirrorPolling();
             this.pcChatPanel = undefined;
         });
         this.refreshPcChatPanel(true);
+        this.startPcCodexMirrorPolling();
     }
 
     private refreshPcChatPanel(immediate = false): void {
@@ -4054,6 +4064,76 @@ ol{padding-left:20px}li{margin:6px 0}.note{margin-top:12px;font-size:13px;color:
             .filter(m => m.role !== 'system');
         const actions = this.getActionEventsForThread(this.currentRemoteThreadId);
         this.pcChatPanel.webview.html = this.renderPcChatHtml(messages, actions);
+        this.updatePcCodexMirrorSignature();
+    }
+
+    private currentCodexSessionSignature(): string | undefined {
+        const threadId = this.currentRemoteThreadId || '';
+        const fileId = this.fromCodexThreadId(threadId);
+        if (!fileId) return undefined;
+        const filePath = this.findCodexSessionFile(fileId);
+        if (!filePath) return undefined;
+        try {
+            const stat = fs.statSync(filePath);
+            return `${threadId}|${filePath}|${Math.round(stat.mtimeMs)}|${stat.size}`;
+        } catch {
+            return undefined;
+        }
+    }
+
+    private updatePcCodexMirrorSignature(): void {
+        const signature = this.currentCodexSessionSignature();
+        this.pcCodexMirrorSignature = signature || '';
+    }
+
+    private startPcCodexMirrorPolling(): void {
+        if (this.pcCodexMirrorTimer) return;
+        this.updatePcCodexMirrorSignature();
+        this.pcCodexMirrorTimer = setInterval(() => {
+            this.refreshPcChatPanelForExternalCodexChange();
+        }, 1500);
+    }
+
+    private stopPcCodexMirrorPolling(): void {
+        if (this.pcCodexMirrorTimer) {
+            clearInterval(this.pcCodexMirrorTimer);
+            this.pcCodexMirrorTimer = undefined;
+        }
+        this.pcCodexMirrorSignature = '';
+    }
+
+    private refreshPcChatPanelForExternalCodexChange(): void {
+        if (!this.pcChatPanel) {
+            this.stopPcCodexMirrorPolling();
+            return;
+        }
+        const signature = this.currentCodexSessionSignature();
+        if (!signature) {
+            this.pcCodexMirrorSignature = '';
+            return;
+        }
+        if (signature === this.pcCodexMirrorSignature) return;
+
+        this.pcCodexMirrorSignature = signature;
+        this.remoteCodeThreadsCache = undefined;
+        this.refreshPcChatPanel(true);
+        this.broadcastCodexCurrentThreadRefresh();
+    }
+
+    private broadcastCodexCurrentThreadRefresh(): void {
+        const threadId = this.currentRemoteThreadId;
+        if (!threadId) return;
+        this.broadcast({
+            ...this.getRemoteCodeThreadsUpdatePayload(),
+            type: 'codex:sessions-update'
+        });
+        this.broadcast({
+            type: 'codex:message-refresh',
+            threadId,
+            messages: this.getMessagesForRemoteThread(threadId, 120).filter(m => m.role !== 'system'),
+            events: this.getActionEventsForThread(threadId),
+            timestamp: Date.now()
+        });
     }
 
     private async handlePcChatAction(action: string, msg: any): Promise<void> {
@@ -5037,9 +5117,251 @@ ol{padding-left:20px}li{margin:6px 0}.note{margin-top:12px;font-size:13px;color:
 
     private getActionEventsForThread(threadId?: string): RemoteCodeActionEvent[] {
         const target = threadId || this.currentRemoteThreadId;
-        return this.codexActionEvents
-            .filter(event => !target || event.threadId === target)
+        const localEvents = this.codexActionEvents
+            .filter(event => !target || event.threadId === target);
+        const externalEvents = this.getExternalCodexActionEventsForThread(target);
+        const byId = new Map<string, RemoteCodeActionEvent>();
+        for (const event of [...localEvents, ...externalEvents]) {
+            byId.set(event.id, event);
+        }
+        return Array.from(byId.values())
+            .sort((a, b) => Number(a.timestamp || 0) - Number(b.timestamp || 0))
             .slice(-80);
+    }
+
+    private getExternalCodexActionEventsForThread(threadId?: string): RemoteCodeActionEvent[] {
+        const target = threadId || this.currentRemoteThreadId;
+        const fileId = target ? this.fromCodexThreadId(target) : undefined;
+        if (!target || !fileId) return [];
+        const filePath = this.findCodexSessionFile(fileId);
+        if (!filePath) return [];
+
+        try {
+            const lines = this.readUtf8FileTailLines(filePath, 512 * 1024).slice(-900);
+            const events = new Map<string, RemoteCodeActionEvent>();
+            let reasoningIndex = 0;
+
+            for (const line of lines) {
+                let item: any;
+                try { item = JSON.parse(line); } catch { continue; }
+                const payload = item.payload || {};
+                const itemTime = Math.round(item.timestamp ? new Date(item.timestamp).getTime() : Date.now());
+
+                if (item.type === 'response_item' && payload.type === 'reasoning') {
+                    const id = `codex_external_reasoning_${itemTime}_${reasoningIndex++}`;
+                    events.set(id, {
+                        id,
+                        type: 'model_progress',
+                        title: 'Модель думает',
+                        detail: 'Анализирует задачу и выбирает следующий шаг',
+                        status: 'completed',
+                        timestamp: itemTime,
+                        threadId: target,
+                        actionable: false
+                    });
+                    continue;
+                }
+
+                if (item.type === 'response_item' && (payload.type === 'function_call' || payload.type === 'custom_tool_call')) {
+                    const callId = payload.call_id || payload.id || `${payload.name || 'tool'}_${itemTime}_${events.size}`;
+                    const id = `codex_external_${callId}`;
+                    const info = this.describeExternalCodexToolCall(payload);
+                    events.set(id, {
+                        id,
+                        type: info.type,
+                        title: info.title,
+                        detail: info.detail,
+                        status: 'running',
+                        timestamp: itemTime,
+                        threadId: target,
+                        actionable: false,
+                        command: info.command,
+                        cwd: info.cwd,
+                        filePath: info.filePath
+                    });
+                    continue;
+                }
+
+                if (item.type === 'response_item' && (payload.type === 'function_call_output' || payload.type === 'custom_tool_call_output')) {
+                    const callId = payload.call_id || payload.id;
+                    if (!callId) continue;
+                    const id = `codex_external_${callId}`;
+                    const existing = events.get(id);
+                    const output = this.compactExternalCodexToolOutput(payload);
+                    events.set(id, {
+                        ...(existing || {
+                            id,
+                            type: 'tool_call',
+                            title: 'Инструмент',
+                            detail: 'Внешнее действие завершено',
+                            threadId: target,
+                            actionable: false
+                        } as RemoteCodeActionEvent),
+                        status: this.externalToolOutputFailed(payload, output) ? 'failed' : 'completed',
+                        timestamp: itemTime,
+                        stdout: output
+                    });
+                    continue;
+                }
+
+                if (item.type === 'event_msg' && (payload.type === 'patch_apply_begin' || payload.type === 'patch_apply_end')) {
+                    const id = `codex_external_patch_${payload.call_id || itemTime}`;
+                    const existing = events.get(id);
+                    events.set(id, {
+                        ...(existing || {
+                            id,
+                            type: 'patch_apply',
+                            title: 'Правка файлов',
+                            detail: 'Применение patch',
+                            threadId: target,
+                            actionable: false
+                        } as RemoteCodeActionEvent),
+                        status: payload.type === 'patch_apply_begin'
+                            ? 'running'
+                            : (payload.success === false ? 'failed' : 'completed'),
+                        timestamp: itemTime
+                    });
+                }
+            }
+
+            return Array.from(events.values()).slice(-80);
+        } catch {
+            return [];
+        }
+    }
+
+    private readUtf8FileTailLines(filePath: string, maxBytes: number): string[] {
+        const stat = fs.statSync(filePath);
+        const size = Math.max(0, Number(stat.size || 0));
+        const start = Math.max(0, size - maxBytes);
+        const length = Math.max(0, size - start);
+        if (length === 0) return [];
+
+        const fd = fs.openSync(filePath, 'r');
+        try {
+            const buffer = Buffer.alloc(length);
+            const bytesRead = fs.readSync(fd, buffer, 0, length, start);
+            const text = buffer.toString('utf8', 0, bytesRead);
+            const lines = text.split(/\r?\n/).filter(Boolean);
+            if (start > 0 && lines.length > 0) lines.shift();
+            return lines;
+        } finally {
+            fs.closeSync(fd);
+        }
+    }
+
+    private describeExternalCodexToolCall(payload: any): {
+        type: string;
+        title: string;
+        detail: string;
+        command?: string;
+        cwd?: string;
+        filePath?: string;
+    } {
+        const name = String(payload?.name || payload?.tool_name || payload?.type || 'tool');
+        const args = this.parseExternalCodexToolArguments(payload?.arguments ?? payload?.input);
+        const rawArgs = typeof payload?.arguments === 'string'
+            ? payload.arguments
+            : (typeof payload?.input === 'string' ? payload.input : JSON.stringify(args || {}));
+        const lowerName = name.toLowerCase();
+
+        if (lowerName.includes('shell') || lowerName.includes('terminal') || lowerName.includes('exec')) {
+            const command = this.sanitizeActionText(String(args?.command || args?.cmd || rawArgs || name));
+            return {
+                type: 'command_approval',
+                title: 'Команда',
+                detail: command,
+                command,
+                cwd: this.sanitizeActionText(String(args?.workdir || args?.cwd || ''))
+            };
+        }
+
+        if (lowerName.includes('apply_patch') || rawArgs.includes('*** Begin Patch')) {
+            const files: string[] = [];
+            for (const match of String(rawArgs).matchAll(/\*\*\* (?:Update|Add|Delete) File: ([^\r\n]+)/g)) {
+                files.push(match[1].trim());
+                if (files.length >= 4) break;
+            }
+            return {
+                type: 'patch_apply',
+                title: 'Правка файлов',
+                detail: files.length > 0 ? files.join(', ') : 'Применение patch'
+            };
+        }
+
+        if (lowerName.includes('multi_tool')) {
+            const toolUses = Array.isArray(args?.tool_uses) ? args.tool_uses : [];
+            const labels = toolUses
+                .map((tool: any) => String(tool?.recipient_name || '').split('.').pop())
+                .filter(Boolean)
+                .slice(0, 4);
+            return {
+                type: 'tool_call',
+                title: 'Параллельные действия',
+                detail: this.sanitizeActionText(labels.length > 0 ? labels.join(', ') : 'Несколько проверок одновременно')
+            };
+        }
+
+        if (lowerName.includes('view_image')) {
+            const filePath = this.sanitizeActionText(String(args?.path || ''));
+            return {
+                type: 'file_view',
+                title: 'Просмотр изображения',
+                detail: filePath || name,
+                filePath
+            };
+        }
+
+        if (lowerName.includes('browser') || lowerName.includes('screenshot')) {
+            return {
+                type: 'tool_call',
+                title: 'Проверка интерфейса',
+                detail: this.sanitizeActionText(String(args?.url || args?.target || name))
+            };
+        }
+
+        const detail = this.sanitizeActionText(String(args?.title || args?.description || args?.path || name));
+        return {
+            type: 'tool_call',
+            title: this.humanizeExternalCodexToolName(name),
+            detail
+        };
+    }
+
+    private parseExternalCodexToolArguments(value: any): any {
+        if (!value) return {};
+        if (typeof value !== 'string') return value;
+        try {
+            return JSON.parse(value);
+        } catch {
+            return {};
+        }
+    }
+
+    private compactExternalCodexToolOutput(payload: any): string {
+        const raw = typeof payload?.output === 'string'
+            ? payload.output
+            : (typeof payload?.content === 'string' ? payload.content : '');
+        return this.sanitizeActionText(raw.replace(/\s+$/g, '').slice(0, 1800));
+    }
+
+    private externalToolOutputFailed(payload: any, output: string): boolean {
+        const status = String(payload?.status || '').toLowerCase();
+        return status === 'failed' || status === 'error' || /\b(exit code|error)\s*[:=]\s*[1-9]\d*/i.test(output);
+    }
+
+    private sanitizeActionText(value: string): string {
+        return value
+            .replace(/(Authorization:\s*Bearer\s+)[^\s"']+/gi, '$1***')
+            .replace(/(Bearer\s+)[A-Za-z0-9._~+/=-]{8,}/gi, '$1***')
+            .replace(/((?:authToken|token|password)["']?\s*[:=]\s*["']?)[^"',\s}]+/gi, '$1***')
+            .replace(/\s+/g, ' ')
+            .trim();
+    }
+
+    private humanizeExternalCodexToolName(name: string): string {
+        const compact = name.replace(/^functions\./, '').replace(/[_-]+/g, ' ').trim();
+        return compact ? compact[0].toUpperCase() + compact.slice(1) : 'Инструмент';
     }
 
     private upsertActionEvent(event: RemoteCodeActionEvent, refresh = true): void {
@@ -8103,6 +8425,14 @@ prompt.addEventListener('keydown', event => {
     }
 
     private getCodexSessionFiles(maxFiles = 200): string[] {
+        if (
+            this.codexSessionFilesCache &&
+            this.codexSessionFilesCache.maxFiles >= maxFiles &&
+            Date.now() - this.codexSessionFilesCache.timestamp < 3000
+        ) {
+            return this.codexSessionFilesCache.files.slice(0, maxFiles);
+        }
+
         const root = this.getCodexSessionsRoot();
         const files: string[] = [];
         const walk = (dir: string) => {
@@ -8121,6 +8451,7 @@ prompt.addEventListener('keydown', event => {
             }
         };
         walk(root);
+        this.codexSessionFilesCache = { timestamp: Date.now(), maxFiles, files };
         return files;
     }
 
@@ -8206,12 +8537,38 @@ prompt.addEventListener('keydown', event => {
         return this.getCodexSessionFiles(300).find(filePath => this.codexIdFromFilePath(filePath) === threadId);
     }
 
+    private parseCodexSessionFileTail(
+        filePath: string,
+        index: Map<string, { title: string; timestamp: number }>,
+        minMessages: number
+    ): { id: string; title: string; timestamp: number; messages: CodexChatMessage[]; filePath: string } | null {
+        const stat = fs.statSync(filePath);
+        let maxBytes = 2 * 1024 * 1024;
+        let parsed: { id: string; title: string; timestamp: number; messages: CodexChatMessage[]; filePath: string } | null = null;
+        const targetMessages = Math.max(20, Math.min(minMessages, 120));
+
+        const maxTailBytes = 64 * 1024 * 1024;
+        while (maxBytes < stat.size && maxBytes <= maxTailBytes) {
+            parsed = this.parseCodexSessionFile(filePath, index, maxBytes);
+            if ((parsed?.messages.length || 0) >= targetMessages) return parsed;
+            maxBytes *= 2;
+        }
+
+        if (stat.size <= maxBytes) {
+            return this.parseCodexSessionFile(filePath, index);
+        }
+        return parsed || this.parseCodexSessionFile(filePath, index, maxTailBytes);
+    }
+
     private parseCodexSessionFile(
         filePath: string,
-        index: Map<string, { title: string; timestamp: number }>
+        index: Map<string, { title: string; timestamp: number }>,
+        tailBytes = 0
     ): { id: string; title: string; timestamp: number; messages: CodexChatMessage[]; filePath: string } | null {
         try {
-            const lines = fs.readFileSync(filePath, 'utf-8').split(/\r?\n/).filter(Boolean);
+            const lines = tailBytes > 0
+                ? this.readUtf8FileTailLines(filePath, tailBytes)
+                : fs.readFileSync(filePath, 'utf-8').split(/\r?\n/).filter(Boolean);
             let id = this.codexIdFromFilePath(filePath);
             let title = 'Codex';
             let timestamp = Math.round(fs.statSync(filePath).mtimeMs);
