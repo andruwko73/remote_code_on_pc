@@ -110,6 +110,7 @@ fun CodexScreen(
     onNewThread: () -> Unit,
     onLoadThreads: () -> Unit,
     onSwitchThread: (String) -> Unit,
+    onSelectProject: (String) -> Unit = {},
     onDeleteThread: (String) -> Unit,
     onDeleteMessage: (String) -> Unit = {},
     onRegenerateMessage: (String) -> Unit = {},
@@ -171,6 +172,7 @@ fun CodexScreen(
             onNewThread = onNewThread,
             onLoadThreads = onLoadThreads,
             onDeleteThread = onDeleteThread,
+            onSelectProject = onSelectProject,
             onDeleteMessage = onDeleteMessage,
             onRegenerateMessage = onRegenerateMessage,
             onMessageFeedback = onMessageFeedback,
@@ -199,6 +201,7 @@ fun CodexScreen(
                     currentThreadId = currentThreadId,
                     onNewThread = onNewThread,
                     onSwitchThread = onSwitchThread,
+                    onSelectProject = onSelectProject,
                     onOpenFolder = onOpenFolder,
                     onNavigateToSettings = onNavigateToSettings
                 )
@@ -225,6 +228,7 @@ fun CodexScreen(
                         currentThreadId = currentThreadId,
                         onNewThread = { closeDrawerThen(onNewThread) },
                         onSwitchThread = { threadId -> closeDrawerThen { onSwitchThread(threadId) } },
+                        onSelectProject = { projectId -> closeDrawerThen { onSelectProject(projectId) } },
                         onOpenFolder = { path -> closeDrawerThen { onOpenFolder(path) } },
                         onNavigateToSettings = { closeDrawerThen(onNavigateToSettings) }
                     )
@@ -243,6 +247,7 @@ private fun CodexNavigationPanel(
     currentThreadId: String,
     onNewThread: () -> Unit,
     onSwitchThread: (String) -> Unit,
+    onSelectProject: (String) -> Unit = {},
     onOpenFolder: (String) -> Unit,
     onNavigateToSettings: () -> Unit
 ) {
@@ -310,7 +315,7 @@ private fun CodexNavigationPanel(
                     CodexDrawerProjectRow(
                         project = project,
                         selected = project.threads.any { it.id == currentThreadId },
-                        onClick = { project.threads.firstOrNull()?.id?.let(onSwitchThread) },
+                        onClick = { onSelectProject(project.id) },
                         onOpenFolder = onOpenFolder
                     )
                 }
@@ -573,6 +578,7 @@ fun CodexChatTab(
     onNewThread: () -> Unit,
     onLoadThreads: () -> Unit,
     onDeleteThread: (String) -> Unit,
+    onSelectProject: (String) -> Unit = {},
     onDeleteMessage: (String) -> Unit = {},
     onRegenerateMessage: (String) -> Unit = {},
     onMessageFeedback: (String, String) -> Unit = { _, _ -> },
@@ -589,6 +595,7 @@ fun CodexChatTab(
     var showModelEffortSelector by remember { mutableStateOf(false) }
     var showProfileSelector by remember { mutableStateOf(false) }
     var showCurrentThreadMenu by remember { mutableStateOf(false) }
+    var showProjectSelector by remember { mutableStateOf(false) }
     var pendingDeleteThread by remember { mutableStateOf<CodexThread?>(null) }
     var attachments by remember { mutableStateOf<List<MessageAttachment>>(emptyList()) }
     val listState = rememberLazyListState()
@@ -663,9 +670,9 @@ fun CodexChatTab(
     val profileLabel = profileOptions.firstOrNull { it.first == selectedProfile }?.second ?: "\u041F\u043E\u043B\u044C\u0437."
     val currentThread = threads.find { it.id == currentThreadId }
     val projectGroups = remember(projects, threads) { projects.ifEmpty { buildMobileCodexProjects(threads) } }
-    val currentProjectLabel = currentThread?.let { threadProjectName(it) }
-        ?: projectGroups.firstOrNull { project -> project.id == currentProjectId }?.name
-        ?: projectGroups.firstOrNull { project -> project.threads.any { it.id == currentThreadId } }?.name
+    val currentProject = projectGroups.firstOrNull { project -> project.id == currentProjectId }
+        ?: projectGroups.firstOrNull { project -> project.threads.any { it.id == currentThreadId } }
+    val currentProjectLabel = currentProject?.name ?: currentThread?.let { threadProjectName(it) }
     val visibleChatHistory = remember(chatHistory) {
         dedupeMobileChatMessages(chatHistory.filterNot { isMobileActionResultMessage(it.content) })
     }
@@ -718,37 +725,77 @@ fun CodexChatTab(
                 Icon(Icons.Default.Menu, contentDescription = "Навигация", tint = TextSecondary, modifier = Modifier.size(22.dp))
             }
             Spacer(modifier = Modifier.width(2.dp))
-            Column(
-                modifier = Modifier
-                    .weight(1f)
-                    .clickable {
-                        onLoadThreads()
-                        onOpenNavigation()
-                    },
-                verticalArrangement = Arrangement.Center
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(
-                        currentThread?.let { threadDisplayTitle(it) } ?: "\u0414\u043E\u0440\u0430\u0431\u043E\u0442\u0430\u0442\u044C \u0443\u0434\u0430\u043B\u0451\u043D\u043D\u044B\u0439 \u0434\u043E\u0441\u0442\u0443\u043F",
-                        color = TextBright,
-                        fontSize = 15.sp,
-                        lineHeight = 18.sp,
-                        fontWeight = FontWeight.Bold,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.weight(1f)
-                    )
-                    Icon(Icons.Default.ArrowDropDown, contentDescription = null, tint = TextSecondary, modifier = Modifier.size(18.dp))
+            Box(modifier = Modifier.weight(1f)) {
+                Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.Center) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable {
+                                onLoadThreads()
+                                onOpenNavigation()
+                            },
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            currentThread?.let { threadDisplayTitle(it) } ?: "\u0414\u043E\u0440\u0430\u0431\u043E\u0442\u0430\u0442\u044C \u0443\u0434\u0430\u043B\u0451\u043D\u043D\u044B\u0439 \u0434\u043E\u0441\u0442\u0443\u043F",
+                            color = TextBright,
+                            fontSize = 15.sp,
+                            lineHeight = 18.sp,
+                            fontWeight = FontWeight.Bold,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f)
+                        )
+                        Icon(Icons.Default.ArrowDropDown, contentDescription = null, tint = TextSecondary, modifier = Modifier.size(18.dp))
+                    }
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable(enabled = projectGroups.isNotEmpty()) {
+                                onLoadThreads()
+                                showProjectSelector = true
+                            },
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(Icons.Outlined.Folder, contentDescription = null, tint = TextSecondary, modifier = Modifier.size(13.dp))
+                        Spacer(modifier = Modifier.width(5.dp))
+                        Text(
+                            currentProjectLabel?.takeIf { it.isNotBlank() } ?: "Выберите проект",
+                            color = TextSecondary,
+                            fontSize = 11.sp,
+                            lineHeight = 13.sp,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f)
+                        )
+                        Icon(Icons.Default.ArrowDropDown, contentDescription = null, tint = TextSecondary, modifier = Modifier.size(14.dp))
+                    }
                 }
-                currentProjectLabel?.takeIf { it.isNotBlank() }?.let { label ->
-                    Text(
-                        label,
-                        color = TextSecondary,
-                        fontSize = 11.sp,
-                        lineHeight = 13.sp,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
+                DropdownMenu(
+                    expanded = showProjectSelector,
+                    onDismissRequest = { showProjectSelector = false },
+                    modifier = Modifier.background(Color(0xFF242424))
+                ) {
+                    projectGroups.forEach { project ->
+                        DropdownMenuItem(
+                            text = {
+                                Column {
+                                    Text(project.name.ifBlank { "Без проекта" }, color = TextPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                    Text(mobileProjectSubtitle(project), color = TextSecondary, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                }
+                            },
+                            leadingIcon = { Icon(Icons.Outlined.Folder, contentDescription = null, tint = if (project.id == currentProject?.id) AccentBlue else TextSecondary) },
+                            trailingIcon = {
+                                if (project.id == currentProject?.id) {
+                                    Icon(Icons.Default.Check, contentDescription = null, tint = AccentBlue, modifier = Modifier.size(18.dp))
+                                }
+                            },
+                            onClick = {
+                                showProjectSelector = false
+                                onSelectProject(project.id)
+                            }
+                        )
+                    }
                 }
             }
             Box {

@@ -1357,6 +1357,25 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         loadCodexEvents(threadId)
     }
 
+    fun selectCodexProject(projectId: String) {
+        if (projectId.isBlank()) return
+        val state = _uiState.value
+        val project = state.codexProjects.firstOrNull { it.id == projectId } ?: return
+        val nextThreadId = project.threads.firstOrNull()?.id.orEmpty()
+        if (nextThreadId.isNotBlank()) {
+            switchCodexThread(nextThreadId)
+            return
+        }
+        _uiState.value = state.copy(
+            currentCodexProjectId = project.id,
+            currentCodexThreadId = "",
+            codexChatHistory = emptyList(),
+            codexActionEvents = emptyList(),
+            codexSendResult = null,
+            codexError = null
+        )
+    }
+
     fun newCodexThread() {
         viewModelScope.launch {
             try {

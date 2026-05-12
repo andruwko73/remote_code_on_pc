@@ -2953,10 +2953,12 @@ export class RemoteServer {
     }
 
     private createRemoteCodeThread(workspaceOverride?: WorkspaceSummary): string {
+        const workspace = workspaceOverride
+            || (this.currentRemoteThreadId ? this.getWorkspaceForThread(this.currentRemoteThreadId) : this.getCurrentWorkspaceSummary());
         const threadId = `remote-code-${Date.now()}`;
         this.currentRemoteThreadId = threadId;
         this.liveDraftThreadIds.add(threadId);
-        this.upsertRemoteCodeThread(threadId, 'Новый чат', Date.now(), workspaceOverride);
+        this.upsertRemoteCodeThread(threadId, 'Новый чат', Date.now(), workspace);
         this.codexActionEvents = this.codexActionEvents.filter(event => event.threadId !== threadId);
         this.saveRemoteCodeState();
         this.refreshPcChatPanel();

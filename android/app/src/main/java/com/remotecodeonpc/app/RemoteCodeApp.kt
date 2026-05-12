@@ -178,6 +178,7 @@ fun RemoteCodeApp(
                         onNewThread = { viewModel.newCodexThread() },
                         onLoadThreads = { viewModel.loadCodexThreads(loadCurrent = false) },
                         onSwitchThread = { viewModel.switchCodexThread(it) },
+                        onSelectProject = { viewModel.selectCodexProject(it) },
                         onDeleteThread = { viewModel.deleteCodexThread(it) },
                         onDeleteMessage = { viewModel.deleteCodexMessage(it) },
                         onRegenerateMessage = { viewModel.regenerateCodexMessage(it) },
