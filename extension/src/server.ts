@@ -173,6 +173,8 @@ export class RemoteServer {
     private pcChatRefreshTimer?: ReturnType<typeof setTimeout>;
     private pcCodexMirrorTimer?: ReturnType<typeof setInterval>;
     private pcCodexMirrorSignature = '';
+    private wsCodexMirrorTimer?: ReturnType<typeof setInterval>;
+    private wsCodexMirrorSignature = '';
     private remoteCodeStateSaveTimer?: ReturnType<typeof setTimeout>;
     private remoteCodeThreadsCache?: { timestamp: number; threads: RemoteCodeThreadSummary[] };
     private gitChangeSummaryCache: Map<string, GitChangeSummary | undefined> = new Map();
@@ -954,6 +956,7 @@ export class RemoteServer {
         this._isRunning = false;
         this.diagnosticDisposable?.dispose();
         this.stopPcCodexMirrorPolling();
+        this.stopWsCodexMirrorPolling();
         this.stopTunnel(); // останавливаем туннель
 
         // Останавливаем File Watcher'ы
@@ -1817,9 +1820,13 @@ export class RemoteServer {
 
         this.wsClients.add(ws);
         console.log('[RemoteCodeOnPC] WebSocket клиент подключился');
+        this.startWsCodexMirrorPolling();
 
         ws.on('close', () => {
             this.wsClients.delete(ws);
+            if (this.wsClients.size === 0) {
+                this.stopWsCodexMirrorPolling();
+            }
             console.log('[RemoteCodeOnPC] WebSocket клиент отключился');
         });
 
@@ -4100,6 +4107,40 @@ ol{padding-left:20px}li{margin:6px 0}.note{margin-top:12px;font-size:13px;color:
         this.pcCodexMirrorSignature = '';
     }
 
+    private startWsCodexMirrorPolling(): void {
+        if (this.wsCodexMirrorTimer) return;
+        this.wsCodexMirrorSignature = this.currentCodexSessionSignature() || '';
+        this.wsCodexMirrorTimer = setInterval(() => {
+            this.refreshWsCodexMirrorForExternalCodexChange();
+        }, 1500);
+    }
+
+    private stopWsCodexMirrorPolling(): void {
+        if (this.wsCodexMirrorTimer) {
+            clearInterval(this.wsCodexMirrorTimer);
+            this.wsCodexMirrorTimer = undefined;
+        }
+        this.wsCodexMirrorSignature = '';
+    }
+
+    private refreshWsCodexMirrorForExternalCodexChange(): void {
+        if (this.wsClients.size === 0) {
+            this.stopWsCodexMirrorPolling();
+            return;
+        }
+        const signature = this.currentCodexSessionSignature();
+        if (!signature) {
+            this.wsCodexMirrorSignature = '';
+            return;
+        }
+        if (signature === this.wsCodexMirrorSignature) return;
+
+        this.wsCodexMirrorSignature = signature;
+        this.codexSessionFilesCache = undefined;
+        this.remoteCodeThreadsCache = undefined;
+        this.broadcastCodexCurrentThreadRefresh();
+    }
+
     private refreshPcChatPanelForExternalCodexChange(): void {
         if (!this.pcChatPanel) {
             this.stopPcCodexMirrorPolling();
@@ -5140,12 +5181,34 @@ ol{padding-left:20px}li{margin:6px 0}.note{margin-top:12px;font-size:13px;color:
             const lines = this.readUtf8FileTailLines(filePath, 512 * 1024).slice(-900);
             const events = new Map<string, RemoteCodeActionEvent>();
             let reasoningIndex = 0;
+            let commentaryIndex = 0;
+            const seenCommentary = new Set<string>();
 
             for (const line of lines) {
                 let item: any;
                 try { item = JSON.parse(line); } catch { continue; }
                 const payload = item.payload || {};
                 const itemTime = Math.round(item.timestamp ? new Date(item.timestamp).getTime() : Date.now());
+
+                const commentary = this.extractPublicCodexProgressMessage(item, payload);
+                if (commentary) {
+                    const dedupeKey = commentary.replace(/\s+/g, ' ').trim();
+                    if (!seenCommentary.has(dedupeKey)) {
+                        seenCommentary.add(dedupeKey);
+                        const id = `codex_external_commentary_${itemTime}_${commentaryIndex++}`;
+                        events.set(id, {
+                            id,
+                            type: 'model_progress',
+                            title: 'Статус Codex',
+                            detail: commentary,
+                            status: 'completed',
+                            timestamp: itemTime,
+                            threadId: target,
+                            actionable: false
+                        });
+                    }
+                    continue;
+                }
 
                 if (item.type === 'response_item' && payload.type === 'reasoning') {
                     const id = `codex_external_reasoning_${itemTime}_${reasoningIndex++}`;
@@ -5248,6 +5311,18 @@ ol{padding-left:20px}li{margin:6px 0}.note{margin-top:12px;font-size:13px;color:
         } finally {
             fs.closeSync(fd);
         }
+    }
+
+    private extractPublicCodexProgressMessage(item: any, payload: any): string {
+        const phase = typeof payload?.phase === 'string' ? payload.phase.toLowerCase() : '';
+        if (phase !== 'commentary') return '';
+        let content = '';
+        if (item.type === 'event_msg' && payload.type === 'agent_message') {
+            content = String(payload.message || '');
+        } else if (item.type === 'response_item' && payload.type === 'message' && payload.role === 'assistant') {
+            content = this.extractResponseItemContent(payload);
+        }
+        return this.sanitizeActionText(this.cleanCodexMessage(content)).slice(0, 700);
     }
 
     private describeExternalCodexToolCall(payload: any): {

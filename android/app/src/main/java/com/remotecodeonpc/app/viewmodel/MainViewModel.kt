@@ -495,6 +495,28 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         updateCodexStreamingMessage(messageId, content, timestamp)
                         _uiState.value = _uiState.value.copy(isCodexLoading = true)
                     }
+                    "codex:message-refresh" -> {
+                        val threadId = data["threadId"] as? String
+                        @Suppress("UNCHECKED_CAST")
+                        val messages = (data["messages"] as? List<Map<*, *>>)
+                            ?.mapNotNull { it.toCodexChatMessage() }
+                        @Suppress("UNCHECKED_CAST")
+                        val events = (data["events"] as? List<Map<*, *>>)
+                            ?.mapNotNull { it.toCodexActionEvent() }
+                        val nextMessages = messages
+                            ?.dedupeCodexMessages()
+                            ?.takeLast(120)
+                            ?: _uiState.value.codexChatHistory
+                        val nextEvents = events ?: _uiState.value.codexActionEvents
+                        _uiState.value = _uiState.value.copy(
+                            currentCodexThreadId = threadId ?: _uiState.value.currentCodexThreadId,
+                            codexChatHistory = nextMessages,
+                            codexActionEvents = nextEvents,
+                            isCodexLoading = nextMessages.any { it.isStreaming } ||
+                                nextEvents.any { it.status == "running" || it.status == "approved" },
+                            codexError = null
+                        )
+                    }
                     "codex:message-deleted" -> {
                         val threadId = data["threadId"] as? String
                         val messageId = data["messageId"] as? String

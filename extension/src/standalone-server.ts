@@ -1324,6 +1324,7 @@ export class StandaloneRemoteServer {
         const lines = fs.readFileSync(filePath, 'utf8').split(/\r?\n/).filter(Boolean);
         const events: CodexActionEvent[] = [];
         const byCallId = new Map<string, CodexActionEvent>();
+        const seenCommentary = new Set<string>();
 
         for (let index = 0; index < lines.length; index++) {
             try {
@@ -1331,6 +1332,25 @@ export class StandaloneRemoteServer {
                 const payload = record.payload || record;
                 const timestamp = Math.round(Date.parse(record.timestamp || payload.timestamp || '') || fs.statSync(filePath).mtimeMs + index);
                 const id = `${path.basename(filePath, '.jsonl')}-event-${index}`;
+
+                const commentary = this.extractCodexProgressMessage(record, payload);
+                if (commentary) {
+                    const dedupeKey = commentary.replace(/\s+/g, ' ').trim();
+                    if (!seenCommentary.has(dedupeKey)) {
+                        seenCommentary.add(dedupeKey);
+                        events.push({
+                            id,
+                            type: 'model_progress',
+                            title: 'Статус Codex',
+                            detail: commentary,
+                            status: 'completed',
+                            timestamp,
+                            source: 'session-log',
+                            actionable: false
+                        });
+                    }
+                    continue;
+                }
 
                 if (record.type === 'response_item' && payload.type === 'function_call') {
                     const args = this.safeParseJson(payload.arguments);
@@ -1439,6 +1459,18 @@ export class StandaloneRemoteServer {
     private compactEventDetail(value: string): string {
         const text = String(value || '').replace(/\s+/g, ' ').trim();
         return text.length > 500 ? `${text.slice(0, 497)}...` : text;
+    }
+
+    private extractCodexProgressMessage(record: any, payload: any): string {
+        const phase = typeof payload?.phase === 'string' ? payload.phase.toLowerCase() : '';
+        if (phase !== 'commentary') return '';
+        let content = '';
+        if (record.type === 'event_msg' && payload.type === 'agent_message') {
+            content = String(payload.message || '');
+        } else if (record.type === 'response_item' && payload.type === 'message' && payload.role === 'assistant') {
+            content = this.extractResponseItemContent(payload.content);
+        }
+        return this.compactEventDetail(this.cleanCodexMessage(content)).slice(0, 700);
     }
 
     private normalizeCodexMessage(message: CodexChatMessage): CodexChatMessage {
