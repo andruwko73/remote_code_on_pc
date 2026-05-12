@@ -243,7 +243,10 @@ data class CodexActionEvent(
     val timestamp: Long = 0,
     val callId: String? = null,
     val source: String? = null,
-    val actionable: Boolean = false
+    val actionable: Boolean = false,
+    val startedAt: Long = 0,
+    val completedAt: Long = 0,
+    val completedCommandCount: Int = 0
 )
 
 data class CodexHistoryResponse(

@@ -1012,18 +1012,35 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private fun Map<*, *>.toCodexActionEvent(): CodexActionEvent? {
         val id = this["id"] as? String ?: return null
+        fun Any?.asLongOrNull(): Long? = when (this) {
+            is Long -> this
+            is Int -> this.toLong()
+            is Double -> this.toLong()
+            is Float -> this.toLong()
+            is Number -> this.toLong()
+            else -> null
+        }
+        fun Any?.asIntOrNull(): Int? = when (this) {
+            is Int -> this
+            is Long -> this.toInt()
+            is Double -> this.toInt()
+            is Float -> this.toInt()
+            is Number -> this.toInt()
+            else -> null
+        }
         return CodexActionEvent(
             id = id,
             type = this["type"] as? String ?: "",
             title = this["title"] as? String ?: "",
             detail = this["detail"] as? String ?: this["diff"] as? String ?: "",
             status = this["status"] as? String ?: "",
-            timestamp = (this["timestamp"] as? Double)?.toLong()
-                ?: (this["timestamp"] as? Long)
-                ?: System.currentTimeMillis(),
+            timestamp = this["timestamp"].asLongOrNull() ?: System.currentTimeMillis(),
             callId = this["callId"] as? String,
             source = this["source"] as? String,
-            actionable = this["actionable"] as? Boolean ?: false
+            actionable = this["actionable"] as? Boolean ?: false,
+            startedAt = this["startedAt"].asLongOrNull() ?: 0,
+            completedAt = this["completedAt"].asLongOrNull() ?: 0,
+            completedCommandCount = this["completedCommandCount"].asIntOrNull() ?: 0
         )
     }
 

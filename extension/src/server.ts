@@ -125,6 +125,9 @@ interface RemoteCodeActionEvent {
     diff?: string;
     stdout?: string;
     stderr?: string;
+    startedAt?: number;
+    completedAt?: number;
+    completedCommandCount?: number;
 }
 
 interface TunnelLauncher {
@@ -5167,7 +5170,7 @@ ol{padding-left:20px}li{margin:6px 0}.note{margin-top:12px;font-size:13px;color:
         }
         return Array.from(byId.values())
             .sort((a, b) => Number(a.timestamp || 0) - Number(b.timestamp || 0))
-            .slice(-80);
+            .slice(-160);
     }
 
     private getExternalCodexActionEventsForThread(threadId?: string): RemoteCodeActionEvent[] {
@@ -5178,17 +5181,39 @@ ol{padding-left:20px}li{margin:6px 0}.note{margin-top:12px;font-size:13px;color:
         if (!filePath) return [];
 
         try {
-            const lines = this.readUtf8FileTailLines(filePath, 512 * 1024).slice(-900);
+            const lines = this.readUtf8FileTailLines(filePath, 16 * 1024 * 1024).slice(-6000);
             const events = new Map<string, RemoteCodeActionEvent>();
             let reasoningIndex = 0;
             let commentaryIndex = 0;
             const seenCommentary = new Set<string>();
+            let currentTurnStartedAt = 0;
+            let currentTurnEndedAt = 0;
+            let currentTurnHasFinalAnswer = false;
+            const currentTurnCommandCallIds = new Set<string>();
+            const currentTurnCompletedCommandCallIds = new Set<string>();
 
             for (const line of lines) {
                 let item: any;
                 try { item = JSON.parse(line); } catch { continue; }
                 const payload = item.payload || {};
                 const itemTime = Math.round(item.timestamp ? new Date(item.timestamp).getTime() : Date.now());
+                const startsUserTurn = this.isExternalCodexUserTurnStart(item, payload);
+                if (startsUserTurn) {
+                    currentTurnStartedAt = itemTime;
+                    currentTurnEndedAt = itemTime;
+                    currentTurnHasFinalAnswer = false;
+                    currentTurnCommandCallIds.clear();
+                    currentTurnCompletedCommandCallIds.clear();
+                }
+                const isCurrentTurnActivity = currentTurnStartedAt > 0
+                    && itemTime >= currentTurnStartedAt
+                    && this.isExternalCodexWorkActivity(item, payload);
+                if (isCurrentTurnActivity) {
+                    currentTurnEndedAt = Math.max(currentTurnEndedAt, itemTime);
+                    if (this.isExternalCodexFinalAnswer(item, payload)) {
+                        currentTurnHasFinalAnswer = true;
+                    }
+                }
 
                 const commentary = this.extractPublicCodexProgressMessage(item, payload);
                 if (commentary) {
@@ -5229,6 +5254,9 @@ ol{padding-left:20px}li{margin:6px 0}.note{margin-top:12px;font-size:13px;color:
                     const callId = payload.call_id || payload.id || `${payload.name || 'tool'}_${itemTime}_${events.size}`;
                     const id = `codex_external_${callId}`;
                     const info = this.describeExternalCodexToolCall(payload);
+                    if (isCurrentTurnActivity && this.isCommandTimelineEvent({ type: info.type } as RemoteCodeActionEvent)) {
+                        currentTurnCommandCallIds.add(callId);
+                    }
                     events.set(id, {
                         id,
                         type: info.type,
@@ -5251,6 +5279,9 @@ ol{padding-left:20px}li{margin:6px 0}.note{margin-top:12px;font-size:13px;color:
                     const id = `codex_external_${callId}`;
                     const existing = events.get(id);
                     const output = this.compactExternalCodexToolOutput(payload);
+                    if (isCurrentTurnActivity && (currentTurnCommandCallIds.has(callId) || /^Exit code:/i.test(output))) {
+                        currentTurnCompletedCommandCallIds.add(callId);
+                    }
                     events.set(id, {
                         ...(existing || {
                             id,
@@ -5287,7 +5318,18 @@ ol{padding-left:20px}li{margin:6px 0}.note{margin-top:12px;font-size:13px;color:
                 }
             }
 
-            return Array.from(events.values()).slice(-80);
+            const summaryEvent = this.buildExternalCodexWorkSummaryEvent(
+                target,
+                currentTurnStartedAt,
+                currentTurnEndedAt,
+                currentTurnCompletedCommandCallIds.size,
+                !currentTurnHasFinalAnswer
+            );
+            if (summaryEvent) {
+                events.set(summaryEvent.id, summaryEvent);
+            }
+
+            return Array.from(events.values()).slice(-160);
         } catch {
             return [];
         }
@@ -5311,6 +5353,48 @@ ol{padding-left:20px}li{margin:6px 0}.note{margin-top:12px;font-size:13px;color:
         } finally {
             fs.closeSync(fd);
         }
+    }
+
+    private isExternalCodexUserTurnStart(item: any, payload: any): boolean {
+        return (item.type === 'event_msg' && payload.type === 'user_message')
+            || (item.type === 'response_item' && payload.type === 'message' && payload.role === 'user');
+    }
+
+    private isExternalCodexWorkActivity(item: any, payload: any): boolean {
+        if (item.type === 'event_msg' && payload.type === 'token_count') return false;
+        if (item.type === 'session_meta' || item.type === 'turn_context') return false;
+        return true;
+    }
+
+    private isExternalCodexFinalAnswer(item: any, payload: any): boolean {
+        const phase = typeof payload?.phase === 'string' ? payload.phase.toLowerCase() : '';
+        return (item.type === 'response_item' && payload.type === 'message' && payload.role === 'assistant' && (phase === 'final_answer' || phase === 'final'))
+            || (item.type === 'event_msg' && payload.type === 'task_complete');
+    }
+
+    private buildExternalCodexWorkSummaryEvent(
+        threadId: string,
+        startedAt: number,
+        endedAt: number,
+        completedCommandCount: number,
+        isRunning: boolean
+    ): RemoteCodeActionEvent | undefined {
+        if (!Number.isFinite(startedAt) || startedAt <= 0) return undefined;
+        const completedAt = Number.isFinite(endedAt) && endedAt >= startedAt ? endedAt : startedAt;
+        const id = `codex_external_work_summary_${startedAt}`;
+        return {
+            id,
+            type: 'work_summary',
+            title: 'Итоги работы Codex',
+            detail: this.actionTimelineSummaryFromDuration(completedAt - startedAt, completedCommandCount, isRunning),
+            status: isRunning ? 'running' : 'completed',
+            timestamp: completedAt,
+            threadId,
+            actionable: false,
+            startedAt,
+            completedAt,
+            completedCommandCount
+        };
     }
 
     private extractPublicCodexProgressMessage(item: any, payload: any): string {
@@ -5692,7 +5776,7 @@ ol{padding-left:20px}li{margin:6px 0}.note{margin-top:12px;font-size:13px;color:
 <style>
 html,body{height:100%}
 :root{--codex-bg:#181818;--codex-sidebar:#17191d;--codex-sidebar-2:#1c1d22;--codex-surface:#242424;--codex-surface-2:#2b2b2b;--codex-selected:#303039;--codex-chip:#232323;--codex-border:#2d2d32;--codex-strong-border:#37373c;--codex-text:#d8d8d8;--codex-bright:#f5f5f5;--codex-muted:#96999a;--codex-green:#50cf8e;--codex-red:#ee7070;--codex-blue:#5aa7ff;--codex-font:-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;--codex-mono:var(--vscode-editor-font-family,"Cascadia Mono",Consolas,monospace);--chat-max:850px;--composer-max:880px;--bubble-max:680px}
-body{margin:0;background:var(--codex-bg);color:var(--codex-text);font:12.5px/1.44 var(--codex-font);display:flex;flex-direction:column;letter-spacing:0;-webkit-font-smoothing:antialiased;text-rendering:geometricPrecision}
+body{margin:0;background:var(--codex-bg);color:var(--codex-text);font:13px/1.46 var(--codex-font);display:flex;flex-direction:column;letter-spacing:0;-webkit-font-smoothing:antialiased;text-rendering:geometricPrecision}
 button{font:inherit}
 svg{width:15px;height:15px;display:block;fill:none;stroke:currentColor;stroke-width:1.75;stroke-linecap:round;stroke-linejoin:round;shape-rendering:geometricPrecision}
 .top{height:44px;border-bottom:1px solid var(--codex-border);background:var(--codex-bg);display:flex;align-items:center;gap:7px;padding:0 min(3vw,30px)}
@@ -5809,7 +5893,7 @@ svg{width:15px;height:15px;display:block;fill:none;stroke:currentColor;stroke-wi
 .assistant .role{color:var(--codex-text)}.system .role{color:#e8b66b}
 .msg.streaming .meta-bottom::before{content:'Думаю';display:inline-flex;margin-right:8px;color:var(--codex-muted)}
 .msg.streaming .meta-bottom::after{content:'';display:inline-block;width:6px;height:6px;margin-left:6px;border-radius:999px;background:var(--codex-muted);vertical-align:middle;animation:pulse 1.1s ease-in-out infinite}
-.message-text{margin:0;white-space:normal;word-wrap:break-word;font:inherit;color:var(--codex-text);font-size:13px;line-height:1.43}
+.message-text{margin:0;white-space:normal;word-wrap:break-word;font:inherit;color:var(--codex-text);font-size:13.5px;line-height:1.45}
 .message-text p{margin:0 0 10px}
 .message-text p:last-child,.message-text ul:last-child,.message-text ol:last-child{margin-bottom:0}
 .message-text ul,.message-text ol{margin:0 0 10px 1.25em;padding:0}
@@ -5912,7 +5996,7 @@ pre{margin:0;white-space:pre-wrap;word-wrap:break-word;font:inherit}
 .subcontrols{display:flex;gap:12px;align-items:center;margin:5px auto 0;max-width:var(--composer-max);color:#8e8e8e;font-size:12px}
 .plus{color:#c0c0c0;background:transparent;border:0;width:30px;height:30px;display:inline-flex;align-items:center;justify-content:center;padding:0;cursor:pointer;border-radius:8px;flex:0 0 auto}
 .plus:hover{background:var(--codex-selected);color:#ededed}
-textarea{width:100%;box-sizing:border-box;resize:none;min-height:40px;max-height:152px;overflow:hidden;border:0;background:transparent;color:#e9e9e9;padding:0;font:inherit;font-size:13px;outline:none;line-height:1.44}
+textarea{width:100%;box-sizing:border-box;resize:none;min-height:40px;max-height:152px;overflow:hidden;border:0;background:transparent;color:#e9e9e9;padding:0;font:inherit;font-size:13.5px;outline:none;line-height:1.45}
 textarea.scroll{overflow:auto}
 textarea::placeholder{color:#818389}
 .composer-attachments{display:none;flex-wrap:wrap;gap:6px;margin:-1px 0 2px}
@@ -6568,24 +6652,31 @@ prompt.addEventListener('keydown', event => {
     }
 
     private renderActionTimeline(actions: RemoteCodeActionEvent[]): string {
-        const recent = this.recentActionTimelineEvents(actions).slice(-18);
-        if (recent.length === 0) return '';
-        const completedCommands = recent.filter(event => event.type === 'command_approval' && event.status === 'completed');
-        const isRunning = recent.some(event => event.status === 'running' || event.status === 'approved');
+        const summaryEvent = this.latestWorkSummaryEvent(actions);
+        const timelineActions = actions.filter(event => event.type !== 'work_summary');
+        const recent = this.recentActionTimelineEvents(timelineActions).slice(-18);
+        if (recent.length === 0 && !summaryEvent) return '';
+        const completedCommands = recent.filter(event => this.isCommandTimelineEvent(event) && event.status === 'completed');
+        const summaryCommandCount = summaryEvent?.completedCommandCount && summaryEvent.completedCommandCount > 0
+            ? summaryEvent.completedCommandCount
+            : completedCommands.length;
+        const isRunning = summaryEvent?.status === 'running'
+            || recent.some(event => event.status === 'running' || event.status === 'approved');
         const visibleEvents = recent
-            .filter(event => !(event.type === 'command_approval' && event.status === 'completed'))
+            .filter(event => !(this.isCommandTimelineEvent(event) && event.status === 'completed'))
             .slice(-8);
+        const summary = summaryEvent?.detail || this.actionTimelineSummary(recent, summaryCommandCount, isRunning);
         const parts: string[] = [];
-        parts.push(`<div class="work-summary-line ${isRunning ? 'running' : 'done'}"><span class="work-dot"></span><strong>${this.escapeHtml(this.actionTimelineSummary(recent, completedCommands.length, isRunning))}</strong></div>`);
-        if (completedCommands.length > 0) {
-            const word = this.pluralRu(completedCommands.length, 'команда', 'команды', 'команд');
+        parts.push(`<div class="work-summary-line ${isRunning ? 'running' : 'done'}"><span class="work-dot"></span><strong>${this.escapeHtml(summary)}</strong></div>`);
+        if (summaryCommandCount > 0) {
+            const word = this.pluralRu(summaryCommandCount, 'команда', 'команды', 'команд');
             const entries = completedCommands.slice(-6).map(event => {
                 const command = this.compactActionDetail(event);
                 const detail = (event.stdout || event.stderr || '').trim();
                 return `<div class="action-log-entry"><strong>${this.escapeHtml(command)}</strong>${detail ? `<pre>${this.escapeHtml(detail).slice(0, 1800)}</pre>` : ''}</div>`;
             }).join('');
             parts.push(`<details class="action-log">
-                <summary class="action-log-summary">${this.webIcon('terminal')}<strong>Выполнено ${completedCommands.length} ${word}</strong></summary>
+                <summary class="action-log-summary">${this.webIcon('terminal')}<strong>Выполнено ${summaryCommandCount} ${word}</strong></summary>
                 <div class="action-log-body">${entries}</div>
             </details>`);
         }
@@ -6597,6 +6688,17 @@ prompt.addEventListener('keydown', event => {
         return parts.length ? `<div class="action-timeline">${parts.join('')}</div>` : '';
     }
 
+    private latestWorkSummaryEvent(events: RemoteCodeActionEvent[]): RemoteCodeActionEvent | undefined {
+        return events
+            .filter(event => event.type === 'work_summary' && event.detail)
+            .sort((a, b) => Number(a.timestamp || 0) - Number(b.timestamp || 0))
+            .pop();
+    }
+
+    private isCommandTimelineEvent(event: Pick<RemoteCodeActionEvent, 'type'>): boolean {
+        return String(event.type || '').toLowerCase().includes('command');
+    }
+
     private actionTimelineSummary(events: RemoteCodeActionEvent[], completedCommandCount: number, isRunning: boolean): string {
         const timestamps = events
             .map(event => Number(event.timestamp || 0))
@@ -6604,6 +6706,10 @@ prompt.addEventListener('keydown', event => {
         const rawDuration = timestamps.length >= 2
             ? Math.max(...timestamps) - Math.min(...timestamps)
             : 0;
+        return this.actionTimelineSummaryFromDuration(rawDuration, completedCommandCount, isRunning);
+    }
+
+    private actionTimelineSummaryFromDuration(rawDuration: number, completedCommandCount: number, isRunning: boolean): string {
         const maxSummaryDurationMs = 3 * 60 * 60 * 1000;
         const duration = rawDuration > 0 && rawDuration <= maxSummaryDurationMs
             ? this.formatWorkDuration(rawDuration)

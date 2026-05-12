@@ -741,7 +741,7 @@ fun CodexChatTab(
     }
     val timelineActionEvents = actionEvents
         .filterNot { it.actionable && it.status == "pending" }
-        .takeLast(10)
+        .takeLast(120)
     val approvalActionEvents = actionEvents
         .filter { it.actionable && it.status == "pending" }
         .takeLast(8)
@@ -1420,14 +1420,16 @@ private fun DesktopToolBlock(
 
 @Composable
 private fun MobileActionTimeline(events: List<CodexActionEvent>) {
-    val completedCommands = events.filter { it.status == "completed" && it.type.contains("command") }
-    val otherEvents = events
-        .filterNot { it.status == "completed" && it.type.contains("command") }
+    val summaryEvent = events.lastOrNull { it.type == "work_summary" && it.detail.isNotBlank() }
+    val timelineEvents = events.filterNot { it.type == "work_summary" }
+    val completedCommands = timelineEvents.filter { it.status == "completed" && it.isCommandActionEvent() }
+    val otherEvents = timelineEvents
+        .filterNot { it.status == "completed" && it.isCommandActionEvent() }
         .takeLast(6)
     val visibleEvents = (otherEvents + completedCommands.takeLast(5)).takeLast(8)
     var expanded by remember(events.map { it.id to it.status }) { mutableStateOf(false) }
-    val running = events.any { it.status == "running" || it.status == "approved" }
-    val summary = remember(events, running) { mobileWorkSummary(events, running) }
+    val running = summaryEvent?.status == "running" || timelineEvents.any { it.status == "running" || it.status == "approved" }
+    val summary = remember(events, running) { summaryEvent?.detail ?: mobileWorkSummary(timelineEvents, running) }
     val previewEvents = visibleEvents.takeLast(if (running) 4 else 3)
 
     Column(
@@ -1493,9 +1495,11 @@ private fun MobileActionTimeline(events: List<CodexActionEvent>) {
     }
 }
 
+private fun CodexActionEvent.isCommandActionEvent(): Boolean = type.contains("command", ignoreCase = true)
+
 @Composable
 private fun MobileTimelineEventPreview(event: CodexActionEvent) {
-    if (event.status == "completed" && event.type.contains("command")) {
+    if (event.status == "completed" && event.isCommandActionEvent()) {
         Text(
             compactActionText(event),
             color = TextSecondary,
@@ -1528,7 +1532,7 @@ private fun mobileWorkSummary(events: List<CodexActionEvent>, running: Boolean):
     }
     val verb = if (running) "Работает" else "Работал"
     val workLabel = if (duration.isBlank()) verb else "$verb на протяжении $duration"
-    val completedCommandCount = activeEvents.count { it.status == "completed" && it.type.contains("command") }
+    val completedCommandCount = activeEvents.count { it.status == "completed" && it.isCommandActionEvent() }
     val commandLabel = if (completedCommandCount > 0) {
         ", выполнено $completedCommandCount ${pluralRu(completedCommandCount, "команда", "команды", "команд")}"
     } else {
@@ -1583,7 +1587,7 @@ private fun MobileActionLine(event: CodexActionEvent) {
                     event.status == "failed" -> Icons.Default.Error
                     event.status == "denied" -> Icons.Default.Close
                     event.type.contains("patch") -> Icons.Default.Build
-                    event.type.contains("command") -> Icons.Default.Terminal
+                    event.isCommandActionEvent() -> Icons.Default.Terminal
                     else -> Icons.Default.CheckCircle
                 },
                 contentDescription = null,
@@ -1629,14 +1633,14 @@ private fun actionKindLabel(event: CodexActionEvent): String {
         "diagnostic" in text || "problem" in text || "error" in text -> "Diagnostics"
         "read-file" in text || "file" in text -> "Files"
         event.type == "model_progress" -> "Codex"
-        event.type.contains("command") -> "Command"
+        event.isCommandActionEvent() -> "Command"
         else -> "Action"
     }
 }
 
 private fun actionStatusText(event: CodexActionEvent): String {
     val title = event.title.trim()
-    if (title.isNotBlank() && !event.type.contains("command")) return title
+    if (title.isNotBlank() && !event.isCommandActionEvent()) return title
     if (event.type == "model_progress") return title.ifBlank { "Прогресс модели" }
     return when (event.status) {
         "running", "approved" -> "Выполняется"
@@ -1650,7 +1654,7 @@ private fun actionStatusText(event: CodexActionEvent): String {
 
 private fun compactActionText(event: CodexActionEvent): String {
     val title = event.title.trim()
-    val raw = if (title.isNotBlank() && !event.type.contains("command")) {
+    val raw = if (title.isNotBlank() && !event.isCommandActionEvent()) {
         event.detail
     } else {
         event.detail.ifBlank { title.ifBlank { event.type } }
