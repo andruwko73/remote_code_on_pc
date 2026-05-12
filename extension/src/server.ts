@@ -2248,9 +2248,21 @@ export class RemoteServer {
     }
 
     private enrichCodexMessageForClient(message: CodexChatMessage): CodexChatMessage {
-        if (message.changeSummary?.files?.length) return message;
+        const content = message.role === 'assistant' || message.role === 'system'
+            ? this.normalizeRemoteCodeDisplayText(message.content || '')
+            : message.content;
+        const normalized = content === message.content ? message : { ...message, content };
+        if (normalized.changeSummary?.files?.length) return normalized;
         const summary = this.getGitChangeSummaryFromMessage(message.content || '', message.timestamp);
-        return summary ? { ...message, changeSummary: summary } : message;
+        return summary ? { ...normalized, changeSummary: summary } : normalized;
+    }
+
+    private normalizeRemoteCodeDisplayText(content: string): string {
+        const legacyAgentLabel = ['Remote Code', 'Agent'].join(' ');
+        const legacyMethodLabel = ['remote-code', 'agent'].join('-');
+        return content
+            .split(legacyAgentLabel).join('Remote Code')
+            .split(legacyMethodLabel).join('remote-code');
     }
 
     private jsonResponse(res: http.ServerResponse, status: number, data: any): void {
@@ -3120,7 +3132,8 @@ export class RemoteServer {
         const activeFile = active ? `${active.document.uri.fsPath} (${active.document.languageId})` : 'No active editor.';
         const fileHints = this.getWorkspaceFileHints(120);
         return [
-            'You are Remote Code Agent running inside VS Code.',
+            'You are Remote Code running inside VS Code through the selected VS Code language model.',
+            'Do not introduce yourself as a separate agent; if a label is needed, use Remote Code or the selected model name.',
             'Help with code, files, diagnostics, terminal commands, and IDE context.',
             'When an action needs user approval, do not claim it was done.',
             'Use only real project files. Do not invent source paths.',
@@ -3761,7 +3774,7 @@ export class RemoteServer {
             const errorMessage: CodexChatMessage = {
                 id: `remote_assistant_error_${Date.now()}`,
                 role: 'assistant',
-                content: `Remote Code Agent error: ${err?.message || String(err)}`,
+                content: `Remote Code error: ${err?.message || String(err)}`,
                 timestamp: Date.now(),
                 threadId: targetThreadId
             };
@@ -6123,9 +6136,9 @@ svg{width:15px;height:15px;display:block;fill:none;stroke:currentColor;stroke-wi
 .work-summary-line.done .work-dot::after{content:'✓';font-size:11px;line-height:1}
 .work-summary-line.running .work-dot{border-left-color:transparent;animation:spin .9s linear infinite}
 .msg{position:relative;padding:0;margin:0 auto 22px;background:transparent;border:0;max-width:var(--chat-max)}
-.msg.user{max-width:var(--chat-max);margin:0 auto 23px;color:var(--codex-bright);display:flex;justify-content:center;flex-wrap:wrap}
+.msg.user{max-width:var(--chat-max);margin:0 auto 23px;color:var(--codex-bright);display:flex;justify-content:flex-end;flex-wrap:wrap}
 .msg.user .role,.msg.user .meta{display:none}
-.msg.user .message-text{background:#2b2b2d;border:1px solid #313134;border-radius:16px;padding:9px 13px;color:var(--codex-bright);max-width:min(74%,var(--bubble-max));box-sizing:border-box}
+.msg.user .message-text{background:#2b2b2d;border:1px solid #313134;border-radius:16px 16px 4px 16px;padding:9px 13px;color:var(--codex-bright);max-width:min(74%,var(--bubble-max));box-sizing:border-box}
 .msg.system .message-text{color:#aeb0b3}
 .role{font-weight:600;color:var(--codex-text);margin-bottom:4px}
 .meta{font-size:12px;color:#8e8e8e;margin:-1px 0 5px}
@@ -6146,7 +6159,7 @@ svg{width:15px;height:15px;display:block;fill:none;stroke:currentColor;stroke-wi
 .code-block pre{padding:10px 12px;overflow:auto;font:12.5px/1.5 var(--codex-mono);white-space:pre;color:#d8d8d8}
 .msg.user .message-text code,.msg.user .message-text .inline-chip{background:#303030}
 .attachments-list,.message-file-cards{display:flex;flex-direction:column;gap:8px;margin:12px 0 0;width:100%;max-width:var(--chat-max)}
-.msg.user .attachments-list,.msg.user .message-file-cards{max-width:min(74%,var(--bubble-max));margin-left:auto;margin-right:auto}
+.msg.user .attachments-list,.msg.user .message-file-cards{max-width:min(74%,var(--bubble-max));margin-left:auto;margin-right:0}
 .attachment-card{border:1px solid var(--codex-strong-border);background:var(--codex-surface);color:#dcdcdc;border-radius:8px;padding:9px 10px;display:grid;grid-template-columns:34px minmax(0,1fr) auto;align-items:center;gap:10px;max-width:100%;text-align:left;font:inherit}
 .attachment-card.clickable{cursor:pointer}
 .attachment-card.clickable:hover{background:var(--codex-surface-2)}
@@ -6191,9 +6204,9 @@ svg{width:15px;height:15px;display:block;fill:none;stroke:currentColor;stroke-wi
 pre{margin:0;white-space:pre-wrap;word-wrap:break-word;font:inherit}
 .msg-tools{position:absolute;right:0;bottom:-20px;display:flex;gap:5px;opacity:0;transform:translateY(2px);transition:opacity .12s ease, transform .12s ease}
 .msg.assistant .msg-tools,.msg.system .msg-tools{right:auto;left:0}
-.msg.user .msg-tools{right:auto;left:50%;transform:translate(-50%,2px)}
+.msg.user .msg-tools{right:0;left:auto;transform:translateY(2px)}
 .msg:hover .msg-tools{opacity:1;transform:translateY(0)}
-.msg.user:hover .msg-tools{transform:translate(-50%,0)}
+.msg.user:hover .msg-tools{transform:translateY(0)}
 .hover-btn{width:23px;height:23px;border:0;border-radius:6px;background:var(--codex-bg);color:#909399;display:inline-flex;align-items:center;justify-content:center;padding:0;cursor:pointer}
 .hover-btn svg{width:14px;height:14px}
 .hover-btn:hover{background:var(--codex-surface);color:#e6e6e6}
@@ -8250,12 +8263,12 @@ prompt.addEventListener('keydown', event => {
 
             this.jsonResponse(res, 200, {
                 success: true,
-                method: 'remote-code-agent',
-                message: 'Sent to Remote Code Agent',
+                method: 'remote-code',
+                message: 'Sent to Remote Code',
                 threadId: targetThreadId,
                 reasoningEffort: this.selectedReasoningEffort,
                 includeContext: this.selectedIncludeContext,
-                note: 'Remote Code Agent owns this cross-device chat.'
+                note: 'Remote Code routes this cross-device chat through the selected VS Code model.'
             });
         } catch (err: any) {
             this.jsonResponse(res, 500, { error: err.message });
@@ -8357,7 +8370,7 @@ prompt.addEventListener('keydown', event => {
                 const nextModel = modelId.trim();
                 const agents = this.getRemoteCodeModelAgents(await this.getAvailableAgents());
                 if (!agents.find(agent => agent.name === nextModel)) {
-                    this.jsonResponse(res, 400, { error: `Model ${nextModel} is not available for Remote Code Agent` });
+                    this.jsonResponse(res, 400, { error: `Model ${nextModel} is not available for Remote Code` });
                     return;
                 }
                 this.selectedAgent = nextModel;
@@ -8658,8 +8671,8 @@ prompt.addEventListener('keydown', event => {
             this.openRemoteCodeChat();
             this.jsonResponse(res, 200, {
                 success: true,
-                method: 'remote-code-agent',
-                note: 'Remote Code Agent chat opened in VS Code'
+                method: 'remote-code',
+                note: 'Remote Code chat opened in VS Code'
             });
         } catch (err: any) {
             this.jsonResponse(res, 500, { error: err.message });

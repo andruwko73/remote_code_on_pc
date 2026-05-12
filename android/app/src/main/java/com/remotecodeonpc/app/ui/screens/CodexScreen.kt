@@ -1779,10 +1779,10 @@ private fun CodexMessageBubble(
             .padding(vertical = 0.dp)
     ) {
         if (isUser) {
-            Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+            Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.CenterEnd) {
                 Surface(
                     color = Color(0xFF242424),
-                    shape = RoundedCornerShape(16.dp),
+                    shape = RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp, bottomEnd = 4.dp, bottomStart = 16.dp),
                     border = BorderStroke(1.dp, Color(0xFF2F2F2F)),
                     modifier = Modifier.widthIn(max = userBubbleMaxWidth)
                 ) {
@@ -1805,7 +1805,7 @@ private fun CodexMessageBubble(
             }
             MobileMessageToolbar(
                 isUser = true,
-                alignCenter = true,
+                alignEnd = true,
                 canDelete = message.id.isNotBlank(),
                 onCopy = { context.copyMessageToClipboard(cleanedContent) },
                 onEdit = { onEditMessage(cleanedContent) },
@@ -1843,7 +1843,7 @@ private fun CodexMessageBubble(
             }
             MobileMessageToolbar(
                 isUser = false,
-                alignCenter = false,
+                alignEnd = false,
                 canDelete = message.id.isNotBlank(),
                 onCopy = { context.copyMessageToClipboard(cleanedContent) },
                 onEdit = {},
@@ -1858,7 +1858,7 @@ private fun CodexMessageBubble(
 @Composable
 private fun MobileMessageToolbar(
     isUser: Boolean,
-    alignCenter: Boolean,
+    alignEnd: Boolean,
     canDelete: Boolean,
     onCopy: () -> Unit,
     onEdit: () -> Unit,
@@ -1870,7 +1870,7 @@ private fun MobileMessageToolbar(
         modifier = Modifier
             .fillMaxWidth()
             .padding(top = 1.dp),
-        horizontalArrangement = if (alignCenter) Arrangement.Center else Arrangement.Start,
+        horizontalArrangement = if (alignEnd) Arrangement.End else Arrangement.Start,
         verticalAlignment = Alignment.CenterVertically
     ) {
         if (isUser) {
