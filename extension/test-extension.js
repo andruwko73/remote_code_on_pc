@@ -225,17 +225,17 @@ assert(serverContent.includes('.msg.user{max-width:var(--chat-max);margin:0 auto
 const compactWebviewChecks = [
     '--codex-sidebar:#17191d',
     '--codex-selected:#303039',
-    '.sidebar-thread{min-height:39px',
+    '.sidebar-thread{min-height:36px',
     '.sidebar-thread.selected{background:var(--codex-selected)}',
-    '.message-text{margin:0;white-space:normal;word-wrap:break-word;font:inherit;color:var(--codex-text);font-size:14px;line-height:1.47}',
+    '.message-text{margin:0;white-space:normal;word-wrap:break-word;font:inherit;color:var(--codex-text);font-size:13.5px;line-height:1.45}',
     '.change-card{margin:14px 0 16px',
-    '.change-head{display:flex;align-items:center;justify-content:space-between;gap:22px;min-height:68px',
-    '.change-action{border:0;background:transparent;color:#9a9a9a;height:34px',
-    '.change-row{display:flex;align-items:center;gap:11px;min-height:38px',
+    '.change-head{display:flex;align-items:center;justify-content:space-between;gap:18px;min-height:56px',
+    '.change-action{border:0;background:transparent;color:#9a9a9a;height:30px',
+    '.change-row{display:flex;align-items:center;gap:10px;min-height:34px',
     '.composer{max-width:var(--composer-max);margin:0 auto;border:1px solid var(--codex-strong-border);background:#2d2d2d;border-radius:18px',
 ];
 assert(compactWebviewChecks.every((snippet) => serverContent.includes(snippet)), 'Extension webview uses compact Codex-like density', 'webview sidebar/message/change-card/composer density drifted from Codex target');
-assert(!serverContent.includes('id="topRun"') && !serverContent.includes('id="connectorDrop"') && serverContent.includes('id="progressToggle"') && serverContent.includes('data-progress-toggle') && serverContent.includes('.content-shell.progress-open .progress-panel{display:block') && serverContent.includes('setProgressPanelOpen(progressOpen, false)') && serverContent.includes('min-height:42px;max-height:168px'), 'Extension top bar matches Codex surface', 'Remote Code utility buttons should stay out of the main chat surface and the progress sidebar should be user-toggleable');
+assert(!serverContent.includes('id="topRun"') && !serverContent.includes('id="connectorDrop"') && serverContent.includes('id="progressToggle"') && serverContent.includes('data-progress-toggle') && serverContent.includes('.content-shell.progress-open .progress-panel{display:block') && serverContent.includes('setProgressPanelOpen(progressOpen, false)') && serverContent.includes('min-height:40px;max-height:152px'), 'Extension top bar matches Codex surface', 'Remote Code utility buttons should stay out of the main chat surface and the progress sidebar should be user-toggleable');
 assert(serverContent.includes('pcCodexMirrorTimer') && serverContent.includes('refreshPcChatPanelForExternalCodexChange') && serverContent.includes("type: 'codex:message-refresh'") && serverContent.includes('getExternalCodexActionEventsForThread') && serverContent.includes('sanitizeActionText') && serverContent.includes('readUtf8FileTailLines') && serverContent.includes('parseCodexSessionFileTail') && serverContent.includes('codexSessionFilesCache'), 'Extension mirrors live Codex chat updates', 'VS Code webview should live-refresh current Codex JSONL and show public tool/action events without leaking tokens or repeatedly scanning full session files');
 assert(serverContent.includes('.code-block') && serverContent.includes('data-preview-src') && serverContent.includes('imageDataUri') && serverContent.includes('imagePreview') && serverContent.includes('isAttachmentPreviewPathAllowed'), 'Extension renders Codex-style code blocks and image previews', 'webview chat should render fenced code blocks and tappable image thumbnails');
 assert(
