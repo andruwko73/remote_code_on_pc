@@ -168,10 +168,6 @@ fun RemoteCodeApp(
                         error = state.codexError,
                         changeDiff = state.codexChangeDiff,
                         isChangeDiffLoading = state.isCodexDiffLoading,
-                        folders = state.folders,
-                        currentFiles = state.currentFiles,
-                        fileContent = state.fileContent,
-                        isLoadingFiles = state.isLoadingFiles,
                         onSendMessage = { text, attachments -> viewModel.sendCodexMessage(text, attachments) },
                         onSelectModel = { viewModel.selectCodexModel(it) },
                         onSelectReasoningEffort = { viewModel.selectCodexReasoningEffort(it) },
@@ -191,23 +187,8 @@ fun RemoteCodeApp(
                         onClearChangeDiff = { viewModel.clearCodexChangeDiff() },
                         onStopGeneration = { viewModel.stopCodexGeneration() },
                         onRespondToAction = { actionId, approve -> viewModel.respondToCodexAction(actionId, approve) },
-                        onNavigateToDir = { viewModel.loadFileTree(it) },
                         onOpenFile = { viewModel.loadFileContent(it) },
                         onOpenFolder = { viewModel.openFolder(it); viewModel.loadFileTree(it) },
-                        onGoUp = {
-                            state.currentFiles?.let { tree ->
-                                val cleanPath = tree.path.replace('\\', '/').trimEnd('/')
-                                val idx = cleanPath.lastIndexOf('/')
-                                if (idx >= 0) {
-                                    val parent = cleanPath.substring(0, idx).replace('/', '\\')
-                                    if (parent.length >= 3) {
-                                        viewModel.loadFileTree(
-                                            if (parent.endsWith(":")) "$parent\\" else parent
-                                        )
-                                    }
-                                }
-                            }
-                        },
                         onNavigateToSettings = { viewModel.navigateTo("settings") }
                     )
                     "files" -> FilesScreen(

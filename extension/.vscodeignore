@@ -1,5 +1,7 @@
 .venv/**
+node_modules/**
 *.vsix
+build.js
 analyze_jsonl.js
 check_chat_data*.py
 check_vscode_db.py
@@ -13,4 +15,7 @@ test-extension.js
 test-fixtures/**
 src/**
 tsconfig.json
+out/server.js
+out/*.map
+**/*.map
 *.map

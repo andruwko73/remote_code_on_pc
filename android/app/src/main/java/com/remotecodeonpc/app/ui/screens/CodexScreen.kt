@@ -65,9 +65,6 @@ import com.remotecodeonpc.app.CodexChangeFile
 import com.remotecodeonpc.app.CodexChangeSummary
 import com.remotecodeonpc.app.CodexProject
 import com.remotecodeonpc.app.CodexThread
-import com.remotecodeonpc.app.FileContent
-import com.remotecodeonpc.app.FileTreeItem
-import com.remotecodeonpc.app.FoldersResponse
 import com.remotecodeonpc.app.BuildConfig
 import com.remotecodeonpc.app.MessageAttachment
 import com.remotecodeonpc.app.WorkspaceStatus
@@ -100,11 +97,6 @@ fun CodexScreen(
     error: String?,
     changeDiff: CodexChangeActionResponse? = null,
     isChangeDiffLoading: Boolean = false,
-    // Optional file context for the Codex workspace surface.
-    folders: FoldersResponse?,
-    currentFiles: FileTreeItem?,
-    fileContent: FileContent?,
-    isLoadingFiles: Boolean,
     // Callbacks
     onSendMessage: (String, List<MessageAttachment>) -> Unit,
     onSelectModel: (String) -> Unit,
@@ -125,11 +117,8 @@ fun CodexScreen(
     onClearChangeDiff: () -> Unit = {},
     onStopGeneration: () -> Unit,
     onRespondToAction: (String, Boolean) -> Unit,
-    // Optional file callbacks.
-    onNavigateToDir: (String) -> Unit,
     onOpenFile: (String) -> Unit,
     onOpenFolder: (String) -> Unit,
-    onGoUp: () -> Unit,
     onNavigateToSettings: () -> Unit = {}
 ) {
     val drawerState = rememberDrawerState(DrawerValue.Closed)

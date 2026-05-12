@@ -45,6 +45,7 @@ extension/check_chat_data*.py
 extension/check_vscode_db.py
 
 # ========== Local runtime/cache artifacts ==========
+artifacts/
 data/browser_profile/
 data/runtime/
 data/cache/
