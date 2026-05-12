@@ -7625,6 +7625,19 @@ prompt.addEventListener('keydown', event => {
                 return;
             }
 
+            if (action === 'feedback') {
+                const feedbackValue = typeof body.feedback === 'string' ? body.feedback.trim() : '';
+                if (!['up', 'down'].includes(feedbackValue)) {
+                    this.jsonResponse(res, 400, { success: false, error: 'feedback must be up or down' });
+                    return;
+                }
+                const feedback = this._context.globalState.get<Record<string, string>>('remote_code_message_feedback', {});
+                feedback[messageId] = feedbackValue;
+                await this._context.globalState.update('remote_code_message_feedback', feedback);
+                this.jsonResponse(res, 200, { success: true, threadId, messageId });
+                return;
+            }
+
             this.jsonResponse(res, 400, { success: false, error: 'Unsupported message action' });
         } catch (err: any) {
             this.jsonResponse(res, 500, { success: false, error: err.message });

@@ -181,6 +181,7 @@ fun RemoteCodeApp(
                         onDeleteThread = { viewModel.deleteCodexThread(it) },
                         onDeleteMessage = { viewModel.deleteCodexMessage(it) },
                         onRegenerateMessage = { viewModel.regenerateCodexMessage(it) },
+                        onMessageFeedback = { messageId, feedback -> viewModel.sendCodexMessageFeedback(messageId, feedback) },
                         onLoadChangeDiff = { path, commit, cwd -> viewModel.loadCodexChangeDiff(path, commit, cwd) },
                         onReviewChange = { commit, cwd, path -> viewModel.reviewCodexChanges(commit, cwd, path) },
                         onUndoChange = { commit, cwd, path -> viewModel.undoCodexChanges(commit, cwd, path) },

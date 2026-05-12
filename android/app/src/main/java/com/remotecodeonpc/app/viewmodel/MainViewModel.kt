@@ -1482,6 +1482,33 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    fun sendCodexMessageFeedback(messageId: String, feedback: String) {
+        if (messageId.isBlank() || feedback !in setOf("up", "down")) return
+        val threadId = _uiState.value.currentCodexThreadId
+        viewModelScope.launch {
+            try {
+                val api = ApiClient.getApi(_uiState.value.serverConfig)
+                val response = api.codexMessageAction(
+                    mapOf(
+                        "action" to "feedback",
+                        "threadId" to threadId,
+                        "messageId" to messageId,
+                        "feedback" to feedback
+                    )
+                )
+                if (!response.isSuccessful || response.body()?.success != true) {
+                    _uiState.value = _uiState.value.copy(
+                        codexError = response.body()?.error ?: "Feedback failed: ${response.code()}"
+                    )
+                } else {
+                    _uiState.value = _uiState.value.copy(codexError = null)
+                }
+            } catch (e: Exception) {
+                _uiState.value = _uiState.value.copy(codexError = e.message)
+            }
+        }
+    }
+
     fun loadCodexChangeDiff(path: String, commit: String? = null, cwd: String? = null) {
         if (path.isBlank()) return
         _uiState.value = _uiState.value.copy(

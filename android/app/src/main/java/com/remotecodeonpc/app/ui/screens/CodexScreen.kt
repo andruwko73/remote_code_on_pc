@@ -113,6 +113,7 @@ fun CodexScreen(
     onDeleteThread: (String) -> Unit,
     onDeleteMessage: (String) -> Unit = {},
     onRegenerateMessage: (String) -> Unit = {},
+    onMessageFeedback: (String, String) -> Unit = { _, _ -> },
     onLoadChangeDiff: (String, String?, String?) -> Unit = { _, _, _ -> },
     onReviewChange: (String?, String?, String?) -> Unit = { _, _, _ -> },
     onUndoChange: (String?, String?, String?) -> Unit = { _, _, _ -> },
@@ -172,6 +173,7 @@ fun CodexScreen(
             onDeleteThread = onDeleteThread,
             onDeleteMessage = onDeleteMessage,
             onRegenerateMessage = onRegenerateMessage,
+            onMessageFeedback = onMessageFeedback,
             onLoadChangeDiff = onLoadChangeDiff,
             onReviewChange = onReviewChange,
             onUndoChange = onUndoChange,
@@ -573,6 +575,7 @@ fun CodexChatTab(
     onDeleteThread: (String) -> Unit,
     onDeleteMessage: (String) -> Unit = {},
     onRegenerateMessage: (String) -> Unit = {},
+    onMessageFeedback: (String, String) -> Unit = { _, _ -> },
     onLoadChangeDiff: (String, String?, String?) -> Unit = { _, _, _ -> },
     onReviewChange: (String?, String?, String?) -> Unit = { _, _, _ -> },
     onUndoChange: (String?, String?, String?) -> Unit = { _, _, _ -> },
@@ -866,7 +869,8 @@ fun CodexChatTab(
                                 messageText = text
                             },
                             onDeleteMessage = onDeleteMessage,
-                            onRegenerateMessage = onRegenerateMessage
+                            onRegenerateMessage = onRegenerateMessage,
+                            onMessageFeedback = onMessageFeedback
                         )
                     }
                 }
@@ -1603,7 +1607,8 @@ private fun CodexMessageBubble(
     onUndoChange: (String?, String?, String?) -> Unit,
     onEditMessage: (String) -> Unit,
     onDeleteMessage: (String) -> Unit,
-    onRegenerateMessage: (String) -> Unit
+    onRegenerateMessage: (String) -> Unit,
+    onMessageFeedback: (String, String) -> Unit
 ) {
     val isUser = message.role == "user"
     val context = LocalContext.current
@@ -1650,7 +1655,8 @@ private fun CodexMessageBubble(
                 onCopy = { context.copyMessageToClipboard(cleanedContent) },
                 onEdit = { onEditMessage(cleanedContent) },
                 onDelete = { onDeleteMessage(message.id) },
-                onRegenerate = {}
+                onRegenerate = {},
+                onFeedback = { _ -> }
             )
         } else {
             if (message.isStreaming) {
@@ -1687,7 +1693,8 @@ private fun CodexMessageBubble(
                 onCopy = { context.copyMessageToClipboard(cleanedContent) },
                 onEdit = {},
                 onDelete = { onDeleteMessage(message.id) },
-                onRegenerate = { onRegenerateMessage(message.id) }
+                onRegenerate = { onRegenerateMessage(message.id) },
+                onFeedback = { feedback -> onMessageFeedback(message.id, feedback) }
             )
         }
     }
@@ -1701,7 +1708,8 @@ private fun MobileMessageToolbar(
     onCopy: () -> Unit,
     onEdit: () -> Unit,
     onDelete: () -> Unit,
-    onRegenerate: () -> Unit
+    onRegenerate: () -> Unit,
+    onFeedback: (String) -> Unit
 ) {
     Row(
         modifier = Modifier
@@ -1727,6 +1735,16 @@ private fun MobileMessageToolbar(
                 icon = Icons.Default.Refresh,
                 contentDescription = "Повторить ответ",
                 onClick = onRegenerate
+            )
+            MobileMessageToolButton(
+                icon = Icons.Outlined.ThumbUp,
+                contentDescription = "Хороший ответ",
+                onClick = { onFeedback("up") }
+            )
+            MobileMessageToolButton(
+                icon = Icons.Outlined.ThumbDown,
+                contentDescription = "Плохой ответ",
+                onClick = { onFeedback("down") }
             )
         }
         MobileMessageToolButton(

@@ -244,9 +244,11 @@ assert(
     serverContent.includes('prompt.value = text') &&
     serverContent.includes('prompt.setSelectionRange(prompt.value.length, prompt.value.length)') &&
     !serverContent.includes('prompt.textContent = text') &&
+    serverContent.includes("if (action === 'feedback')") &&
+    serverContent.includes("feedback must be up or down") &&
     serverContent.includes("type: 'codex:message-deleted'"),
     'Extension message actions persist and broadcast',
-    'message edit/delete/regenerate API should fill the composer, persist hidden messages and notify clients'
+    'message edit/delete/regenerate/feedback API should fill the composer, persist hidden messages and notify clients'
 );
 assert(
     serverContent.includes("pathname === '/api/codex/change'") &&
@@ -371,7 +373,7 @@ assert(
     'APK downloads must be verified before install'
 );
 assert(androidManifest.includes('REQUEST_INSTALL_PACKAGES') && mainActivity.includes('canRequestPackageInstalls') && mainActivity.includes('ACTION_MANAGE_UNKNOWN_APP_SOURCES'), 'Android updater declares and gates APK install permission', 'PackageInstaller requires REQUEST_INSTALL_PACKAGES and an unknown-source settings gate');
-assert(androidBuildGradle.includes('versionCode = 106') && androidBuildGradle.includes('versionName = "1.0.106"') && androidBuildGradle.includes('signingConfig = signingConfigs.getByName("debug")'), 'Android release artifact can update existing sideload installs', 'release APK should be version-bumped and signed for sideload updates');
+assert(androidBuildGradle.includes('versionCode = 107') && androidBuildGradle.includes('versionName = "1.0.107"') && androidBuildGradle.includes('signingConfig = signingConfigs.getByName("debug")'), 'Android release artifact can update existing sideload installs', 'release APK should be version-bumped and signed for sideload updates');
 assert(mainActivity.includes('UpdateReadyDialog') && mainActivity.includes('UpdateStatusDialog') && mainActivity.includes('onStatus("Скачивание обновления') && mainActivity.includes('onStatus("Проверка APK') && mainActivity.includes('PendingVerifiedApk') && mainActivity.includes('onReadyDialogFinished = { pendingVerifiedApk = null }') && mainActivity.includes('onInstallPermissionRequired = { pendingVerifiedApk = update }') && mainActivity.includes('Handler(Looper.getMainLooper()).post') && mainActivity.includes('Intent.ACTION_VIEW') && mainActivity.includes('Intent.ACTION_INSTALL_PACKAGE') && !mainActivity.includes('Intent.EXTRA_RETURN_RESULT') && mainActivity.includes('startActivityForResult(intent, updateInstallRequestCode)') && mainActivity.includes('startActivityForResult(installIntent, updateInstallRequestCode)') && !mainActivity.includes('Intent.FLAG_ACTIVITY_NEW_TASK'), 'Android updater uses the Package Installer handoff style without forced return-result', 'verified APK should open through ACTION_VIEW and keep ACTION_INSTALL_PACKAGE as fallback without forcing result mode');
 assert(mainActivity.includes('onInstallPermissionRequired()') && mainActivity.includes('ACTION_MANAGE_UNKNOWN_APP_SOURCES') && mainActivity.indexOf('onInstallPermissionRequired()') > mainActivity.indexOf('startActivity(settingsIntent)'), 'Android updater preserves APK after unknown-source permission handoff', 'permission settings should keep the verified APK ready for a second install tap');
 assert(codexScreen.includes('CodexNavigationPanel') && codexScreen.includes('CodexDrawerProjectRow') && codexScreen.includes('buildMobileCodexProjects') && modelsFile.includes('workspaceName'), 'Android exposes projects in Codex chat list', 'project drawer/thread workspace metadata should be visible to Android');
@@ -450,11 +452,14 @@ assert(
     apiClient.includes('codexMessageAction') &&
     mainVm.includes('deleteCodexMessage') &&
     mainVm.includes('regenerateCodexMessage') &&
+    mainVm.includes('sendCodexMessageFeedback') &&
     mainVm.includes('codex:message-deleted') &&
     codexScreen.includes('MobileMessageToolbar') &&
+    codexScreen.includes('Icons.Outlined.ThumbUp') &&
+    codexScreen.includes('Icons.Outlined.ThumbDown') &&
     modelsFile.includes('CodexMessageActionResponse'),
     'Android message actions match Codex chat controls',
-    'Android should expose copy/edit/delete/regenerate actions and call the extension message API'
+    'Android should expose copy/edit/delete/regenerate/feedback actions and call the extension message API'
 );
 assert(
     apiClient.includes('codexChangeAction') &&
