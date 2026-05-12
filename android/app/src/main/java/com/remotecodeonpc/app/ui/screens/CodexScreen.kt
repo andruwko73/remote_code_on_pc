@@ -67,6 +67,7 @@ import com.remotecodeonpc.app.CodexProject
 import com.remotecodeonpc.app.CodexThread
 import com.remotecodeonpc.app.BuildConfig
 import com.remotecodeonpc.app.MessageAttachment
+import com.remotecodeonpc.app.RemoteSearchResult
 import com.remotecodeonpc.app.WorkspaceStatus
 import com.remotecodeonpc.app.ui.theme.*
 import kotlinx.coroutines.Dispatchers
@@ -97,6 +98,11 @@ fun CodexScreen(
     error: String?,
     changeDiff: CodexChangeActionResponse? = null,
     isChangeDiffLoading: Boolean = false,
+    searchQuery: String = "",
+    searchResults: List<RemoteSearchResult> = emptyList(),
+    isSearchLoading: Boolean = false,
+    searchError: String? = null,
+    searchTruncated: Boolean = false,
     // Callbacks
     onSendMessage: (String, List<MessageAttachment>) -> Unit,
     onSelectModel: (String) -> Unit,
@@ -117,6 +123,8 @@ fun CodexScreen(
     onClearChangeDiff: () -> Unit = {},
     onStopGeneration: () -> Unit,
     onRespondToAction: (String, Boolean) -> Unit,
+    onSearch: (String) -> Unit = {},
+    onClearSearch: () -> Unit = {},
     onOpenFile: (String) -> Unit,
     onOpenFolder: (String) -> Unit,
     onNavigateToSettings: () -> Unit = {}
@@ -155,6 +163,11 @@ fun CodexScreen(
             error = error,
             changeDiff = changeDiff,
             isChangeDiffLoading = isChangeDiffLoading,
+            searchQuery = searchQuery,
+            searchResults = searchResults,
+            isSearchLoading = isSearchLoading,
+            searchError = searchError,
+            searchTruncated = searchTruncated,
             onOpenNavigation = {
                 onLoadThreads()
                 if (!useWideSidebar) scope.launch { drawerState.open() }
@@ -166,6 +179,7 @@ fun CodexScreen(
             onToggleContext = onToggleContext,
             onNewThread = onNewThread,
             onLoadThreads = onLoadThreads,
+            onSwitchThread = onSwitchThread,
             onDeleteThread = onDeleteThread,
             onSelectProject = onSelectProject,
             onDeleteMessage = onDeleteMessage,
@@ -177,6 +191,8 @@ fun CodexScreen(
             onClearChangeDiff = onClearChangeDiff,
             onStopGeneration = onStopGeneration,
             onRespondToAction = onRespondToAction,
+            onSearch = onSearch,
+            onClearSearch = onClearSearch,
             onNavigateToSettings = onNavigateToSettings,
             onOpenFile = onOpenFile
         )
@@ -629,6 +645,11 @@ fun CodexChatTab(
     error: String?,
     changeDiff: CodexChangeActionResponse? = null,
     isChangeDiffLoading: Boolean = false,
+    searchQuery: String = "",
+    searchResults: List<RemoteSearchResult> = emptyList(),
+    isSearchLoading: Boolean = false,
+    searchError: String? = null,
+    searchTruncated: Boolean = false,
     onOpenNavigation: () -> Unit = {},
     onSendMessage: (String, List<MessageAttachment>) -> Unit,
     onSelectModel: (String) -> Unit,
@@ -637,6 +658,7 @@ fun CodexChatTab(
     onToggleContext: () -> Unit,
     onNewThread: () -> Unit,
     onLoadThreads: () -> Unit,
+    onSwitchThread: (String) -> Unit,
     onDeleteThread: (String) -> Unit,
     onSelectProject: (String) -> Unit = {},
     onDeleteMessage: (String) -> Unit = {},
@@ -648,6 +670,8 @@ fun CodexChatTab(
     onClearChangeDiff: () -> Unit = {},
     onStopGeneration: () -> Unit,
     onRespondToAction: (String, Boolean) -> Unit,
+    onSearch: (String) -> Unit = {},
+    onClearSearch: () -> Unit = {},
     onNavigateToSettings: () -> Unit = {},
     onOpenFile: (String) -> Unit
 ) {
@@ -656,6 +680,8 @@ fun CodexChatTab(
     var showProfileSelector by remember { mutableStateOf(false) }
     var showCurrentThreadMenu by remember { mutableStateOf(false) }
     var showProjectSelector by remember { mutableStateOf(false) }
+    var showSearchDialog by remember { mutableStateOf(false) }
+    var searchText by remember(searchQuery) { mutableStateOf(searchQuery) }
     var pendingDeleteThread by remember { mutableStateOf<CodexThread?>(null) }
     var attachments by remember { mutableStateOf<List<MessageAttachment>>(emptyList()) }
     val listState = rememberLazyListState()
@@ -865,6 +891,9 @@ fun CodexChatTab(
                     }
                 }
             }
+            IconButton(onClick = { showSearchDialog = true }, modifier = Modifier.size(34.dp)) {
+                Icon(Icons.Outlined.Search, contentDescription = "Поиск", tint = TextSecondary, modifier = Modifier.size(20.dp))
+            }
             Box {
                 IconButton(onClick = { showCurrentThreadMenu = true }, modifier = Modifier.size(34.dp)) {
                     Icon(Icons.Default.MoreHoriz, contentDescription = "\u041C\u0435\u043D\u044E \u0447\u0430\u0442\u0430", tint = TextSecondary, modifier = Modifier.size(21.dp))
@@ -889,6 +918,14 @@ fun CodexChatTab(
                             showCurrentThreadMenu = false
                             onLoadThreads()
                             onOpenNavigation()
+                        }
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Поиск по чату и файлам", color = TextPrimary) },
+                        leadingIcon = { Icon(Icons.Outlined.Search, contentDescription = null, tint = TextSecondary) },
+                        onClick = {
+                            showCurrentThreadMenu = false
+                            showSearchDialog = true
                         }
                     )
                     DropdownMenuItem(
@@ -943,6 +980,30 @@ fun CodexChatTab(
                     }
                 },
                 containerColor = Color(0xFF242424)
+            )
+        }
+
+        if (showSearchDialog) {
+            MobileSearchDialog(
+                query = searchText,
+                results = searchResults,
+                isLoading = isSearchLoading,
+                error = searchError,
+                truncated = searchTruncated,
+                onQueryChange = { searchText = it },
+                onSubmit = { onSearch(searchText) },
+                onClear = {
+                    searchText = ""
+                    onClearSearch()
+                },
+                onDismiss = { showSearchDialog = false },
+                onResultClick = { result ->
+                    showSearchDialog = false
+                    when (result.type) {
+                        "file" -> result.path?.takeIf { it.isNotBlank() }?.let(onOpenFile)
+                        "message" -> result.threadId?.takeIf { it.isNotBlank() }?.let(onSwitchThread)
+                    }
+                }
             )
         }
 
@@ -1166,6 +1227,142 @@ fun CodexChatTab(
             }
         }
     }
+}
+
+@Composable
+private fun MobileSearchDialog(
+    query: String,
+    results: List<RemoteSearchResult>,
+    isLoading: Boolean,
+    error: String?,
+    truncated: Boolean,
+    onQueryChange: (String) -> Unit,
+    onSubmit: () -> Unit,
+    onClear: () -> Unit,
+    onDismiss: () -> Unit,
+    onResultClick: (RemoteSearchResult) -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Outlined.Search, contentDescription = null, tint = TextSecondary, modifier = Modifier.size(19.dp))
+                Spacer(modifier = Modifier.width(8.dp))
+                Text("Поиск", color = TextBright, fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
+            }
+        },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Surface(
+                    color = Color(0xFF1F1F1F),
+                    shape = RoundedCornerShape(10.dp),
+                    border = BorderStroke(1.dp, Color(0xFF3A3A3F))
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        BasicTextField(
+                            value = query,
+                            onValueChange = onQueryChange,
+                            singleLine = true,
+                            textStyle = LocalTextStyle.current.copy(color = TextPrimary, fontSize = 14.sp),
+                            cursorBrush = SolidColor(TextPrimary),
+                            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                            keyboardActions = KeyboardActions(onSearch = { onSubmit() }),
+                            modifier = Modifier.weight(1f),
+                            decorationBox = { inner ->
+                                Box(contentAlignment = Alignment.CenterStart) {
+                                    if (query.isBlank()) {
+                                        Text("Сообщения и файлы проекта", color = TextSecondary, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                    }
+                                    inner()
+                                }
+                            }
+                        )
+                        if (query.isNotBlank()) {
+                            IconButton(onClick = onClear, modifier = Modifier.size(30.dp)) {
+                                Icon(Icons.Default.Close, contentDescription = "Очистить", tint = TextSecondary, modifier = Modifier.size(16.dp))
+                            }
+                        }
+                    }
+                }
+
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Button(
+                        onClick = onSubmit,
+                        enabled = query.isNotBlank() && !isLoading,
+                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = AccentBlue)
+                    ) {
+                        Text(if (isLoading) "Ищу..." else "Найти", fontSize = 13.sp)
+                    }
+                    if (truncated) Text("Показаны первые совпадения", color = TextSecondary, fontSize = 12.sp)
+                }
+
+                error?.takeIf { it.isNotBlank() }?.let {
+                    Text(it, color = ErrorRed, fontSize = 12.sp)
+                }
+
+                when {
+                    isLoading -> {
+                        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(vertical = 12.dp)) {
+                            CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp, color = AccentBlue)
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Text("Поиск по чату и файлам...", color = TextSecondary, fontSize = 13.sp)
+                        }
+                    }
+                    query.isNotBlank() && results.isEmpty() && error.isNullOrBlank() -> {
+                        Text("Ничего не найдено.", color = TextSecondary, fontSize = 13.sp, modifier = Modifier.padding(vertical = 12.dp))
+                    }
+                    results.isNotEmpty() -> {
+                        LazyColumn(
+                            modifier = Modifier.heightIn(max = 360.dp),
+                            verticalArrangement = Arrangement.spacedBy(5.dp)
+                        ) {
+                            items(results) { result ->
+                                MobileSearchResultRow(result = result, onClick = { onResultClick(result) })
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {},
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Закрыть", color = TextSecondary) }
+        },
+        containerColor = Color(0xFF242424)
+    )
+}
+
+@Composable
+private fun MobileSearchResultRow(result: RemoteSearchResult, onClick: () -> Unit) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .background(Color(0xFF1F1F1F), RoundedCornerShape(8.dp))
+            .padding(horizontal = 10.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.Top
+    ) {
+        Icon(
+            if (result.type == "file") Icons.AutoMirrored.Outlined.InsertDriveFile else Icons.Outlined.ChatBubbleOutline,
+            contentDescription = null,
+            tint = TextSecondary,
+            modifier = Modifier.size(17.dp).padding(top = 1.dp)
+        )
+        Spacer(modifier = Modifier.width(9.dp))
+        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+            Text(result.title.ifBlank { searchResultKindLabel(result) }, color = TextPrimary, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(result.subtitle.ifBlank { searchResultKindLabel(result) }, color = TextSecondary, fontSize = 11.5.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(result.snippet, color = TextSecondary.copy(alpha = 0.9f), fontSize = 12.sp, lineHeight = 16.sp, maxLines = 3, overflow = TextOverflow.Ellipsis)
+        }
+    }
+}
+
+private fun searchResultKindLabel(result: RemoteSearchResult): String {
+    return if (result.type == "file") "Файл" else "Сообщение"
 }
 
 private fun threadDisplayTitle(thread: CodexThread): String {

@@ -320,6 +320,30 @@ data class CodexProject(
     val threads: List<CodexThread> = emptyList()
 )
 
+data class RemoteSearchResult(
+    val id: String = "",
+    val type: String = "",
+    val title: String = "",
+    val subtitle: String = "",
+    val snippet: String = "",
+    val threadId: String? = null,
+    val messageId: String? = null,
+    val role: String? = null,
+    val path: String? = null,
+    val line: Int? = null,
+    val projectId: String? = null,
+    val workspaceName: String? = null,
+    val workspacePath: String? = null
+)
+
+data class RemoteSearchResponse(
+    val query: String = "",
+    val total: Int = 0,
+    val truncated: Boolean = false,
+    val results: List<RemoteSearchResult> = emptyList(),
+    val error: String? = null
+)
+
 data class CodexThreadsResponse(
     val threads: List<CodexThread> = emptyList(),
     val projects: List<CodexProject> = emptyList(),

@@ -66,6 +66,22 @@ interface RemoteCodeProjectSummary {
     threads: RemoteCodeThreadSummary[];
 }
 
+interface RemoteSearchResult {
+    id: string;
+    type: 'message' | 'file';
+    title: string;
+    subtitle: string;
+    snippet: string;
+    threadId?: string;
+    messageId?: string;
+    role?: string;
+    path?: string;
+    line?: number;
+    projectId?: string;
+    workspaceName?: string;
+    workspacePath?: string;
+}
+
 interface WorkspaceSummary {
     workspaceName?: string;
     workspacePath?: string;
@@ -1103,6 +1119,8 @@ export class RemoteServer {
                     return this.handleFileTree(req, res);
                 case pathname === '/api/workspace/read-file':
                     return this.handleReadFile(req, res);
+                case pathname === '/api/search':
+                    return this.handleRemoteSearch(req, res);
                 case pathname === '/api/app/apk/status':
                     return this.handleAppApkStatus(req, res);
                 case pathname === '/api/app/apk':
@@ -1337,6 +1355,201 @@ export class RemoteServer {
         } catch (err: any) {
             this.jsonResponse(res, 500, { error: err.message });
         }
+    }
+
+    // GET /api/search?q=...
+    private async handleRemoteSearch(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
+        const params = url.parse(req.url || '', true).query;
+        const query = typeof params.q === 'string' ? params.q.trim() : '';
+        const limit = this.parsePositiveInt(params.limit, 50, 10, 100);
+        const include = typeof params.include === 'string' ? params.include : 'messages,files';
+
+        if (!query) {
+            this.jsonResponse(res, 400, { error: 'Search query required' });
+            return;
+        }
+
+        const search = this.searchRemoteCode(query, limit, include);
+        this.jsonResponse(res, 200, search);
+    }
+
+    private parsePositiveInt(value: unknown, fallback: number, min: number, max: number): number {
+        const parsed = typeof value === 'string' ? Number.parseInt(value, 10) : Number(value);
+        if (!Number.isFinite(parsed)) return fallback;
+        return Math.min(max, Math.max(min, Math.floor(parsed)));
+    }
+
+    private searchRemoteCode(query: string, limit = 50, include = 'messages,files'): {
+        query: string;
+        total: number;
+        truncated: boolean;
+        results: RemoteSearchResult[];
+    } {
+        const normalizedQuery = this.normalizeSearchNeedle(query);
+        if (!normalizedQuery) {
+            return { query, total: 0, truncated: false, results: [] };
+        }
+
+        const includeMessages = include.split(',').map(item => item.trim()).includes('messages');
+        const includeFiles = include.split(',').map(item => item.trim()).includes('files');
+        const results: RemoteSearchResult[] = [];
+        let truncated = false;
+
+        if (includeMessages) {
+            const messageResults = this.searchRemoteMessages(normalizedQuery, limit);
+            results.push(...messageResults.results);
+            truncated = truncated || messageResults.truncated;
+        }
+        if (includeFiles && results.length < limit) {
+            const fileResults = this.searchWorkspaceTextFiles(normalizedQuery, limit - results.length);
+            results.push(...fileResults.results);
+            truncated = truncated || fileResults.truncated;
+        } else if (includeFiles) {
+            truncated = true;
+        }
+
+        return {
+            query,
+            total: results.length,
+            truncated,
+            results: results.slice(0, limit)
+        };
+    }
+
+    private normalizeSearchNeedle(value: string): string {
+        return value.replace(/\s+/g, ' ').trim().toLocaleLowerCase();
+    }
+
+    private searchRemoteMessages(query: string, limit: number): { results: RemoteSearchResult[]; truncated: boolean } {
+        const threads = this.getRemoteCodeThreadsWithProjectIds(this.getRemoteCodeThreads());
+        const results: RemoteSearchResult[] = [];
+        let scanned = 0;
+        for (const thread of threads) {
+            const messages = this.getMessagesForRemoteThread(thread.id, 240)
+                .filter(message => message.role !== 'system' && !this.isActionResultMessage(message));
+            for (const message of messages) {
+                scanned++;
+                const content = (message.content || '').replace(/\s+/g, ' ').trim();
+                if (!content || !content.toLocaleLowerCase().includes(query)) continue;
+                results.push({
+                    id: `message:${thread.id}:${message.id}`,
+                    type: 'message',
+                    title: thread.title || 'Новый чат',
+                    subtitle: `${message.role === 'user' ? 'Ваше сообщение' : 'Ответ модели'} · ${this.formatThreadAge(message.timestamp)}`,
+                    snippet: this.searchSnippet(content, query),
+                    threadId: thread.id,
+                    messageId: message.id,
+                    role: message.role,
+                    projectId: thread.projectId,
+                    workspaceName: thread.workspaceName,
+                    workspacePath: thread.workspacePath
+                });
+                if (results.length >= limit) {
+                    return { results, truncated: true };
+                }
+            }
+        }
+        return { results, truncated: scanned > 0 && results.length >= limit };
+    }
+
+    private searchWorkspaceTextFiles(query: string, limit: number): { results: RemoteSearchResult[]; truncated: boolean } {
+        const roots = this.getWorkspaceRoots();
+        const results: RemoteSearchResult[] = [];
+        const ignoredDirs = new Set([
+            '.git',
+            '.gradle',
+            '.idea',
+            '.vscode',
+            'artifacts',
+            'build',
+            'dist',
+            'node_modules',
+            'out'
+        ]);
+        let scannedFiles = 0;
+        let truncated = false;
+        const maxScannedFiles = 350;
+        const maxBytes = 512 * 1024;
+
+        const walk = (dir: string, depth: number): void => {
+            if (truncated || depth > 8) return;
+            let entries: fs.Dirent[];
+            try {
+                entries = fs.readdirSync(dir, { withFileTypes: true });
+            } catch {
+                return;
+            }
+            for (const entry of entries) {
+                if (truncated) return;
+                if (entry.name.startsWith('.') && !['.github'].includes(entry.name)) continue;
+                const fullPath = path.join(dir, entry.name);
+                if (entry.isDirectory()) {
+                    if (!ignoredDirs.has(entry.name)) walk(fullPath, depth + 1);
+                    continue;
+                }
+                if (!entry.isFile()) continue;
+                scannedFiles++;
+                if (scannedFiles > maxScannedFiles) {
+                    truncated = true;
+                    return;
+                }
+                const matches = this.searchSingleTextFile(fullPath, query, maxBytes);
+                for (const match of matches) {
+                    results.push(match);
+                    if (results.length >= limit) {
+                        truncated = true;
+                        return;
+                    }
+                }
+            }
+        };
+
+        for (const root of roots) walk(root, 0);
+        return { results, truncated };
+    }
+
+    private searchSingleTextFile(filePath: string, query: string, maxBytes: number): RemoteSearchResult[] {
+        try {
+            const stat = fs.statSync(filePath);
+            if (!stat.isFile() || stat.size > maxBytes) return [];
+            const buffer = fs.readFileSync(filePath);
+            if (this.looksBinary(buffer)) return [];
+            const content = buffer.toString('utf-8');
+            const lower = content.toLocaleLowerCase();
+            if (!lower.includes(query)) return [];
+            const lines = content.split(/\r?\n/);
+            const results: RemoteSearchResult[] = [];
+            for (let index = 0; index < lines.length && results.length < 2; index++) {
+                const line = lines[index];
+                if (!line.toLocaleLowerCase().includes(query)) continue;
+                const displayPath = this.toWorkspaceDisplayPath(filePath);
+                results.push({
+                    id: `file:${displayPath}:${index + 1}:${crypto.createHash('sha1').update(line).digest('hex').slice(0, 8)}`,
+                    type: 'file',
+                    title: displayPath,
+                    subtitle: `Файл · строка ${index + 1}`,
+                    snippet: this.searchSnippet(line.trim() || displayPath, query),
+                    path: displayPath,
+                    line: index + 1
+                });
+            }
+            return results;
+        } catch {
+            return [];
+        }
+    }
+
+    private searchSnippet(text: string, query: string, maxLength = 180): string {
+        const normalized = text.replace(/\s+/g, ' ').trim();
+        if (normalized.length <= maxLength) return normalized;
+        const lower = normalized.toLocaleLowerCase();
+        const index = lower.indexOf(query);
+        if (index < 0) return normalized.slice(0, maxLength - 1) + '…';
+        const start = Math.max(0, index - Math.floor(maxLength / 3));
+        const end = Math.min(normalized.length, start + maxLength);
+        const prefix = start > 0 ? '…' : '';
+        const suffix = end < normalized.length ? '…' : '';
+        return prefix + normalized.slice(start, end).trim() + suffix;
     }
 
     // GET /api/chat/agents
@@ -4531,7 +4744,7 @@ ol{padding-left:20px}li{margin:6px 0}.note{margin-top:12px;font-size:13px;color:
                 (vscode.window.activeTerminal || vscode.window.createTerminal('Remote Code')).show();
                 return;
             case 'openSearch':
-                await vscode.commands.executeCommand('workbench.action.findInFiles');
+                await this.showRemoteCodeSearchQuickPick();
                 return;
             case 'openExtensions':
                 await vscode.commands.executeCommand('workbench.view.extensions');
@@ -4941,6 +5154,52 @@ ol{padding-left:20px}li{margin:6px 0}.note{margin-top:12px;font-size:13px;color:
         }
         const document = await vscode.workspace.openTextDocument(absolute);
         await vscode.window.showTextDocument(document, { preview: true });
+    }
+
+    private async showRemoteCodeSearchQuickPick(): Promise<void> {
+        const query = await vscode.window.showInputBox({
+            title: 'Remote Code: поиск',
+            prompt: 'Искать по сообщениям текущих чатов и текстовым файлам workspace',
+            placeHolder: 'текст, имя функции, путь или фраза из ответа',
+            ignoreFocusOut: true
+        });
+        const trimmed = query?.trim();
+        if (!trimmed) return;
+
+        const search = this.searchRemoteCode(trimmed, 60);
+        if (search.results.length === 0) {
+            await vscode.window.showInformationMessage(`Remote Code: ничего не найдено по "${trimmed}".`);
+            return;
+        }
+
+        const picked = await vscode.window.showQuickPick(
+            search.results.map(result => ({
+                label: result.type === 'file' ? `$(file) ${result.title}` : `$(comment-discussion) ${result.title}`,
+                description: result.subtitle,
+                detail: result.snippet,
+                result
+            })),
+            {
+                title: `Remote Code: найдено ${search.results.length}${search.truncated ? '+' : ''}`,
+                placeHolder: trimmed,
+                matchOnDescription: true,
+                matchOnDetail: true
+            }
+        );
+        if (!picked) return;
+        const result = picked.result;
+        if (result.type === 'file' && result.path) {
+            await this.openChangeFile(result.path);
+            return;
+        }
+        if (result.type === 'message' && result.threadId) {
+            this.currentRemoteThreadId = result.threadId;
+            this.saveRemoteCodeState();
+            this.openPcChatPanel();
+            this.refreshPcChatPanel(true);
+            this.broadcast(this.getRemoteCodeThreadsUpdatePayload());
+            await vscode.window.setStatusBarMessage('Remote Code: чат с найденным сообщением открыт', 1600);
+        }
     }
 
     private async showLocalUsageStatus(): Promise<void> {
@@ -6327,6 +6586,7 @@ button.send:disabled{opacity:.55;cursor:default}
       <div class="menu-separator"></div>
       <button class="item" type="button" data-action="copyWorkspaceDirectory">Скопировать рабочую директорию</button>
       <button class="item" type="button" data-action="copyCurrentThreadMarkdown">Скопировать как Markdown</button>
+      <button class="item icon-item" type="button" data-action="openSearch">${icon.search}<span>Поиск по чату и файлам</span></button>
       <div class="menu-separator"></div>
       <button class="item" type="button" data-action="clearChat">&#1054;&#1095;&#1080;&#1089;&#1090;&#1080;&#1090;&#1100; &#1095;&#1072;&#1090;</button>
       <button class="item" type="button" data-action="deleteCurrentThread">&#1059;&#1076;&#1072;&#1083;&#1080;&#1090;&#1100; &#1095;&#1072;&#1090;</button>

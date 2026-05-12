@@ -1,10 +1,23 @@
 param(
     [string]$OutputDir = "artifacts\screenshots",
+    [string]$BaselineDir = "test-fixtures\visual-baseline",
     [string]$AndroidPackage = "com.remotecodeonpc.app",
-    [string]$VsCodeTitlePattern = "remote_code_on_pc"
+    [string]$VsCodeTitlePattern = "remote_code_on_pc",
+    [switch]$UpdateBaseline,
+    [switch]$NoCompare,
+    [double]$MaxPixelDeltaRatio = 0.08,
+    [double]$VsCodeMaxPixelDeltaRatio = 0.18,
+    [int]$PixelThreshold = 30
 )
 
 $ErrorActionPreference = "Stop"
+
+function Resolve-RepoPath([string]$PathValue) {
+    if ([System.IO.Path]::IsPathRooted($PathValue)) {
+        return $PathValue
+    }
+    return Join-Path $repoRoot $PathValue
+}
 
 function Resolve-AdbPath {
     $candidates = @()
@@ -65,22 +78,90 @@ public static class Win32Rect {
     }
 }
 
-$repoRoot = Split-Path -Parent $PSScriptRoot
-$resolvedOutput = if ([System.IO.Path]::IsPathRooted($OutputDir)) {
-    $OutputDir
-} else {
-    Join-Path $repoRoot $OutputDir
+function Resize-Bitmap([System.Drawing.Bitmap]$Bitmap, [int]$MaxWidth) {
+    $scale = [Math]::Min(1.0, $MaxWidth / [double]$Bitmap.Width)
+    $width = [Math]::Max(1, [int][Math]::Round($Bitmap.Width * $scale))
+    $height = [Math]::Max(1, [int][Math]::Round($Bitmap.Height * $scale))
+    $resized = New-Object System.Drawing.Bitmap $width, $height
+    $graphics = [System.Drawing.Graphics]::FromImage($resized)
+    try {
+        $graphics.InterpolationMode = [System.Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic
+        $graphics.DrawImage($Bitmap, 0, 0, $width, $height)
+        return $resized
+    } finally {
+        $graphics.Dispose()
+    }
 }
+
+function Compare-VisualBaseline([string]$Name, [string]$CurrentPath, [string]$BaselinePath, [double]$AllowedDeltaRatio) {
+    if (-not (Test-Path $CurrentPath)) {
+        Write-Host "$Name comparison skipped: screenshot is missing."
+        return
+    }
+    if (-not (Test-Path $BaselinePath)) {
+        Write-Host "$Name comparison skipped: baseline is missing. Run with -UpdateBaseline after reviewing the screenshot."
+        return
+    }
+
+    Add-Type -AssemblyName System.Drawing
+    $currentOriginal = [System.Drawing.Bitmap]::FromFile($CurrentPath)
+    $baselineOriginal = [System.Drawing.Bitmap]::FromFile($BaselinePath)
+    try {
+        $widthDelta = [Math]::Abs($currentOriginal.Width - $baselineOriginal.Width) / [double][Math]::Max($currentOriginal.Width, $baselineOriginal.Width)
+        $heightDelta = [Math]::Abs($currentOriginal.Height - $baselineOriginal.Height) / [double][Math]::Max($currentOriginal.Height, $baselineOriginal.Height)
+        if ($widthDelta -gt 0.08 -or $heightDelta -gt 0.08) {
+            throw "$Name visual baseline dimensions changed too much: current $($currentOriginal.Width)x$($currentOriginal.Height), baseline $($baselineOriginal.Width)x$($baselineOriginal.Height)."
+        }
+
+        $current = Resize-Bitmap $currentOriginal 260
+        $baseline = Resize-Bitmap $baselineOriginal 260
+        try {
+            $width = [Math]::Min($current.Width, $baseline.Width)
+            $height = [Math]::Min($current.Height, $baseline.Height)
+            $changed = 0
+            $total = $width * $height
+            for ($y = 0; $y -lt $height; $y++) {
+                for ($x = 0; $x -lt $width; $x++) {
+                    $a = $current.GetPixel($x, $y)
+                    $b = $baseline.GetPixel($x, $y)
+                    $delta = ([Math]::Abs($a.R - $b.R) + [Math]::Abs($a.G - $b.G) + [Math]::Abs($a.B - $b.B)) / 3
+                    if ($delta -gt $PixelThreshold) {
+                        $changed++
+                    }
+                }
+            }
+            $ratio = $changed / [double]$total
+            $pct = [Math]::Round($ratio * 100, 2)
+            if ($ratio -gt $AllowedDeltaRatio) {
+                throw "$Name visual baseline changed by $pct% (limit $([Math]::Round($AllowedDeltaRatio * 100, 2))%)."
+            }
+            Write-Host "$Name visual baseline OK: $pct% changed."
+        } finally {
+            $current.Dispose()
+            $baseline.Dispose()
+        }
+    } finally {
+        $currentOriginal.Dispose()
+        $baselineOriginal.Dispose()
+    }
+}
+
+$repoRoot = Split-Path -Parent $PSScriptRoot
+$resolvedOutput = Resolve-RepoPath $OutputDir
+$resolvedBaseline = Resolve-RepoPath $BaselineDir
 New-Item -ItemType Directory -Force -Path $resolvedOutput | Out-Null
+New-Item -ItemType Directory -Force -Path $resolvedBaseline | Out-Null
 
 $timestamp = Get-Date -Format "yyyyMMdd-HHmmss"
 $adb = Resolve-AdbPath
 $androidPath = Join-Path $resolvedOutput "android-$timestamp.png"
 $vscodePath = Join-Path $resolvedOutput "vscode-$timestamp.png"
+$androidBaseline = Join-Path $resolvedBaseline "android.png"
+$vscodeBaseline = Join-Path $resolvedBaseline "vscode.png"
 
 try {
     & $adb shell monkey -p $AndroidPackage 1 | Out-Null
-    Start-Sleep -Seconds 2
+    Start-Sleep -Seconds 5
     & $adb shell screencap -p /sdcard/remote-code-visual-regression.png | Out-Null
     & $adb pull /sdcard/remote-code-visual-regression.png $androidPath | Out-Null
     Write-Host "Android screenshot: $androidPath"
@@ -90,4 +171,18 @@ try {
 
 if (Save-WindowScreenshot $VsCodeTitlePattern $vscodePath) {
     Write-Host "VS Code screenshot: $vscodePath"
+}
+
+if ($UpdateBaseline) {
+    if (Test-Path $androidPath) {
+        Copy-Item -LiteralPath $androidPath -Destination $androidBaseline -Force
+        Write-Host "Android baseline updated: $androidBaseline"
+    }
+    if (Test-Path $vscodePath) {
+        Copy-Item -LiteralPath $vscodePath -Destination $vscodeBaseline -Force
+        Write-Host "VS Code baseline updated: $vscodeBaseline"
+    }
+} elseif (-not $NoCompare) {
+    Compare-VisualBaseline "Android" $androidPath $androidBaseline $MaxPixelDeltaRatio
+    Compare-VisualBaseline "VS Code" $vscodePath $vscodeBaseline $VsCodeMaxPixelDeltaRatio
 }

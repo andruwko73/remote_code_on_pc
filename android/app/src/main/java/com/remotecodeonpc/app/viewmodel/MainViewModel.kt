@@ -81,7 +81,12 @@ data class AppUiState(
     val isCodexLoading: Boolean = false,
     val codexError: String? = null,
     val codexChangeDiff: CodexChangeActionResponse? = null,
-    val isCodexDiffLoading: Boolean = false
+    val isCodexDiffLoading: Boolean = false,
+    val searchQuery: String = "",
+    val searchResults: List<RemoteSearchResult> = emptyList(),
+    val isSearchLoading: Boolean = false,
+    val searchError: String? = null,
+    val searchTruncated: Boolean = false
 )
 
 class MainViewModel(application: Application) : AndroidViewModel(application) {
@@ -739,6 +744,54 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 // ignore
             }
         }
+    }
+
+    fun searchRemoteCode(query: String) {
+        val trimmed = query.trim()
+        if (trimmed.isBlank()) {
+            clearRemoteSearch()
+            return
+        }
+        _uiState.value = _uiState.value.copy(
+            searchQuery = trimmed,
+            isSearchLoading = true,
+            searchError = null
+        )
+        viewModelScope.launch {
+            try {
+                val api = ApiClient.getApi(_uiState.value.serverConfig)
+                val response = api.search(trimmed, 60)
+                if (response.isSuccessful) {
+                    val body = response.body()
+                    _uiState.value = _uiState.value.copy(
+                        searchResults = body?.results ?: emptyList(),
+                        searchTruncated = body?.truncated == true,
+                        isSearchLoading = false,
+                        searchError = body?.error
+                    )
+                } else {
+                    _uiState.value = _uiState.value.copy(
+                        isSearchLoading = false,
+                        searchError = "Ошибка поиска ${response.code()}"
+                    )
+                }
+            } catch (e: Exception) {
+                _uiState.value = _uiState.value.copy(
+                    isSearchLoading = false,
+                    searchError = e.message
+                )
+            }
+        }
+    }
+
+    fun clearRemoteSearch() {
+        _uiState.value = _uiState.value.copy(
+            searchQuery = "",
+            searchResults = emptyList(),
+            searchError = null,
+            searchTruncated = false,
+            isSearchLoading = false
+        )
     }
 
     // ===== CHAT =====

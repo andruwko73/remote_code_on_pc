@@ -31,6 +31,9 @@ interface RemoteCodeApi {
     @GET("/api/workspace/read-file")
     suspend fun readFile(@Query("path") path: String): Response<FileContent>
 
+    @GET("/api/search")
+    suspend fun search(@Query("q") query: String, @Query("limit") limit: Int = 50): Response<RemoteSearchResponse>
+
     // Chat
     @GET("/api/chat/agents")
     suspend fun getChatAgents(): Response<ChatAgentsResponse>
