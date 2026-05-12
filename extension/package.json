@@ -2,7 +2,7 @@
   "name": "remote-code-on-pc",
   "displayName": "Remote Code on PC",
   "description": "HTTP/WebSocket сервер для удаленного управления VS Code с Android-приложения",
-  "version": "1.1.103",
+  "version": "1.1.104",
   "publisher": "remote-code-on-pc",
   "license": "MIT",
   "engines": {
@@ -102,7 +102,8 @@
     }
   },
   "scripts": {
-    "vscode:prepublish": "npm run compile",
+    "vscode:prepublish": "npm run prepare:apk && npm run compile",
+    "prepare:apk": "node -e \"const fs=require('fs'),path=require('path');fs.mkdirSync('apk',{recursive:true});for(const n of ['app-debug.apk','app-debug.apk.sha256']){const src=path.resolve('..','apk',n);if(fs.existsSync(src))fs.copyFileSync(src,path.resolve('apk',n));}\"",
     "compile": "tsc -p ./",
     "install:local": "powershell -ExecutionPolicy Bypass -File ../scripts/install-local-extension.ps1",
     "test": "node test-extension.js",

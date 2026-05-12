@@ -2,6 +2,7 @@
 extension/node_modules/
 extension/out/
 extension/dist/
+extension/apk/
 extension/*.vsix
 extension/yarn.lock
 extension/package-lock.json

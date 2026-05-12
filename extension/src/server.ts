@@ -2211,11 +2211,18 @@ export class RemoteServer {
     }
 
     private findAppApkPath(): string | undefined {
-        return [
-            path.resolve(__dirname, '..', 'apk', 'app-debug.apk'),
-            path.resolve(__dirname, '..', '..', 'apk', 'app-debug.apk'),
-            path.resolve(__dirname, '..', '..', '..', 'apk', 'app-debug.apk')
-        ].find(candidate => fs.existsSync(candidate));
+        const candidates = new Set<string>();
+        const addCandidate = (candidate?: string) => {
+            if (candidate) candidates.add(path.resolve(candidate));
+        };
+
+        addCandidate(path.join(this._context.extensionPath, 'apk', 'app-debug.apk'));
+        for (const folder of vscode.workspace.workspaceFolders || []) {
+            addCandidate(path.join(folder.uri.fsPath, 'apk', 'app-debug.apk'));
+        }
+        addCandidate(path.join(process.cwd(), 'apk', 'app-debug.apk'));
+
+        return Array.from(candidates).find(candidate => fs.existsSync(candidate));
     }
 
     private getAppApkMetadata(): { apkPath: string; sizeBytes: number; sha256: string } | undefined {
