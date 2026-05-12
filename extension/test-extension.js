@@ -228,14 +228,14 @@ const compactWebviewChecks = [
     'font:13px/1.46 var(--codex-font)',
     '.sidebar-thread{min-height:36px',
     '.sidebar-thread.selected{background:var(--codex-selected)}',
-    '.message-text{margin:0;white-space:normal;word-wrap:break-word;font:inherit;color:var(--codex-text);font-size:13.5px;line-height:1.45}',
+    '.message-text{margin:0;white-space:normal;word-wrap:break-word;font:inherit;color:var(--codex-text);font-size:14px;line-height:1.5}',
     '.change-card{margin:10px 0 12px',
     '.change-head{display:flex;align-items:center;justify-content:space-between;gap:10px;min-height:38px',
     '.change-action{border:0;background:transparent;color:#9a9a9a;height:26px',
     '.change-row{display:flex;align-items:center;gap:8px;min-height:28px',
     '.change-card.collapsed .change-row{display:none}',
     '.composer{max-width:var(--composer-max);margin:0 auto;border:1px solid var(--codex-strong-border);background:#2d2d2d;border-radius:18px',
-    'font-size:13.5px;outline:none;line-height:1.45',
+    'font-size:14px;outline:none;line-height:1.5',
 ];
 assert(compactWebviewChecks.every((snippet) => serverContent.includes(snippet)), 'Extension webview uses compact Codex-like density', 'webview sidebar/message/change-card/composer density drifted from Codex target');
 assert(!serverContent.includes('id="topRun"') && !serverContent.includes('id="connectorDrop"') && serverContent.includes('id="progressToggle"') && serverContent.includes('data-progress-toggle') && serverContent.includes('.content-shell.progress-open .progress-panel{display:block') && serverContent.includes('setProgressPanelOpen(progressOpen, false)') && serverContent.includes('min-height:40px;max-height:152px'), 'Extension top bar matches Codex surface', 'Remote Code utility buttons should stay out of the main chat surface and the progress sidebar should be user-toggleable');
@@ -265,16 +265,18 @@ assert(
     'change-card API should support diff and create an approval-gated undo action'
 );
 assert(
-    serverContent.includes('const commit = this.extractCommitHash(content);') &&
-    serverContent.includes('if (!commit) return undefined;') &&
-    serverContent.includes('(?:commit|коммит)\\s*:?\\s*`?([0-9a-f]{7,40})`?') &&
+    serverContent.includes('renderMessageContent(message.content, message.changeSummary)') &&
+    serverContent.includes('getGitChangeSummaryFromMessage(message.content || \'\', message.timestamp)') &&
+    serverContent.includes('extractCommitHashCandidates') &&
+    serverContent.includes('resolveGitCommitNearTimestamp') &&
     serverContent.includes("const binary = parts[0] === '-' || parts[1] === '-'"),
-    'Change cards use the explicit commit for git stats',
-    'change summaries must not fall back to the moving HEAD commit and should detect binary files'
+    'Change cards use stable git stats from Codex messages',
+    'change summaries should use server-provided summaries, recover the commit for git directives and detect binary files'
 );
 assert(
-    serverContent.includes('renderChangeHeader(summary.files.length, summary.additions, summary.deletions)') &&
+    serverContent.includes('renderChangeHeader(summary.fileCount || summary.files.length, summary.additions, summary.deletions)') &&
     serverContent.includes('parseChangeHeaderTotals(header, changes)') &&
+    serverContent.includes('fileCount: files.length') &&
     serverContent.includes('if (binary) continue;') &&
     serverContent.includes('class="change-title"'),
     'Change-card header matches Codex reviewable-file summary',
@@ -393,7 +395,7 @@ assert(
     'APK downloads must be verified before install'
 );
 assert(androidManifest.includes('REQUEST_INSTALL_PACKAGES') && mainActivity.includes('canRequestPackageInstalls') && mainActivity.includes('ACTION_MANAGE_UNKNOWN_APP_SOURCES'), 'Android updater declares and gates APK install permission', 'PackageInstaller requires REQUEST_INSTALL_PACKAGES and an unknown-source settings gate');
-assert(androidBuildGradle.includes('versionCode = 114') && androidBuildGradle.includes('versionName = "1.0.114"') && androidBuildGradle.includes('signingConfig = signingConfigs.getByName("debug")'), 'Android release artifact can update existing sideload installs', 'release APK should be version-bumped and signed for sideload updates');
+assert(androidBuildGradle.includes('versionCode = 115') && androidBuildGradle.includes('versionName = "1.0.115"') && androidBuildGradle.includes('signingConfig = signingConfigs.getByName("debug")'), 'Android release artifact can update existing sideload installs', 'release APK should be version-bumped and signed for sideload updates');
 assert(mainActivity.includes('foundInstalledMatch') && mainActivity.includes('checking next source') && mainActivity.indexOf('continue') < mainActivity.indexOf('Уже установлена актуальная версия приложения'), 'Android updater keeps checking fallback sources after installed SHA match', 'stale extension APK must not stop the updater before GitHub fallback is checked');
 assert(mainActivity.includes('UpdateReadyDialog') && mainActivity.includes('UpdateStatusDialog') && mainActivity.includes('onStatus("Скачивание обновления') && mainActivity.includes('onStatus("Проверка APK') && mainActivity.includes('PendingVerifiedApk') && mainActivity.includes('onReadyDialogFinished = { pendingVerifiedApk = null }') && mainActivity.includes('onInstallPermissionRequired = { pendingVerifiedApk = update }') && mainActivity.includes('Handler(Looper.getMainLooper()).post') && mainActivity.includes('Intent.ACTION_VIEW') && mainActivity.includes('Intent.ACTION_INSTALL_PACKAGE') && !mainActivity.includes('Intent.EXTRA_RETURN_RESULT') && mainActivity.includes('startActivityForResult(intent, updateInstallRequestCode)') && mainActivity.includes('startActivityForResult(installIntent, updateInstallRequestCode)') && !mainActivity.includes('Intent.FLAG_ACTIVITY_NEW_TASK'), 'Android updater uses the Package Installer handoff style without forced return-result', 'verified APK should open through ACTION_VIEW and keep ACTION_INSTALL_PACKAGE as fallback without forcing result mode');
 assert(mainActivity.includes('onInstallPermissionRequired()') && mainActivity.includes('ACTION_MANAGE_UNKNOWN_APP_SOURCES') && mainActivity.indexOf('onInstallPermissionRequired()') > mainActivity.indexOf('startActivity(settingsIntent)'), 'Android updater preserves APK after unknown-source permission handoff', 'permission settings should keep the verified APK ready for a second install tap');

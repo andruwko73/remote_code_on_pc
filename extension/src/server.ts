@@ -94,6 +94,7 @@ interface GitChangeFile {
 interface GitChangeSummary {
     commit?: string;
     cwd?: string;
+    fileCount?: number;
     files: GitChangeFile[];
     additions: number;
     deletions: number;
@@ -2179,7 +2180,7 @@ export class RemoteServer {
 
     private enrichCodexMessageForClient(message: CodexChatMessage): CodexChatMessage {
         if (message.changeSummary?.files?.length) return message;
-        const summary = this.getGitChangeSummaryFromMessage(message.content || '');
+        const summary = this.getGitChangeSummaryFromMessage(message.content || '', message.timestamp);
         return summary ? { ...message, changeSummary: summary } : message;
     }
 
@@ -5728,7 +5729,7 @@ ol{padding-left:20px}li{margin:6px 0}.note{margin-top:12px;font-size:13px;color:
             const meta = [message.model, message.reasoningEffort ? this.reasoningEffortLabel(message.reasoningEffort) : '']
                 .filter(Boolean)
                 .join(' - ');
-            const content = this.renderMessageContent(message.content);
+            const content = this.renderMessageContent(message.content, message.changeSummary);
             const attachments = this.renderMessageAttachments(message.attachments);
             const userMessageTools = message.role === 'user'
                 ? `<button type="button" class="hover-btn message-tool" data-message-action="edit" title="Редактировать">${icon.edit}</button>`
@@ -5776,7 +5777,7 @@ ol{padding-left:20px}li{margin:6px 0}.note{margin-top:12px;font-size:13px;color:
 <style>
 html,body{height:100%}
 :root{--codex-bg:#181818;--codex-sidebar:#17191d;--codex-sidebar-2:#1c1d22;--codex-surface:#242424;--codex-surface-2:#2b2b2b;--codex-selected:#303039;--codex-chip:#232323;--codex-border:#2d2d32;--codex-strong-border:#37373c;--codex-text:#d8d8d8;--codex-bright:#f5f5f5;--codex-muted:#96999a;--codex-green:#50cf8e;--codex-red:#ee7070;--codex-blue:#5aa7ff;--codex-font:-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;--codex-mono:var(--vscode-editor-font-family,"Cascadia Mono",Consolas,monospace);--chat-max:850px;--composer-max:880px;--bubble-max:680px}
-body{margin:0;background:var(--codex-bg);color:var(--codex-text);font:13px/1.46 var(--codex-font);display:flex;flex-direction:column;letter-spacing:0;-webkit-font-smoothing:antialiased;text-rendering:geometricPrecision}
+body{margin:0;background:var(--codex-bg);color:var(--codex-text);font:13px/1.46 var(--codex-font);display:flex;flex-direction:column;letter-spacing:0;-webkit-font-smoothing:antialiased}
 button{font:inherit}
 svg{width:15px;height:15px;display:block;fill:none;stroke:currentColor;stroke-width:1.75;stroke-linecap:round;stroke-linejoin:round;shape-rendering:geometricPrecision}
 .top{height:44px;border-bottom:1px solid var(--codex-border);background:var(--codex-bg);display:flex;align-items:center;gap:7px;padding:0 min(3vw,30px)}
@@ -5893,11 +5894,11 @@ svg{width:15px;height:15px;display:block;fill:none;stroke:currentColor;stroke-wi
 .assistant .role{color:var(--codex-text)}.system .role{color:#e8b66b}
 .msg.streaming .meta-bottom::before{content:'Думаю';display:inline-flex;margin-right:8px;color:var(--codex-muted)}
 .msg.streaming .meta-bottom::after{content:'';display:inline-block;width:6px;height:6px;margin-left:6px;border-radius:999px;background:var(--codex-muted);vertical-align:middle;animation:pulse 1.1s ease-in-out infinite}
-.message-text{margin:0;white-space:normal;word-wrap:break-word;font:inherit;color:var(--codex-text);font-size:13.5px;line-height:1.45}
-.message-text p{margin:0 0 10px}
+.message-text{margin:0;white-space:normal;word-wrap:break-word;font:inherit;color:var(--codex-text);font-size:14px;line-height:1.5}
+.message-text p{margin:0 0 12px}
 .message-text p:last-child,.message-text ul:last-child,.message-text ol:last-child{margin-bottom:0}
-.message-text ul,.message-text ol{margin:0 0 10px 1.25em;padding:0}
-.message-text li{margin:2px 0;padding-left:2px}
+.message-text ul,.message-text ol{margin:0 0 12px 1.25em;padding:0}
+.message-text li{margin:3px 0;padding-left:2px}
 .message-text .plain-line{white-space:pre-wrap}
 .msg.user .message-text{white-space:pre-wrap}
 .message-text code,.message-text .inline-chip{font-family:var(--codex-mono);font-size:.9em;background:var(--codex-chip);color:#e4e4e4;border-radius:5px;padding:1px 5px;white-space:break-spaces}
@@ -5996,7 +5997,7 @@ pre{margin:0;white-space:pre-wrap;word-wrap:break-word;font:inherit}
 .subcontrols{display:flex;gap:12px;align-items:center;margin:5px auto 0;max-width:var(--composer-max);color:#8e8e8e;font-size:12px}
 .plus{color:#c0c0c0;background:transparent;border:0;width:30px;height:30px;display:inline-flex;align-items:center;justify-content:center;padding:0;cursor:pointer;border-radius:8px;flex:0 0 auto}
 .plus:hover{background:var(--codex-selected);color:#ededed}
-textarea{width:100%;box-sizing:border-box;resize:none;min-height:40px;max-height:152px;overflow:hidden;border:0;background:transparent;color:#e9e9e9;padding:0;font:inherit;font-size:13.5px;outline:none;line-height:1.45}
+textarea{width:100%;box-sizing:border-box;resize:none;min-height:40px;max-height:152px;overflow:hidden;border:0;background:transparent;color:#e9e9e9;padding:0;font:inherit;font-size:14px;outline:none;line-height:1.5}
 textarea.scroll{overflow:auto}
 textarea::placeholder{color:#818389}
 .composer-attachments{display:none;flex-wrap:wrap;gap:6px;margin:-1px 0 2px}
@@ -6959,8 +6960,10 @@ prompt.addEventListener('keydown', event => {
         return `<div class="attachments-list">${cards}</div>`;
     }
 
-    private renderMessageContent(content: string): string {
-        const gitSummary = this.getGitChangeSummaryFromMessage(content);
+    private renderMessageContent(content: string, changeSummary?: GitChangeSummary): string {
+        const gitSummary = changeSummary?.files?.length
+            ? changeSummary
+            : this.getGitChangeSummaryFromMessage(content);
         const cleanedContent = content
             .replace(/^\s*::git-(?:stage|commit|push)\{[^\n]*\}\s*$/gmi, '')
             .replace(/\n{3,}/g, '\n\n')
@@ -7176,7 +7179,7 @@ prompt.addEventListener('keydown', event => {
     }
 
     private renderGitChangeCard(summary: GitChangeSummary): string {
-        const header = this.renderChangeHeader(summary.files.length, summary.additions, summary.deletions);
+        const header = this.renderChangeHeader(summary.fileCount || summary.files.length, summary.additions, summary.deletions);
         const rows = summary.files.map(file => this.renderChangeRow(file)).join('');
         return `<div class="change-card collapsed" data-commit="${this.escapeHtml(summary.commit || '')}" data-cwd="${this.escapeHtml(summary.cwd || '')}"><div class="change-head">${header}<span class="change-actions"><button type="button" class="change-action" data-change-action="undo" title="Открыть Source Control для отмены изменений"><span>Отменить</span>${this.webIcon('undo')}</button><button type="button" class="change-action" data-change-action="review"><span>Проверить</span>${this.webIcon('external')}</button><button type="button" class="change-action icon-only" data-change-action="toggle" title="Свернуть/развернуть">${this.webIcon('expand')}</button></span></div>${rows}</div>`;
     }
@@ -7295,28 +7298,89 @@ prompt.addEventListener('keydown', event => {
         return many;
     }
 
-    private getGitChangeSummaryFromMessage(content: string): GitChangeSummary | undefined {
+    private getGitChangeSummaryFromMessage(content: string, messageTimestamp?: number): GitChangeSummary | undefined {
         if (!/::git-(?:stage|commit|push)\{/.test(content)) return undefined;
-        const commit = this.extractCommitHash(content);
-        if (!commit) return undefined;
         const cwd = this.extractDirectiveCwd(content) || vscode.workspace.workspaceFolders?.[0]?.uri.fsPath || process.cwd();
-        const key = `${cwd}:${commit}`;
-        if (this.gitChangeSummaryCache.has(key)) {
-            return this.gitChangeSummaryCache.get(key);
+        const candidates = this.extractCommitHashCandidates(content);
+        const nearbyCommit = this.resolveGitCommitNearTimestamp(cwd, messageTimestamp);
+        if (nearbyCommit) candidates.push(nearbyCommit);
+        if (candidates.length === 0 && /::git-(?:commit|push)\{/.test(content)) {
+            const headCommit = this.resolveGitHeadCommit(cwd);
+            if (headCommit) candidates.push(headCommit);
         }
-        const summary = this.readGitChangeSummary(commit, cwd);
-        this.gitChangeSummaryCache.set(key, summary);
-        if (this.gitChangeSummaryCache.size > 40) {
-            const first = this.gitChangeSummaryCache.keys().next().value;
-            if (first) this.gitChangeSummaryCache.delete(first);
+        for (const commit of Array.from(new Set(candidates))) {
+            const key = `${cwd}:${commit}`;
+            if (this.gitChangeSummaryCache.has(key)) {
+                const cached = this.gitChangeSummaryCache.get(key);
+                if (cached) return cached;
+                continue;
+            }
+            const summary = this.readGitChangeSummary(commit, cwd);
+            this.gitChangeSummaryCache.set(key, summary);
+            if (this.gitChangeSummaryCache.size > 40) {
+                const first = this.gitChangeSummaryCache.keys().next().value;
+                if (first) this.gitChangeSummaryCache.delete(first);
+            }
+            if (summary) return summary;
         }
-        return summary;
+        return undefined;
     }
 
     private extractCommitHash(content: string): string | undefined {
-        const explicit = content.match(/(?:commit|коммит)\s*:?\s*`?([0-9a-f]{7,40})`?/i);
-        if (explicit?.[1]) return explicit[1];
-        return undefined;
+        return this.extractCommitHashCandidates(content)[0];
+    }
+
+    private extractCommitHashCandidates(content: string): string[] {
+        const candidates: string[] = [];
+        const add = (value?: string): void => {
+            const hash = (value || '').trim();
+            if (/^[0-9a-f]{7,40}$/i.test(hash) && !candidates.some(existing => existing.toLowerCase() === hash.toLowerCase())) {
+                candidates.push(hash);
+            }
+        };
+        const patterns = [
+            /(?:commit|коммит)\s*:?\s*`?([0-9a-f]{7,40})`?/ig,
+            /(?:github|push|pushed|запушено|залито|загружено)[^\n`]*`?([0-9a-f]{7,40})`?/ig,
+            /`([0-9a-f]{7,40})`/ig
+        ];
+        for (const pattern of patterns) {
+            let match: RegExpExecArray | null;
+            while ((match = pattern.exec(content)) !== null) {
+                add(match[1]);
+            }
+        }
+        return candidates;
+    }
+
+    private resolveGitCommitNearTimestamp(cwd: string, timestamp?: number): string | undefined {
+        if (!timestamp || !Number.isFinite(timestamp) || timestamp <= 0) return undefined;
+        const finalCwd = this.resolveGitSummaryCwd(cwd);
+        const before = new Date(timestamp + 2 * 60 * 1000).toISOString();
+        try {
+            const output = execSync(`git log -1 --format=%H --before="${before}"`, {
+                cwd: finalCwd,
+                encoding: 'utf8',
+                timeout: 2000,
+                windowsHide: true
+            }).trim();
+            return /^[0-9a-f]{7,40}$/i.test(output) ? output : undefined;
+        } catch {
+            return undefined;
+        }
+    }
+
+    private resolveGitHeadCommit(cwd: string): string | undefined {
+        try {
+            const output = execSync('git rev-parse HEAD', {
+                cwd: this.resolveGitSummaryCwd(cwd),
+                encoding: 'utf8',
+                timeout: 1500,
+                windowsHide: true
+            }).trim();
+            return /^[0-9a-f]{7,40}$/i.test(output) ? output : undefined;
+        } catch {
+            return undefined;
+        }
     }
 
     private extractDirectiveCwd(content: string): string | undefined {
@@ -7328,9 +7392,7 @@ prompt.addEventListener('keydown', event => {
     private readGitChangeSummary(commit: string, cwd: string): GitChangeSummary | undefined {
         try {
             const safeCommit = /^[0-9a-f]{7,40}$/i.test(commit) ? commit : 'HEAD';
-            const finalCwd = cwd && path.isAbsolute(cwd) && fs.existsSync(cwd)
-                ? cwd
-                : vscode.workspace.workspaceFolders?.[0]?.uri.fsPath || process.cwd();
+            const finalCwd = this.resolveGitSummaryCwd(cwd);
             const output = execSync(`git show --numstat --format= --find-renames ${safeCommit}`, {
                 cwd: finalCwd,
                 encoding: 'utf8',
@@ -7359,12 +7421,19 @@ prompt.addEventListener('keydown', event => {
                 commit: safeCommit,
                 cwd: finalCwd,
                 files,
+                fileCount: files.length,
                 additions: files.reduce((sum, file) => sum + file.additions, 0),
                 deletions: files.reduce((sum, file) => sum + file.deletions, 0)
             };
         } catch {
             return undefined;
         }
+    }
+
+    private resolveGitSummaryCwd(cwd: string): string {
+        return cwd && path.isAbsolute(cwd) && fs.existsSync(cwd)
+            ? cwd
+            : vscode.workspace.workspaceFolders?.[0]?.uri.fsPath || process.cwd();
     }
 
     private renderInlineContent(value: string): string {
