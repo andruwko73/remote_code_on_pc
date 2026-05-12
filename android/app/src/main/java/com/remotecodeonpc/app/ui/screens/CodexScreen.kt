@@ -33,6 +33,7 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
+import androidx.compose.material.icons.automirrored.filled.Undo
 import androidx.compose.material.icons.automirrored.outlined.InsertDriveFile
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.outlined.*
@@ -2077,8 +2078,9 @@ private fun MobileChangeCard(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .background(Color(0xFF2D2D2D))
-                    .padding(horizontal = 10.dp, vertical = 7.dp),
+                    .heightIn(min = 56.dp)
+                    .background(Color(0xFF242424))
+                    .padding(horizontal = 12.dp, vertical = 8.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Row(
@@ -2091,7 +2093,7 @@ private fun MobileChangeCard(
                     Text(
                         changeHeaderTitle(summary),
                         color = TextPrimary,
-                        fontSize = 13.sp,
+                        fontSize = 14.5.sp,
                         fontWeight = FontWeight.SemiBold,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
@@ -2106,17 +2108,22 @@ private fun MobileChangeCard(
                 }
                 TextButton(
                     onClick = { onUndo(summary.commit, summary.cwd, null) },
-                    modifier = Modifier.height(30.dp),
-                    contentPadding = PaddingValues(horizontal = 5.dp, vertical = 0.dp)
+                    modifier = Modifier.height(34.dp),
+                    contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp)
                 ) {
-                    Text("Undo", color = ErrorRed, fontSize = 11.5.sp, fontWeight = FontWeight.SemiBold)
+                    Text("Отменить", color = TextSecondary, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Icon(Icons.AutoMirrored.Filled.Undo, contentDescription = null, tint = TextSecondary, modifier = Modifier.size(14.dp))
                 }
-                IconButton(
+                TextButton(
                     onClick = { onReview(summary.commit, summary.cwd, primaryPath) },
                     enabled = summary.files.isNotEmpty(),
-                    modifier = Modifier.size(30.dp)
+                    modifier = Modifier.height(34.dp),
+                    contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp)
                 ) {
-                    Icon(Icons.Default.NorthEast, contentDescription = "Проверить", tint = TextSecondary, modifier = Modifier.size(14.dp))
+                    Text("Проверить", color = TextSecondary, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Icon(Icons.Default.NorthEast, contentDescription = null, tint = TextSecondary, modifier = Modifier.size(14.dp))
                 }
                 IconButton(onClick = { expanded = !expanded }, modifier = Modifier.size(30.dp)) {
                     Icon(

@@ -228,7 +228,9 @@ const compactWebviewChecks = [
     '.sidebar-thread{min-height:39px',
     '.sidebar-thread.selected{background:var(--codex-selected)}',
     '.message-text{margin:0;white-space:normal;word-wrap:break-word;font:inherit;color:var(--codex-text);font-size:14px;line-height:1.47}',
-    '.change-card{margin:10px 0 13px',
+    '.change-card{margin:14px 0 16px',
+    '.change-head{display:flex;align-items:center;justify-content:space-between;gap:22px;min-height:68px',
+    '.change-action{border:0;background:transparent;color:#9a9a9a;height:34px',
     '.change-row{display:flex;align-items:center;gap:11px;min-height:38px',
     '.composer{max-width:var(--composer-max);margin:0 auto;border:1px solid var(--codex-strong-border);background:#2d2d2d;border-radius:18px',
 ];
@@ -239,9 +241,12 @@ assert(
     serverContent.includes('remote_code_hidden_messages') &&
     serverContent.includes('deleteRemoteMessage') &&
     serverContent.includes('regenerateRemoteMessage') &&
+    serverContent.includes('prompt.value = text') &&
+    serverContent.includes('prompt.setSelectionRange(prompt.value.length, prompt.value.length)') &&
+    !serverContent.includes('prompt.textContent = text') &&
     serverContent.includes("type: 'codex:message-deleted'"),
     'Extension message actions persist and broadcast',
-    'message delete/regenerate API should persist hidden messages and notify clients'
+    'message edit/delete/regenerate API should fill the composer, persist hidden messages and notify clients'
 );
 assert(
     serverContent.includes("pathname === '/api/codex/change'") &&
@@ -366,7 +371,7 @@ assert(
     'APK downloads must be verified before install'
 );
 assert(androidManifest.includes('REQUEST_INSTALL_PACKAGES') && mainActivity.includes('canRequestPackageInstalls') && mainActivity.includes('ACTION_MANAGE_UNKNOWN_APP_SOURCES'), 'Android updater declares and gates APK install permission', 'PackageInstaller requires REQUEST_INSTALL_PACKAGES and an unknown-source settings gate');
-assert(androidBuildGradle.includes('versionCode = 105') && androidBuildGradle.includes('versionName = "1.0.105"') && androidBuildGradle.includes('signingConfig = signingConfigs.getByName("debug")'), 'Android release artifact can update existing sideload installs', 'release APK should be version-bumped and signed for sideload updates');
+assert(androidBuildGradle.includes('versionCode = 106') && androidBuildGradle.includes('versionName = "1.0.106"') && androidBuildGradle.includes('signingConfig = signingConfigs.getByName("debug")'), 'Android release artifact can update existing sideload installs', 'release APK should be version-bumped and signed for sideload updates');
 assert(mainActivity.includes('UpdateReadyDialog') && mainActivity.includes('UpdateStatusDialog') && mainActivity.includes('onStatus("Скачивание обновления') && mainActivity.includes('onStatus("Проверка APK') && mainActivity.includes('PendingVerifiedApk') && mainActivity.includes('onReadyDialogFinished = { pendingVerifiedApk = null }') && mainActivity.includes('onInstallPermissionRequired = { pendingVerifiedApk = update }') && mainActivity.includes('Handler(Looper.getMainLooper()).post') && mainActivity.includes('Intent.ACTION_VIEW') && mainActivity.includes('Intent.ACTION_INSTALL_PACKAGE') && !mainActivity.includes('Intent.EXTRA_RETURN_RESULT') && mainActivity.includes('startActivityForResult(intent, updateInstallRequestCode)') && mainActivity.includes('startActivityForResult(installIntent, updateInstallRequestCode)') && !mainActivity.includes('Intent.FLAG_ACTIVITY_NEW_TASK'), 'Android updater uses the Package Installer handoff style without forced return-result', 'verified APK should open through ACTION_VIEW and keep ACTION_INSTALL_PACKAGE as fallback without forcing result mode');
 assert(mainActivity.includes('onInstallPermissionRequired()') && mainActivity.includes('ACTION_MANAGE_UNKNOWN_APP_SOURCES') && mainActivity.indexOf('onInstallPermissionRequired()') > mainActivity.indexOf('startActivity(settingsIntent)'), 'Android updater preserves APK after unknown-source permission handoff', 'permission settings should keep the verified APK ready for a second install tap');
 assert(codexScreen.includes('CodexNavigationPanel') && codexScreen.includes('CodexDrawerProjectRow') && codexScreen.includes('buildMobileCodexProjects') && modelsFile.includes('workspaceName'), 'Android exposes projects in Codex chat list', 'project drawer/thread workspace metadata should be visible to Android');
@@ -436,7 +441,7 @@ assert(codexScreen.includes('startNumber: Int = 1') && codexScreen.includes('"${
 assert(codexScreen.includes('mobileWorkSummary(events, running)') && codexScreen.includes('MOBILE_WORK_SUMMARY_IDLE_GAP_MS') && codexScreen.includes('на протяжении'), 'Android shows Codex-like work summary', 'mobile work summary should match Codex wording');
 assert(codexScreen.includes('val previewEvents = visibleEvents.takeLast(if (running) 4 else 3)') && codexScreen.includes('MobileTimelineEventPreview(event)') && codexScreen.includes('title.isNotBlank() && !event.type.contains("command")'), 'Android action timeline shows public work steps', 'mobile chat should expose recent public action/model progress lines without requiring expansion');
 assert(codexScreen.includes('summary.files.take(5)') && codexScreen.includes('fontSize = 14.sp') && codexScreen.includes('modifier = Modifier.width(24.dp)'), 'Android answer and change-card density matches Codex', 'mobile assistant text, ordered markers, and change cards should stay close to Codex density');
-assert(codexScreen.includes('changeHeaderTitle(summary)') && codexScreen.includes('changeFileCount(summary)') && codexScreen.includes('ChangeDeltaStrip(') && codexScreen.includes('horizontalArrangement = Arrangement.spacedBy(9.dp)') && codexScreen.includes('alwaysShowZero = true') && codexScreen.includes('modifier.widthIn(min = 92.dp)') && codexScreen.includes('fileCount = headerTotals') && codexScreen.includes('extractMobileCommitHash(content)') && modelsFile.includes('val fileCount: Int = 0') && mainVm.includes('fileCount = (this["fileCount"]'), 'Android change-card stats fit and match Codex totals', 'mobile change cards should keep +/− totals visible in a one-line Codex-like header and prefer Codex/header totals over partial row sums');
+assert(codexScreen.includes('changeHeaderTitle(summary)') && codexScreen.includes('changeFileCount(summary)') && codexScreen.includes('ChangeDeltaStrip(') && codexScreen.includes('heightIn(min = 56.dp)') && codexScreen.includes('Text("Отменить"') && codexScreen.includes('Text("Проверить"') && codexScreen.includes('horizontalArrangement = Arrangement.spacedBy(9.dp)') && codexScreen.includes('alwaysShowZero = true') && codexScreen.includes('modifier.widthIn(min = 92.dp)') && codexScreen.includes('fileCount = headerTotals') && codexScreen.includes('extractMobileCommitHash(content)') && modelsFile.includes('val fileCount: Int = 0') && mainVm.includes('fileCount = (this["fileCount"]'), 'Android change-card stats fit and match Codex totals', 'mobile change cards should keep +/− totals visible in a one-line Codex-like header and prefer Codex/header totals over partial row sums');
 assert(codexScreen.includes('MobileCodeBlock') && codexScreen.includes('MobileTextBlockKind.Code') && codexScreen.includes('previewBitmap()') && codexScreen.includes('MobileImagePreviewDialog'), 'Android renders Codex-style code blocks and image previews', 'mobile chat should render fenced code blocks and tappable image attachments');
 assert(remoteCodeApp.includes('ConnectionDiagnosticsCard') && remoteCodeApp.includes('/api/status') && remoteCodeApp.includes('APK endpoint'), 'Android shows external connection diagnostics', 'failed external connections should show URL/token/status/WebSocket/APK diagnostic steps');
 assert(mainActivity.includes('sourceLabel') && mainActivity.includes('Источник: ${update.sourceLabel}') && mainActivity.includes('SHA-256: ${update.sha256.take(12)}'), 'Android updater explains verified APK before install', 'update dialog should show source, version, size and SHA before opening the system installer');
