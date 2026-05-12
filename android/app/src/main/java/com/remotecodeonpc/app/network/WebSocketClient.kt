@@ -6,7 +6,6 @@ import com.remotecodeonpc.app.CrashLogger
 import com.remotecodeonpc.app.ServerConfig
 import kotlinx.coroutines.*
 import okhttp3.*
-import java.net.URLEncoder
 import java.util.concurrent.TimeUnit
 
 interface WebSocketListener {
@@ -43,14 +42,16 @@ class WebSocketClient(private val config: ServerConfig) {
     }
 
     private fun doConnect() {
-        val baseWsUrl = ConnectionUrl.wsBase(config).trimEnd('/') + "/ws"
-        val wsUrl = if (config.authToken.isNotBlank()) {
-            "$baseWsUrl?token=${URLEncoder.encode(config.authToken, "UTF-8")}"
-        } else {
-            baseWsUrl
+        if (ConnectionUrl.isUnsafePublicHttp(config)) {
+            val message = "Public WebSocket connections require HTTPS/WSS. HTTP is only allowed for local network hosts."
+            CrashLogger.w("WSClient", message)
+            listener?.onError(message)
+            listener?.onConnectionLost()
+            return
         }
-
-        val logUrl = if (config.authToken.isNotBlank()) "$baseWsUrl?token=***" else baseWsUrl
+        val baseWsUrl = ConnectionUrl.wsBase(config).trimEnd('/') + "/ws"
+        val wsUrl = baseWsUrl
+        val logUrl = baseWsUrl
         CrashLogger.d("WSClient", "Connecting to $logUrl (attempt ${retryCount + 1})")
 
         val request = Request.Builder()

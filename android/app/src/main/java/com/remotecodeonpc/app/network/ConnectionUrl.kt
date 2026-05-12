@@ -13,7 +13,7 @@ object ConnectionUrl {
         }
         val normalized = normalizeHttpBase(raw)
         if (normalized.isBlank()) return normalized
-        if (config.useTunnel && !hasExplicitScheme(raw) && looksLikePublicHost(raw) && !looksLikePrivateHost(stripPort(normalized))) {
+        if (config.useTunnel && !hasExplicitScheme(raw) && looksLikePublicHost(raw) && !looksLikePrivateHost(hostFromBase(normalized))) {
             return toScheme(normalized, "https")
         }
         return normalized
@@ -23,6 +23,17 @@ object ConnectionUrl {
         return httpBase(config)
             .replaceFirst(Regex("^http://", RegexOption.IGNORE_CASE), "ws://")
             .replaceFirst(Regex("^https://", RegexOption.IGNORE_CASE), "wss://")
+    }
+
+    fun isUnsafePublicHttp(config: ServerConfig): Boolean {
+        if (!config.useTunnel || config.tunnelUrl.isBlank()) return false
+        return isUnsafePublicHttpUrl(config.tunnelUrl)
+    }
+
+    fun isUnsafePublicHttpUrl(raw: String): Boolean {
+        val normalized = normalizeHttpBase(raw)
+        if (!normalized.startsWith("http://", ignoreCase = true)) return false
+        return looksLikePublicHost(hostFromBase(normalized))
     }
 
     private fun normalizeHttpBase(raw: String): String {
@@ -83,6 +94,16 @@ object ConnectionUrl {
             ?.trimStart('[')
             ?.trimEnd(']')
             ?: value
+    }
+
+    private fun hostFromBase(value: String): String {
+        return runCatching {
+            URI(value).host
+        }.getOrNull()
+            ?.trim()
+            ?.trimStart('[')
+            ?.trimEnd(']')
+            ?: value.substringAfter("://", value).split('?', '#', '/').firstOrNull().orEmpty().let(::stripPort)
     }
 
     private fun hasExplicitScheme(value: String): Boolean {

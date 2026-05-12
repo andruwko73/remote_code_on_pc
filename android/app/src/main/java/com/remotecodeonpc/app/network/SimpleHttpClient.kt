@@ -13,6 +13,9 @@ object SimpleHttpClient {
     private val gson = Gson()
 
     fun getStatus(config: ServerConfig): StatusResponse {
+        if (ConnectionUrl.isUnsafePublicHttp(config)) {
+            throw IllegalArgumentException("Public connections require HTTPS. HTTP is only allowed for local network hosts.")
+        }
         val baseUrl = ConnectionUrl.httpBase(config)
         val url = URL("$baseUrl/api/status")
         CrashLogger.d("SimpleHTTP", "GET $url")

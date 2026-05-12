@@ -125,6 +125,9 @@ object ApiClient {
         }
 
         currentConfig = config
+        if (ConnectionUrl.isUnsafePublicHttp(config)) {
+            throw IllegalArgumentException("Public connections require HTTPS. HTTP is only allowed for local network hosts.")
+        }
         baseUrl = ConnectionUrl.httpBase(config)
 
         CrashLogger.d("ApiClient", "Building Retrofit: baseUrl=$baseUrl, useTunnel=${config.useTunnel}")

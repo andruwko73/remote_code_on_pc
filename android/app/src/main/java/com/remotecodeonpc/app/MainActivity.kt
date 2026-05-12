@@ -191,7 +191,7 @@ class MainActivity : ComponentActivity() {
 
         val host = safeStringPref(prefs, "host")
         val port = safeIntPref(prefs, "port", 8799).coerceIn(1, 65535)
-        val authToken = safeStringPref(prefs, "authToken")
+        SecureTokenStore.migratePlaintextToken(this, prefs)
         val useTunnel = safeBooleanPref(prefs, "useTunnel", false)
         val tunnelUrl = safeStringPref(prefs, "tunnelUrl")
 
@@ -199,7 +199,6 @@ class MainActivity : ComponentActivity() {
             .clear()
             .putString("host", host)
             .putInt("port", port)
-            .putString("authToken", authToken)
             .putBoolean("useTunnel", useTunnel)
             .putString("tunnelUrl", tunnelUrl)
             .putInt("last_version_code", BuildConfig.VERSION_CODE)
@@ -238,6 +237,7 @@ class MainActivity : ComponentActivity() {
 
     private fun resetLocalAppState() {
         getSharedPreferences(appPrefsName, Context.MODE_PRIVATE).edit().clear().apply()
+        SecureTokenStore.clear(this)
         cacheDir.listFiles()
             ?.filter { it.name.startsWith("remote-code-update-") && it.extension == "apk" }
             ?.forEach { it.delete() }
@@ -367,6 +367,10 @@ class MainActivity : ComponentActivity() {
         val sources = mutableListOf<UpdateSource>()
         fun addExtensionSource(baseUrl: String) {
             val base = baseUrl.trimEnd('/')
+            if (ConnectionUrl.isUnsafePublicHttpUrl(base)) {
+                CrashLogger.w("MainActivity", "Skipping cleartext public update source: $base")
+                return
+            }
             sources += UpdateSource(
                 apkUrl = "$base/api/app/apk?ts=$ts",
                 statusUrl = "$base/api/app/apk/status?ts=$ts",

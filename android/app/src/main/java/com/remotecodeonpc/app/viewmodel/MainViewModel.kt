@@ -98,11 +98,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private fun loadSavedConfig() {
         try {
-            val prefs = getApplication<Application>()
-                .getSharedPreferences("remote_code_prefs", Context.MODE_PRIVATE)
+            val app = getApplication<Application>()
+            val prefs = app.getSharedPreferences("remote_code_prefs", Context.MODE_PRIVATE)
             val savedHost = prefs.getString("host", "") ?: ""
             val savedPort = prefs.getInt("port", 8799)
-            val savedToken = prefs.getString("authToken", "") ?: ""
+            val savedToken = SecureTokenStore.migratePlaintextToken(app, prefs)
             val savedUseTunnel = prefs.getBoolean("useTunnel", false)
             val savedTunnelUrl = prefs.getString("tunnelUrl", "") ?: ""
             val savedCodexProjectId = prefs.getString("codexProjectId", "") ?: ""
@@ -128,14 +128,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private fun saveConfig(config: ServerConfig) {
         try {
-            val prefs = getApplication<Application>()
-                .getSharedPreferences("remote_code_prefs", Context.MODE_PRIVATE)
+            val app = getApplication<Application>()
+            SecureTokenStore.write(app, config.authToken)
+            val prefs = app.getSharedPreferences("remote_code_prefs", Context.MODE_PRIVATE)
             prefs.edit()
                 .putString("host", config.host)
                 .putInt("port", config.port)
-                .putString("authToken", config.authToken)
                 .putBoolean("useTunnel", config.useTunnel)
                 .putString("tunnelUrl", config.tunnelUrl)
+                .remove("authToken")
                 .apply()
             CrashLogger.d("ViewModel", "Config saved: ${config.host}:${config.port}")
         } catch (e: Exception) {
@@ -219,6 +220,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         if (config.useTunnel && isUnsupportedExternalUrl(config.tunnelUrl)) {
             _uiState.value = _uiState.value.copy(
                 connectionError = "Этот публичный URL не подходит для подключения телефона. Укажите готовый HTTPS Keenetic/DDNS адрес из расширения."
+            )
+            return
+        }
+        if (ConnectionUrl.isUnsafePublicHttp(config)) {
+            _uiState.value = _uiState.value.copy(
+                connectionError = "Для внешней сети нужен HTTPS URL. HTTP оставлен только для локальной сети, чтобы токен доступа не уходил по открытому каналу."
             )
             return
         }
@@ -1710,21 +1717,24 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 if (response.isSuccessful) {
                     val body = response.body()
                     val url = body?.publicUrl ?: body?.tunnelUrl
+                    val safeUrl = url?.takeUnless { ConnectionUrl.isUnsafePublicHttpUrl(it) }
                     _uiState.value = _uiState.value.copy(
                         tunnelActive = body?.tunnelActive ?: false,
-                        tunnelUrl = url,
+                        tunnelUrl = safeUrl,
                         tunnelProvider = body?.tunnelProvider,
                         localIp = body?.localIp ?: "",
                         tunnelError = if (body?.authRequired == true && !body.authOk) {
                             "Требуется токен доступа для управления туннелем."
+                        } else if (url != null && safeUrl == null) {
+                            "Расширение вернуло HTTP URL для внешней сети. Укажите HTTPS Keenetic/DDNS адрес, чтобы не передавать токен открытым текстом."
                         } else {
                             null
                         }
                     )
                     // If the tunnel is active, refresh the Android config.
-                    if (body?.tunnelActive == true && url != null) {
+                    if (body?.tunnelActive == true && safeUrl != null) {
                         val updatedConfig = _uiState.value.serverConfig.copy(
-                            tunnelUrl = url,
+                            tunnelUrl = safeUrl,
                             useTunnel = _uiState.value.serverConfig.useTunnel
                         )
                         _uiState.value = _uiState.value.copy(serverConfig = updatedConfig)
@@ -1757,13 +1767,22 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 val response = api.startTunnel()
                 val body = response.body()
                 val url = body?.url
-                if (response.isSuccessful && body?.success == true && !url.isNullOrBlank()) {
-                    if (isUnsupportedExternalUrl(url)) {
-                        _uiState.value = _uiState.value.copy(
-                            isTunnelStarting = false,
+                    if (response.isSuccessful && body?.success == true && !url.isNullOrBlank()) {
+                        if (isUnsupportedExternalUrl(url)) {
+                            _uiState.value = _uiState.value.copy(
+                                isTunnelStarting = false,
                             tunnelActive = false,
                             tunnelError = "Расширение вернуло служебный адрес, который не подходит для телефона. В VS Code укажите готовый HTTPS Keenetic/DDNS URL.",
                             connectionError = "Расширение вернуло служебный адрес, который не подходит для телефона. В VS Code укажите готовый HTTPS Keenetic/DDNS URL."
+                        )
+                        return@launch
+                    }
+                    if (ConnectionUrl.isUnsafePublicHttpUrl(url)) {
+                        _uiState.value = _uiState.value.copy(
+                            isTunnelStarting = false,
+                            tunnelActive = false,
+                            tunnelError = "Расширение вернуло HTTP URL для внешней сети. Укажите HTTPS Keenetic/DDNS адрес, чтобы не передавать токен открытым текстом.",
+                            connectionError = "Для внешней сети нужен HTTPS URL. HTTP оставлен только для локальной сети."
                         )
                         return@launch
                     }
@@ -1875,6 +1894,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             return
         }
         if (useTunnel && _uiState.value.tunnelUrl != null) {
+            if (ConnectionUrl.isUnsafePublicHttpUrl(_uiState.value.tunnelUrl ?: "")) {
+                _uiState.value = _uiState.value.copy(
+                    tunnelError = "Для внешней сети нужен HTTPS URL. HTTP оставлен только для локальной сети."
+                )
+                return
+            }
             val updatedConfig = _uiState.value.serverConfig.copy(
                 useTunnel = true,
                 tunnelUrl = _uiState.value.tunnelUrl ?: ""

@@ -2029,9 +2029,7 @@ export class RemoteServer {
     private checkAuth(req: http.IncomingMessage, requireConfiguredToken = false): boolean {
         if (!this._authToken) return !requireConfiguredToken;
         const authHeader = req.headers['authorization'];
-        if (authHeader === `Bearer ${this._authToken}`) return true;
-        const parsed = url.parse(req.url || '/', true);
-        return parsed.query.token === this._authToken;
+        return authHeader === `Bearer ${this._authToken}`;
     }
 
     private isPublicStatusEndpoint(pathname: string): boolean {
@@ -3291,8 +3289,8 @@ export class RemoteServer {
                 return [
                     'Profile: fast.',
                     'You may request safe read-only terminal checks such as dir, ls, pwd, git status, git diff, git log, and diagnostics.',
-                    'The extension may auto-run clearly read-only commands.',
-                    'For file writes, patches, installs, deletes, moves, network changes, or long-running commands, request approval first.'
+                    'Terminal commands are still routed through explicit user approval.',
+                    'For file writes, patches, installs, deletes, moves, network changes, or long-running commands, request approval and explain why.'
                 ].join(' ');
             case 'review':
                 return [
@@ -4938,9 +4936,9 @@ ol{padding-left:20px}li{margin:6px 0}.note{margin-top:12px;font-size:13px;color:
     }
 
     private shouldAutoApproveAction(event: RemoteCodeActionEvent): boolean {
-        if (this.selectedProfile !== 'fast') return false;
-        if (event.type !== 'command_approval' || !event.command) return false;
-        return this.isSafeReadOnlyCommand(event.command);
+        // Shell strings are hard to prove safe across cmd, PowerShell, and Git aliases.
+        // Keep the fast profile fast in prompting, but require an explicit tap to run.
+        return false;
     }
 
     private isSafeReadOnlyCommand(command: string): boolean {
@@ -4951,11 +4949,13 @@ ol{padding-left:20px}li{margin:6px 0}.note{margin-top:12px;font-size:13px;color:
             .trim();
         if (!normalized) return false;
         const lower = normalized.toLowerCase();
-        if (/[;&|`]/.test(lower)) return false;
+        if (/[\r\n;&|`<>]/.test(lower)) return false;
+        if (/\b(start|invoke-expression|iex|curl|wget|ssh|scp|sftp|ftp|pwsh|powershell|cmd|bash|wsl)\b/i.test(lower)) return false;
+        if (/\s--output(?:=|\s)|\s-o\s/i.test(lower)) return false;
         if (/\b(del|erase|rd|rmdir|rm|remove-item|move|mv|copy|cp|set-content|add-content|out-file|new-item|mkdir|ni|git\s+(?:add|commit|push|pull|reset|checkout|switch|merge|rebase|clean|apply)|npm\s+(?:install|i|update|run)|pnpm|yarn|pip|python|node)\b/i.test(lower)) {
             return false;
         }
-        return /^(dir|ls|pwd|cd|git\s+(status|diff|log|show|branch)(\s|$)|type\s+|cat\s+|get-content\s+)/i.test(lower);
+        return /^(dir(?:\s+[\w./\\:-]+)?|ls(?:\s+[\w./\\:-]+)?|pwd|cd(?:\s+[\w./\\:-]+)?|git\s+(status|diff|log|show|branch)(?:\s+[\w./\\:-]+)?|type\s+[\w./\\:-]+|cat\s+[\w./\\:-]+|get-content\s+[\w./\\:-]+)$/i.test(lower);
     }
 
     private stripActionDirectives(content: string): string {

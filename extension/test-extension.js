@@ -288,12 +288,21 @@ assert(
     'terminal exec must not run commands directly'
 );
 const standaloneContent = fs.readFileSync(path.join(__dirname, 'src', 'standalone-server.ts'), 'utf-8');
+assert(!serverContent.includes('parsed.query.token') && !standaloneContent.includes("searchParams.get('token')"), 'Access token is not accepted in URL query', 'tokens should be sent in Authorization headers, not query strings');
 assert(
     standaloneContent.includes("pathname === '/api/terminal/exec'") &&
     standaloneContent.includes('Terminal execution is disabled in standalone mode') &&
     !standaloneContent.match(/terminal\/exec[\s\S]{0,800}(execSync|spawn|sendText)/),
     'Standalone terminal exec disabled',
     'standalone terminal exec must not execute commands'
+);
+assert(
+    serverContent.includes('Terminal commands are still routed through explicit user approval') &&
+    serverContent.includes('private shouldAutoApproveAction') &&
+    serverContent.includes('return false;') &&
+    serverContent.includes('/[\\r\\n;&|`<>]/'),
+    'Fast profile does not auto-run shell commands',
+    'fast mode must not auto-approve shell strings'
 );
 assert(
     standaloneContent.includes('getStatus(this.canExposeFullStatus(req))') &&
@@ -334,6 +343,7 @@ console.log('\n🤖 Тест 9: Проверка Android проекта');
 const androidBase = path.join(__dirname, '..', 'android');
 const androidFiles = [
     'app/src/main/java/com/remotecodeonpc/app/Models.kt',
+    'app/src/main/java/com/remotecodeonpc/app/SecureTokenStore.kt',
     'app/src/main/java/com/remotecodeonpc/app/RemoteCodeApp.kt',
     'app/src/main/java/com/remotecodeonpc/app/viewmodel/MainViewModel.kt',
     'app/src/main/java/com/remotecodeonpc/app/network/ApiClient.kt',
@@ -356,12 +366,16 @@ const mainVm = fs.readFileSync(path.join(androidBase, 'app', 'src', 'main', 'jav
 const modelsFile = fs.readFileSync(path.join(androidBase, 'app', 'src', 'main', 'java', 'com', 'remotecodeonpc', 'app', 'Models.kt'), 'utf-8');
 const mainActivity = fs.readFileSync(path.join(androidBase, 'app', 'src', 'main', 'java', 'com', 'remotecodeonpc', 'app', 'MainActivity.kt'), 'utf-8');
 const androidManifest = fs.readFileSync(path.join(androidBase, 'app', 'src', 'main', 'AndroidManifest.xml'), 'utf-8');
+const secureTokenStore = fs.readFileSync(path.join(androidBase, 'app', 'src', 'main', 'java', 'com', 'remotecodeonpc', 'app', 'SecureTokenStore.kt'), 'utf-8');
 const androidBuildGradle = fs.readFileSync(path.join(androidBase, 'app', 'build.gradle.kts'), 'utf-8');
 assert(!remoteCodeApp.includes('.verticalScroll(rememberScrollState())'), 'Android connection screen avoids forced startup scroll', 'startup screen still has verticalScroll');
 assert(remoteCodeApp.includes('Arrangement.spacedBy(7.dp, Alignment.CenterVertically)'), 'Android connection screen is compact', 'compact connection layout missing');
 assert(remoteCodeApp.includes('Text("Логи"') && remoteCodeApp.includes('Text("Очистить"') && remoteCodeApp.includes('Text("Обновить"'), 'Android startup action buttons are present', 'startup action row missing');
 assert(remoteCodeApp.includes('PasswordVisualTransformation') && remoteCodeApp.includes('showToken') && remoteCodeApp.includes('showCompactToken'), 'Android token fields are masked by default', 'token field must not show secrets by default');
 assert(!connectionUrl.includes('withKeeneticPort') && !remoteCodeApp.includes('Text("Порт"') && !remoteCodeApp.includes('порт'), 'Android hides manual port from connection UI', 'external URLs should not get an implicit app port and Android should not mention a manual port in the main UI');
+assert(connectionUrl.includes('isUnsafePublicHttp') && mainVm.includes('Для внешней сети нужен HTTPS URL') && apiClient.includes('Public connections require HTTPS') && simpleHttpClient.includes('Public connections require HTTPS') && webSocketClient.includes('Public WebSocket connections require HTTPS'), 'Android blocks public HTTP with tokens', 'external mode must require HTTPS before sending auth tokens');
+assert(!webSocketClient.includes('?token=') && webSocketClient.includes('addHeader("Authorization", "Bearer ${config.authToken}")'), 'Android WebSocket avoids query-string token', 'WebSocket token should not be placed in the URL');
+assert(secureTokenStore.includes('AndroidKeyStore') && secureTokenStore.includes('AES/GCM/NoPadding') && mainVm.includes('SecureTokenStore.migratePlaintextToken') && mainVm.includes('.remove("authToken")') && mainActivity.includes('SecureTokenStore.clear'), 'Android stores access token with Keystore encryption', 'authToken should migrate out of plain SharedPreferences');
 assert(mainActivity.includes('buildUpdateSources') && mainActivity.includes('statusUrl = "$base/api/app/apk/status?ts=$ts"') && mainActivity.includes('apkUrl = "$base/api/app/apk?ts=$ts"') && mainActivity.indexOf('addExtensionSource(ConnectionUrl.httpBase(config') < mainActivity.indexOf('apkUrl = "$publicUpdateUrl?ts=$ts"'), 'Android updater tries connected extension before GitHub', 'update button should prefer the current extension APK endpoint before public fallback');
 assert(mainActivity.includes('preflightUpdateSource') && mainActivity.includes('currentInstalledApkSha256') && mainActivity.includes('Уже установлена актуальная версия приложения') && mainActivity.includes('UpdateManifest'), 'Android updater preflights APK status', 'updater should query APK status/SHA before downloading and skip already-installed APKs');
 assert(
@@ -374,7 +388,7 @@ assert(
     'APK downloads must be verified before install'
 );
 assert(androidManifest.includes('REQUEST_INSTALL_PACKAGES') && mainActivity.includes('canRequestPackageInstalls') && mainActivity.includes('ACTION_MANAGE_UNKNOWN_APP_SOURCES'), 'Android updater declares and gates APK install permission', 'PackageInstaller requires REQUEST_INSTALL_PACKAGES and an unknown-source settings gate');
-assert(androidBuildGradle.includes('versionCode = 109') && androidBuildGradle.includes('versionName = "1.0.109"') && androidBuildGradle.includes('signingConfig = signingConfigs.getByName("debug")'), 'Android release artifact can update existing sideload installs', 'release APK should be version-bumped and signed for sideload updates');
+assert(androidBuildGradle.includes('versionCode = 110') && androidBuildGradle.includes('versionName = "1.0.110"') && androidBuildGradle.includes('signingConfig = signingConfigs.getByName("debug")'), 'Android release artifact can update existing sideload installs', 'release APK should be version-bumped and signed for sideload updates');
 assert(mainActivity.includes('UpdateReadyDialog') && mainActivity.includes('UpdateStatusDialog') && mainActivity.includes('onStatus("Скачивание обновления') && mainActivity.includes('onStatus("Проверка APK') && mainActivity.includes('PendingVerifiedApk') && mainActivity.includes('onReadyDialogFinished = { pendingVerifiedApk = null }') && mainActivity.includes('onInstallPermissionRequired = { pendingVerifiedApk = update }') && mainActivity.includes('Handler(Looper.getMainLooper()).post') && mainActivity.includes('Intent.ACTION_VIEW') && mainActivity.includes('Intent.ACTION_INSTALL_PACKAGE') && !mainActivity.includes('Intent.EXTRA_RETURN_RESULT') && mainActivity.includes('startActivityForResult(intent, updateInstallRequestCode)') && mainActivity.includes('startActivityForResult(installIntent, updateInstallRequestCode)') && !mainActivity.includes('Intent.FLAG_ACTIVITY_NEW_TASK'), 'Android updater uses the Package Installer handoff style without forced return-result', 'verified APK should open through ACTION_VIEW and keep ACTION_INSTALL_PACKAGE as fallback without forcing result mode');
 assert(mainActivity.includes('onInstallPermissionRequired()') && mainActivity.includes('ACTION_MANAGE_UNKNOWN_APP_SOURCES') && mainActivity.indexOf('onInstallPermissionRequired()') > mainActivity.indexOf('startActivity(settingsIntent)'), 'Android updater preserves APK after unknown-source permission handoff', 'permission settings should keep the verified APK ready for a second install tap');
 assert(codexScreen.includes('CodexNavigationPanel') && codexScreen.includes('CodexDrawerProjectRow') && codexScreen.includes('buildMobileCodexProjects') && modelsFile.includes('workspaceName'), 'Android exposes projects in Codex chat list', 'project drawer/thread workspace metadata should be visible to Android');

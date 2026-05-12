@@ -1979,9 +1979,7 @@ export class StandaloneRemoteServer {
 
     private isWsAuthorized(req: http.IncomingMessage): boolean {
         if (!this.authToken) return this.isLocalOnlyBind();
-        const requestUrl = new URL(req.url || '/', `http://${req.headers.host || 'localhost'}`);
-        return requestUrl.searchParams.get('token') === this.authToken ||
-            req.headers.authorization === `Bearer ${this.authToken}`;
+        return req.headers.authorization === `Bearer ${this.authToken}`;
     }
 
     private isAuthRequired(pathname: string): boolean {
