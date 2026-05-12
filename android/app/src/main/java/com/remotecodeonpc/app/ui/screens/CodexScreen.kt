@@ -254,6 +254,11 @@ private fun CodexNavigationPanel(
     val projectGroups = remember(projects, threads) {
         projects.ifEmpty { buildMobileCodexProjects(threads) }
     }
+    var searchVisible by remember { mutableStateOf(false) }
+    var projectSearchQuery by remember { mutableStateOf("") }
+    val filteredProjectGroups = remember(projectGroups, projectSearchQuery) {
+        filterMobileProjects(projectGroups, projectSearchQuery)
+    }
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -268,9 +273,8 @@ private fun CodexNavigationPanel(
             )
             CodexDrawerAction(
                 icon = Icons.Outlined.Search,
-                label = "Поиск",
-                enabled = false,
-                onClick = {}
+                label = if (searchVisible) "Скрыть поиск" else "Поиск",
+                onClick = { searchVisible = !searchVisible }
             )
             CodexDrawerAction(
                 icon = Icons.Outlined.Extension,
@@ -285,9 +289,17 @@ private fun CodexNavigationPanel(
                 onClick = {}
             )
         }
+        AnimatedVisibility(visible = searchVisible) {
+            CodexDrawerSearchField(
+                value = projectSearchQuery,
+                onValueChange = { projectSearchQuery = it },
+                onClear = { projectSearchQuery = "" },
+                modifier = Modifier.padding(top = 8.dp)
+            )
+        }
 
         Text(
-            "Проекты",
+            if (projectSearchQuery.isBlank()) "Проекты" else "Найдено",
             color = TextSecondary,
             fontSize = 12.sp,
             modifier = Modifier.padding(start = 10.dp, top = 18.dp, bottom = 7.dp)
@@ -310,7 +322,17 @@ private fun CodexNavigationPanel(
                     )
                 }
             }
-            projectGroups.forEach { project ->
+            if (projectGroups.isNotEmpty() && filteredProjectGroups.isEmpty()) {
+                item {
+                    Text(
+                        "Поиск не нашёл проекты или чаты.",
+                        color = TextSecondary,
+                        fontSize = 13.sp,
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp)
+                    )
+                }
+            }
+            filteredProjectGroups.forEach { project ->
                 item(key = "drawer-project-${project.id}") {
                     CodexDrawerProjectRow(
                         project = project,
@@ -336,6 +358,47 @@ private fun CodexNavigationPanel(
             modifier = Modifier.padding(top = 7.dp),
             onClick = onNavigateToSettings
         )
+    }
+}
+
+@Composable
+private fun CodexDrawerSearchField(
+    value: String,
+    onValueChange: (String) -> Unit,
+    onClear: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .height(36.dp)
+            .background(Color(0xFF242424), RoundedCornerShape(9.dp))
+            .padding(start = 10.dp, end = 3.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Icon(Icons.Outlined.Search, contentDescription = null, tint = TextSecondary, modifier = Modifier.size(16.dp))
+        Spacer(modifier = Modifier.width(8.dp))
+        BasicTextField(
+            value = value,
+            onValueChange = onValueChange,
+            singleLine = true,
+            textStyle = LocalTextStyle.current.copy(color = TextPrimary, fontSize = 13.sp),
+            cursorBrush = SolidColor(TextBright),
+            modifier = Modifier.weight(1f),
+            decorationBox = { innerTextField ->
+                Box(contentAlignment = Alignment.CenterStart) {
+                    if (value.isBlank()) {
+                        Text("Проект или чат", color = TextSecondary.copy(alpha = 0.72f), fontSize = 13.sp, maxLines = 1)
+                    }
+                    innerTextField()
+                }
+            }
+        )
+        if (value.isNotBlank()) {
+            IconButton(onClick = onClear, modifier = Modifier.size(28.dp)) {
+                Icon(Icons.Default.Close, contentDescription = "Очистить поиск", tint = TextSecondary, modifier = Modifier.size(15.dp))
+            }
+        }
     }
 }
 
@@ -1192,6 +1255,32 @@ private fun buildMobileCodexProjects(threads: List<CodexThread>): List<CodexProj
             )
         }
         .sortedByDescending { it.timestamp }
+}
+
+private fun filterMobileProjects(projects: List<CodexProject>, query: String): List<CodexProject> {
+    val needle = query.trim().lowercase(Locale.getDefault())
+    if (needle.isBlank()) return projects
+    return projects.mapNotNull { project ->
+        val projectMatches = listOf(project.name, project.path.orEmpty())
+            .any { it.lowercase(Locale.getDefault()).contains(needle) }
+        val matchedThreads = project.threads.filter { thread ->
+            listOf(
+                threadDisplayTitle(thread),
+                threadSourceLabel(thread),
+                thread.workspaceName.orEmpty(),
+                thread.workspacePath.orEmpty()
+            ).any { it.lowercase(Locale.getDefault()).contains(needle) }
+        }
+        when {
+            projectMatches -> project
+            matchedThreads.isNotEmpty() -> project.copy(
+                threads = matchedThreads,
+                threadCount = matchedThreads.size,
+                timestamp = matchedThreads.maxOfOrNull { it.timestamp } ?: project.timestamp
+            )
+            else -> null
+        }
+    }
 }
 
 private fun mobileProjectKey(projectId: String?, workspaceName: String?, workspacePath: String?): String {

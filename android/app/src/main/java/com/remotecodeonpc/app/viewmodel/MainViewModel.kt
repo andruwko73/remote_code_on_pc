@@ -105,6 +105,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             val savedToken = prefs.getString("authToken", "") ?: ""
             val savedUseTunnel = prefs.getBoolean("useTunnel", false)
             val savedTunnelUrl = prefs.getString("tunnelUrl", "") ?: ""
+            val savedCodexProjectId = prefs.getString("codexProjectId", "") ?: ""
             if (savedHost.isNotBlank() || savedTunnelUrl.isNotBlank() || savedToken.isNotBlank()) {
                 _uiState.value = _uiState.value.copy(
                     serverConfig = ServerConfig(
@@ -116,6 +117,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     )
                 )
                 CrashLogger.i("ViewModel", "Loaded saved config: $savedHost:$savedPort")
+            }
+            if (savedCodexProjectId.isNotBlank()) {
+                _uiState.value = _uiState.value.copy(currentCodexProjectId = savedCodexProjectId)
             }
         } catch (e: Exception) {
             CrashLogger.e("ViewModel", "Error loading saved config", e)
@@ -136,6 +140,28 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             CrashLogger.d("ViewModel", "Config saved: ${config.host}:${config.port}")
         } catch (e: Exception) {
             CrashLogger.e("ViewModel", "Error saving config", e)
+        }
+    }
+
+    private fun savedCodexProjectId(): String {
+        return try {
+            getApplication<Application>()
+                .getSharedPreferences("remote_code_prefs", Context.MODE_PRIVATE)
+                .getString("codexProjectId", "") ?: ""
+        } catch (_: Exception) {
+            ""
+        }
+    }
+
+    private fun saveCodexProjectId(projectId: String) {
+        try {
+            getApplication<Application>()
+                .getSharedPreferences("remote_code_prefs", Context.MODE_PRIVATE)
+                .edit()
+                .putString("codexProjectId", projectId)
+                .apply()
+        } catch (e: Exception) {
+            CrashLogger.e("ViewModel", "Error saving Codex project", e)
         }
     }
 
@@ -1244,13 +1270,24 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     val threads = body?.threads ?: emptyList()
                     val projects = body?.projects?.takeIf { it.isNotEmpty() } ?: buildCodexProjects(threads)
                     val current = _uiState.value.currentCodexThreadId
+                    val currentStillExists = threads.any { it.id == current }
+                    val preferredProjectId = if (currentStillExists) {
+                        ""
+                    } else {
+                        listOf(
+                            _uiState.value.currentCodexProjectId,
+                            savedCodexProjectId(),
+                            body?.currentProjectId.orEmpty()
+                        ).firstOrNull { id -> id.isNotBlank() && projects.any { it.id == id } }.orEmpty()
+                    }
+                    val preferredProject = projects.firstOrNull { it.id == preferredProjectId }
                     val nextCurrent = when {
-                        threads.any { it.id == current } -> current
+                        currentStillExists -> current
+                        preferredProject?.threads?.isNotEmpty() == true -> preferredProject.threads.first().id
                         body?.currentThreadId?.isNotBlank() == true && threads.any { it.id == body.currentThreadId } -> body.currentThreadId
                         else -> threads.firstOrNull()?.id ?: ""
                     }
-                    val nextProject = body?.currentProjectId
-                        ?.takeIf { id -> id.isNotBlank() && projects.any { it.id == id } }
+                    val nextProject = preferredProjectId.takeIf { it.isNotBlank() }
                         ?: selectedProjectIdForThread(nextCurrent, projects, threads)
                     _uiState.value = _uiState.value.copy(
                         codexThreads = threads,
@@ -1261,6 +1298,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         codexActionEvents = if (threads.isEmpty()) emptyList() else _uiState.value.codexActionEvents,
                         codexError = null
                     )
+                    saveCodexProjectId(nextProject)
                     if (loadCurrent && nextCurrent.isNotBlank()) {
                         loadCodexHistory(nextCurrent)
                         loadCodexEvents(nextCurrent)
@@ -1346,6 +1384,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun switchCodexThread(threadId: String) {
         val nextProjectId = selectedProjectIdForThread(threadId, _uiState.value.codexProjects, _uiState.value.codexThreads)
+        saveCodexProjectId(nextProjectId)
         _uiState.value = _uiState.value.copy(
             currentCodexThreadId = threadId,
             currentCodexProjectId = nextProjectId,
@@ -1361,6 +1400,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         if (projectId.isBlank()) return
         val state = _uiState.value
         val project = state.codexProjects.firstOrNull { it.id == projectId } ?: return
+        saveCodexProjectId(project.id)
         val nextThreadId = project.threads.firstOrNull()?.id.orEmpty()
         if (nextThreadId.isNotBlank()) {
             switchCodexThread(nextThreadId)
@@ -1384,11 +1424,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 val response = api.newCodexThread(codexNewThreadRequest(project))
                 if (response.isSuccessful) {
                     val body = response.body()
+                    val nextProjectId = body?.projectId?.takeIf { it.isNotBlank() }
+                        ?: project?.id
+                        ?: _uiState.value.currentCodexProjectId
+                    saveCodexProjectId(nextProjectId)
                     _uiState.value = _uiState.value.copy(
                         currentCodexThreadId = body?.threadId.orEmpty(),
-                        currentCodexProjectId = body?.projectId?.takeIf { it.isNotBlank() }
-                            ?: project?.id
-                            ?: _uiState.value.currentCodexProjectId,
+                        currentCodexProjectId = nextProjectId,
                         codexChatHistory = body?.messages ?: emptyList(),
                         codexActionEvents = emptyList(),
                         codexSendResult = null,
@@ -1418,6 +1460,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         else -> remaining.firstOrNull()?.id.orEmpty()
                     }
                     val nextProject = selectedProjectIdForThread(nextCurrent, remainingProjects, remaining)
+                    saveCodexProjectId(nextProject)
                     _uiState.value = _uiState.value.copy(
                         codexThreads = remaining,
                         codexProjects = remainingProjects,

@@ -373,7 +373,7 @@ assert(
     'APK downloads must be verified before install'
 );
 assert(androidManifest.includes('REQUEST_INSTALL_PACKAGES') && mainActivity.includes('canRequestPackageInstalls') && mainActivity.includes('ACTION_MANAGE_UNKNOWN_APP_SOURCES'), 'Android updater declares and gates APK install permission', 'PackageInstaller requires REQUEST_INSTALL_PACKAGES and an unknown-source settings gate');
-assert(androidBuildGradle.includes('versionCode = 108') && androidBuildGradle.includes('versionName = "1.0.108"') && androidBuildGradle.includes('signingConfig = signingConfigs.getByName("debug")'), 'Android release artifact can update existing sideload installs', 'release APK should be version-bumped and signed for sideload updates');
+assert(androidBuildGradle.includes('versionCode = 109') && androidBuildGradle.includes('versionName = "1.0.109"') && androidBuildGradle.includes('signingConfig = signingConfigs.getByName("debug")'), 'Android release artifact can update existing sideload installs', 'release APK should be version-bumped and signed for sideload updates');
 assert(mainActivity.includes('UpdateReadyDialog') && mainActivity.includes('UpdateStatusDialog') && mainActivity.includes('onStatus("Скачивание обновления') && mainActivity.includes('onStatus("Проверка APK') && mainActivity.includes('PendingVerifiedApk') && mainActivity.includes('onReadyDialogFinished = { pendingVerifiedApk = null }') && mainActivity.includes('onInstallPermissionRequired = { pendingVerifiedApk = update }') && mainActivity.includes('Handler(Looper.getMainLooper()).post') && mainActivity.includes('Intent.ACTION_VIEW') && mainActivity.includes('Intent.ACTION_INSTALL_PACKAGE') && !mainActivity.includes('Intent.EXTRA_RETURN_RESULT') && mainActivity.includes('startActivityForResult(intent, updateInstallRequestCode)') && mainActivity.includes('startActivityForResult(installIntent, updateInstallRequestCode)') && !mainActivity.includes('Intent.FLAG_ACTIVITY_NEW_TASK'), 'Android updater uses the Package Installer handoff style without forced return-result', 'verified APK should open through ACTION_VIEW and keep ACTION_INSTALL_PACKAGE as fallback without forcing result mode');
 assert(mainActivity.includes('onInstallPermissionRequired()') && mainActivity.includes('ACTION_MANAGE_UNKNOWN_APP_SOURCES') && mainActivity.indexOf('onInstallPermissionRequired()') > mainActivity.indexOf('startActivity(settingsIntent)'), 'Android updater preserves APK after unknown-source permission handoff', 'permission settings should keep the verified APK ready for a second install tap');
 assert(codexScreen.includes('CodexNavigationPanel') && codexScreen.includes('CodexDrawerProjectRow') && codexScreen.includes('buildMobileCodexProjects') && modelsFile.includes('workspaceName'), 'Android exposes projects in Codex chat list', 'project drawer/thread workspace metadata should be visible to Android');
@@ -491,6 +491,24 @@ assert(
     codexScreen.includes('onSelectProject(project.id)'),
     'Android has a persistent project switcher',
     'mobile chat top bar should let the user explicitly switch the active project before creating a new chat'
+);
+assert(
+    codexScreen.includes('CodexDrawerSearchField') &&
+    codexScreen.includes('filterMobileProjects') &&
+    codexScreen.includes('projectSearchQuery') &&
+    codexScreen.includes('Поиск не нашёл проекты или чаты') &&
+    !codexScreen.includes('label = "Поиск",\n                enabled = false'),
+    'Android filters projects and chats in drawer',
+    'Codex drawer search should be enabled and filter project/thread rows instead of being a disabled placeholder'
+);
+assert(
+    mainVm.includes('codexProjectId') &&
+    mainVm.includes('savedCodexProjectId()') &&
+    mainVm.includes('saveCodexProjectId(nextProject)') &&
+    mainVm.includes('saveCodexProjectId(nextProjectId)') &&
+    mainVm.includes('saveCodexProjectId(project.id)'),
+    'Android persists selected Codex project',
+    'selected project should survive app restart and be restored before choosing the first available thread'
 );
 assert(
     apiClient.includes('newCodexThread(@Body body: Map<String, String>)') &&
