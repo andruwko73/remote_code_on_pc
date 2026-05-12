@@ -10,6 +10,7 @@ setup_autostart.ps1
 start_server.ps1
 start_server.cmd
 test-extension.js
+test-fixtures/**
 src/**
 tsconfig.json
 *.map

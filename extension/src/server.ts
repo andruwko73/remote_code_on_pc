@@ -100,6 +100,14 @@ interface GitChangeSummary {
     deletions: number;
 }
 
+interface AppApkMetadata {
+    apkPath: string;
+    sizeBytes: number;
+    sha256: string;
+    versionName?: string;
+    versionCode?: number;
+}
+
 interface DiagnosticItem {
     file: string;
     line: number;
@@ -191,6 +199,12 @@ export class RemoteServer {
     private workspaceStorageCache?: { timestamp: number; dirs: string[] };
     private workspaceFileHintsCache?: { timestamp: number; limit: number; hints: string };
     private codexSessionFilesCache?: { timestamp: number; maxFiles: number; files: string[] };
+    private appApkMetadataCache?: {
+        apkPath: string;
+        sizeBytes: number;
+        mtimeMs: number;
+        metadata: AppApkMetadata;
+    };
 
     // Internet tunnel
     private _tunnelUrl: string | null = null;
@@ -1132,6 +1146,7 @@ export class RemoteServer {
         this.jsonResponse(res, 200, {
             version: vscode.version,
             serverVersion: this.getExtensionVersion(),
+            appApk: this.getPublicAppApkMetadata(),
             appName: vscode.env.appName,
             isRunning: true,
             platform: process.platform,
@@ -2070,6 +2085,7 @@ export class RemoteServer {
         return {
             version: vscode.version,
             serverVersion: this.getExtensionVersion(),
+            appApk: this.getPublicAppApkMetadata(),
             appName: vscode.env.appName,
             isRunning: true,
             platform: process.platform,
@@ -2241,12 +2257,57 @@ export class RemoteServer {
         return Array.from(candidates).find(candidate => fs.existsSync(candidate));
     }
 
-    private getAppApkMetadata(): { apkPath: string; sizeBytes: number; sha256: string } | undefined {
+    private getAppApkMetadata(): AppApkMetadata | undefined {
         const apkPath = this.findAppApkPath();
         if (!apkPath) return undefined;
         const stat = fs.statSync(apkPath);
+        const cached = this.appApkMetadataCache;
+        if (cached && cached.apkPath === apkPath && cached.sizeBytes === stat.size && cached.mtimeMs === stat.mtimeMs) {
+            return cached.metadata;
+        }
         const sha256 = crypto.createHash('sha256').update(fs.readFileSync(apkPath)).digest('hex');
-        return { apkPath, sizeBytes: stat.size, sha256 };
+        const version = this.getAndroidBuildVersion();
+        const metadata: AppApkMetadata = {
+            apkPath,
+            sizeBytes: stat.size,
+            sha256,
+            versionName: version.versionName,
+            versionCode: version.versionCode
+        };
+        this.appApkMetadataCache = { apkPath, sizeBytes: stat.size, mtimeMs: stat.mtimeMs, metadata };
+        return metadata;
+    }
+
+    private getPublicAppApkMetadata(): Omit<AppApkMetadata, 'apkPath'> | undefined {
+        const metadata = this.getAppApkMetadata();
+        if (!metadata) return undefined;
+        const { apkPath: _apkPath, ...safe } = metadata;
+        return safe;
+    }
+
+    private getAndroidBuildVersion(): { versionName?: string; versionCode?: number } {
+        const roots = new Set<string>();
+        for (const folder of vscode.workspace.workspaceFolders || []) {
+            roots.add(folder.uri.fsPath);
+        }
+        roots.add(path.resolve(this._context.extensionPath, '..'));
+        roots.add(process.cwd());
+        for (const root of roots) {
+            try {
+                const filePath = path.join(root, 'android', 'app', 'build.gradle.kts');
+                if (!fs.existsSync(filePath)) continue;
+                const content = fs.readFileSync(filePath, 'utf8');
+                const versionName = content.match(/versionName\s*=\s*"([^"]+)"/)?.[1];
+                const versionCode = Number(content.match(/versionCode\s*=\s*(\d+)/)?.[1]);
+                return {
+                    versionName,
+                    versionCode: Number.isFinite(versionCode) ? versionCode : undefined
+                };
+            } catch {
+                // Try the next likely repo root.
+            }
+        }
+        return {};
     }
 
     private async handleAppApkStatus(_req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
@@ -2260,6 +2321,8 @@ export class RemoteServer {
             filename: 'remote-code-on-pc.apk',
             sizeBytes: metadata.sizeBytes,
             sha256: metadata.sha256,
+            versionName: metadata.versionName,
+            versionCode: metadata.versionCode,
             serverVersion: this.getExtensionVersion()
         });
     }
@@ -2271,14 +2334,17 @@ export class RemoteServer {
             return;
         }
         const { apkPath, sizeBytes, sha256 } = metadata;
-        res.writeHead(200, {
+        const headers: Record<string, string | number> = {
             'Content-Type': 'application/vnd.android.package-archive',
             'Content-Length': sizeBytes,
             'Content-Disposition': 'attachment; filename="remote-code-on-pc.apk"',
             'Cache-Control': 'no-store',
             'X-Remote-Code-Apk-Sha256': sha256,
             'X-Remote-Code-Apk-Size': String(sizeBytes)
-        });
+        };
+        if (metadata.versionName) headers['X-Remote-Code-Apk-Version'] = metadata.versionName;
+        if (metadata.versionCode) headers['X-Remote-Code-Apk-Version-Code'] = String(metadata.versionCode);
+        res.writeHead(200, headers);
         fs.createReadStream(apkPath).pipe(res);
     }
 
@@ -5612,6 +5678,9 @@ ol{padding-left:20px}li{margin:6px 0}.note{margin-top:12px;font-size:13px;color:
         const threadOptions = this.getRemoteCodeThreads();
         const isBusy = !!this.activeChatCancellation && !this.activeChatCancellation.token.isCancellationRequested;
         const isPinned = this.pinnedThreadIds.has(this.currentRemoteThreadId);
+        const apkMetadata = this.getAppApkMetadata();
+        const versionChipLabel = this.versionChipLabel(apkMetadata);
+        const versionChipTitle = this.versionChipTitle(apkMetadata);
         const effortOptions = [
             { id: 'low', name: 'Низкий' },
             { id: 'medium', name: 'Средний' },
@@ -5784,6 +5853,8 @@ svg{width:15px;height:15px;display:block;fill:none;stroke:currentColor;stroke-wi
 .edit-icon{color:#a5a6a8}
 .thread-title{font-size:13px;color:var(--codex-bright);font-weight:650;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:660px;line-height:1.2}
 .toolbar-spacer{flex:1}
+.version-chip{height:26px;border:1px solid var(--codex-border);background:transparent;color:#8f9297;border-radius:999px;padding:0 9px;font-size:11.5px;line-height:1;display:inline-flex;align-items:center;gap:5px;white-space:nowrap;cursor:pointer}
+.version-chip:hover{background:var(--codex-surface);color:#d8d8d8}
 .icon-btn{width:26px;height:26px;border:0;border-radius:7px;background:transparent;color:#9ea0a4;display:inline-flex;align-items:center;justify-content:center;cursor:pointer;padding:0}
 .icon-btn svg{width:16px;height:16px;stroke-width:1.65}
 .icon-btn:hover,.icon-btn.active{background:var(--codex-surface);color:var(--codex-bright)}
@@ -6063,6 +6134,7 @@ button.send:disabled{opacity:.55;cursor:default}
     </div>
   </div>
   <div class="toolbar-spacer"></div>
+  <button class="version-chip" type="button" data-action="showUsageStatus" title="${this.escapeHtml(versionChipTitle)}">${this.escapeHtml(versionChipLabel)}</button>
   <button class="icon-btn progress-toggle" type="button" id="progressToggle" data-progress-toggle title="Панель работы" aria-pressed="false">${icon.panel}</button>
   <div class="top-menu-wrap" id="topMoreDrop">
     <button class="icon-btn" type="button" id="topMoreBtn" title="&#1052;&#1077;&#1085;&#1102;">${icon.more}</button>
@@ -6623,10 +6695,22 @@ prompt.addEventListener('keydown', event => {
         const gitStatusClass = gitInfo.changes === 0 ? 'done' : 'pending';
         const gitHubClass = gitInfo.githubCli ? 'done' : 'pending';
         const gitHubLabel = gitInfo.githubCli ? 'GitHub CLI доступен' : 'GitHub CLI недоступен';
+        const apkMetadata = this.getAppApkMetadata();
+        const apkVersion = apkMetadata?.versionName
+            ? `APK ${apkMetadata.versionName}${apkMetadata.versionCode ? ` (${apkMetadata.versionCode})` : ''}`
+            : 'APK не найден';
+        const apkSha = apkMetadata?.sha256 ? `SHA ${apkMetadata.sha256.slice(0, 12)}…${apkMetadata.sha256.slice(-8)}` : 'SHA недоступен';
 
         return `<aside class="progress-panel" aria-label="Прогресс задачи">
             <div class="progress-title">Прогресс</div>
             <div class="progress-list">${progressHtml}</div>
+            <div class="progress-divider"></div>
+            <div class="progress-subtitle">Версии</div>
+            <div class="progress-section">
+                <div class="progress-item done"><span class="progress-dot"></span><span>${this.escapeHtml(`EXT ${this.getExtensionVersion()}`)}</span></div>
+                <div class="progress-item ${apkMetadata ? 'done' : 'pending'}"><span class="progress-dot"></span><span>${this.escapeHtml(apkVersion)}</span></div>
+                <div class="progress-item ${apkMetadata?.sha256 ? 'done' : 'pending'}"><span class="progress-dot"></span><span>${this.escapeHtml(apkSha)}</span></div>
+            </div>
             <div class="progress-divider"></div>
             <div class="progress-subtitle">Сведения о ветке</div>
             <div class="progress-section">
@@ -6645,6 +6729,22 @@ prompt.addEventListener('keydown', event => {
             <div class="progress-subtitle">Артефакты</div>
             <div class="progress-section">${artifactsHtml}</div>
         </aside>`;
+    }
+
+    private versionChipLabel(apkMetadata?: AppApkMetadata): string {
+        const extensionVersion = this.getExtensionVersion();
+        const apkVersion = apkMetadata?.versionName || 'n/a';
+        return `EXT ${extensionVersion} · APK ${apkVersion}`;
+    }
+
+    private versionChipTitle(apkMetadata?: AppApkMetadata): string {
+        const parts = [
+            `VS Code extension: ${this.getExtensionVersion()}`,
+            `Android APK: ${apkMetadata?.versionName || 'unknown'}${apkMetadata?.versionCode ? ` (${apkMetadata.versionCode})` : ''}`,
+            apkMetadata?.sha256 ? `SHA-256: ${apkMetadata.sha256}` : '',
+            apkMetadata?.sizeBytes ? `Size: ${this.formatBytes(apkMetadata.sizeBytes)}` : ''
+        ].filter(Boolean);
+        return parts.join('\n');
     }
 
     private isActionResultMessage(message: CodexChatMessage): boolean {

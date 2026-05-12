@@ -30,6 +30,7 @@ console.log('📁 Тест 1: Проверка структуры файлов')
 
 const fs = require('fs');
 const path = require('path');
+const Module = require('module');
 
 const requiredFiles = [
     'src/server.ts',
@@ -67,6 +68,64 @@ assert(serverContent.includes("codex:preferences-changed") && serverContent.incl
 assert(serverContent.includes('actionTimelineSummary') && serverContent.includes('buildExternalCodexWorkSummaryEvent') && serverContent.includes("type: 'work_summary'") && serverContent.includes('work-summary-line') && serverContent.includes('на протяжении'), 'Extension shows Codex-like work summary', 'work summary row missing from extension chat');
 };
 assertWebviewInteractionWiring();
+
+function runChatRenderFixture() {
+    const compiledServer = path.join(__dirname, 'out', 'server.js');
+    const fixturePath = path.join(__dirname, 'test-fixtures', 'chat-render-regression.json');
+    if (!fs.existsSync(compiledServer) || !fs.existsSync(fixturePath)) {
+        assert(false, 'Chat render fixture is available', 'compile output or fixture file is missing');
+        return;
+    }
+    const extensionPackage = JSON.parse(fs.readFileSync(path.join(__dirname, 'package.json'), 'utf-8'));
+    const repoRoot = path.resolve(__dirname, '..');
+    const fakeVscode = {
+        version: 'fixture-vscode',
+        env: { appName: 'VS Code Fixture' },
+        workspace: {
+            workspaceFolders: [{ uri: { fsPath: repoRoot } }],
+            getConfiguration: () => ({
+                get: (_key, fallback) => fallback,
+                update: () => Promise.resolve()
+            })
+        },
+        window: {},
+        extensions: {
+            getExtension: () => ({ packageJSON: { version: extensionPackage.version } })
+        },
+        ConfigurationTarget: { Global: true },
+        CancellationTokenSource: class {
+            constructor() { this.token = { isCancellationRequested: false }; }
+            cancel() { this.token.isCancellationRequested = true; }
+            dispose() {}
+        },
+        Disposable: class {
+            dispose() {}
+        }
+    };
+    const originalLoad = Module._load;
+    Module._load = function patchedLoad(request, parent, isMain) {
+        if (request === 'vscode') return fakeVscode;
+        return originalLoad.call(this, request, parent, isMain);
+    };
+    try {
+        const { RemoteServer } = require(compiledServer);
+        const server = new RemoteServer({
+            extensionPath: __dirname,
+            globalStorageUri: { fsPath: path.join(__dirname, '.fixture-storage') }
+        });
+        const fixture = JSON.parse(fs.readFileSync(fixturePath, 'utf-8'));
+        const messageHtml = server.renderMessageContent(fixture.message.content, fixture.message.changeSummary);
+        const timelineHtml = server.renderActionTimeline(fixture.actions);
+        assert(messageHtml.includes('class="change-card collapsed"') && messageHtml.includes('Изменено 2 файла'), 'Fixture renders change-card from changeSummary', 'renderMessageContent should preserve the changed-files card');
+        assert(messageHtml.includes('class="code-block"') && !messageHtml.includes('::git-commit'), 'Fixture renders code blocks and strips git directives', 'code block or directive cleanup regressed');
+        assert(timelineHtml.includes('work-summary-line') && timelineHtml.includes('30м 20с') && timelineHtml.includes('Выполнено 6'), 'Fixture renders Codex work summary and command count', 'work summary DOM smoke failed');
+    } catch (error) {
+        assert(false, 'Chat render fixture executes renderer', error && error.stack ? error.stack : String(error));
+    } finally {
+        Module._load = originalLoad;
+    }
+}
+runChatRenderFixture();
 
 assert(serverContent.includes("from 'ws'"), 'WebSocket импорт', 'ws не найден');
 assert(serverContent.includes("class RemoteServer"), 'Класс RemoteServer', 'Не найден');
@@ -191,7 +250,7 @@ console.log('\n🔐 Тест 7.1: Безопасность внешнего до
 assert(serverContent.includes('requestUsesPublicAccess'), 'Определение внешнего Host', 'requestUsesPublicAccess не найден');
 assert(serverContent.includes('publicAuthRequiredStatus'), 'Минимальный статус без токена', 'publicAuthRequiredStatus не найден');
 assert(serverContent.includes('isPublicAssetEndpoint') && serverContent.includes("pathname === '/api/app/apk' || pathname === '/api/app/apk/status'") && serverContent.includes('!this.isPublicAssetEndpoint(pathname)'), 'APK updater endpoint is public', 'Android updater APK endpoints should not require a token because stale clients may need them before reconnecting');
-assert(serverContent.includes("case pathname === '/api/app/apk/status'") && serverContent.includes('handleAppApkStatus') && serverContent.includes('sizeBytes: metadata.sizeBytes') && serverContent.includes('sha256: metadata.sha256') && !serverContent.includes('apkPath: metadata.apkPath'), 'APK status endpoint exposes safe diagnostics', 'APK status should expose availability, size, sha256, and serverVersion without leaking local file paths');
+assert(serverContent.includes("case pathname === '/api/app/apk/status'") && serverContent.includes('handleAppApkStatus') && serverContent.includes('sizeBytes: metadata.sizeBytes') && serverContent.includes('sha256: metadata.sha256') && serverContent.includes('versionName: metadata.versionName') && serverContent.includes('getPublicAppApkMetadata') && !serverContent.includes('apkPath: metadata.apkPath'), 'APK status endpoint exposes safe diagnostics', 'APK status should expose availability, version, size, sha256, and serverVersion without leaking local file paths');
 assert(serverContent.includes("path.join(this._context.extensionPath, 'apk', 'app-debug.apk')") && serverContent.includes('vscode.workspace.workspaceFolders') && !serverContent.includes("path.resolve(__dirname, '..', '..', 'apk', 'app-debug.apk')") && fs.readFileSync(path.join(__dirname, 'package.json'), 'utf-8').includes('prepare:apk'), 'APK endpoint uses packaged/current workspace artifact', 'APK status must not fall through to stale global .vscode/extensions/apk artifacts');
 assert(serverContent.includes('sanitizeLogText'), 'Маскирование логов расширения', 'sanitizeLogText не найден');
 assert(serverContent.includes('if (!this._authToken) return !requireConfiguredToken'), 'Внешний доступ требует настроенный токен', 'checkAuth не требует токен для public access');
@@ -226,6 +285,7 @@ const compactWebviewChecks = [
     '--codex-sidebar:#17191d',
     '--codex-selected:#303039',
     'font:13px/1.46 var(--codex-font)',
+    '.version-chip{height:26px',
     '.sidebar-thread{min-height:36px',
     '.sidebar-thread.selected{background:var(--codex-selected)}',
     '.message-text{margin:0;white-space:normal;word-wrap:break-word;font:inherit;color:var(--codex-text);font-size:14px;line-height:1.5}',
@@ -395,7 +455,7 @@ assert(
     'APK downloads must be verified before install'
 );
 assert(androidManifest.includes('REQUEST_INSTALL_PACKAGES') && mainActivity.includes('canRequestPackageInstalls') && mainActivity.includes('ACTION_MANAGE_UNKNOWN_APP_SOURCES'), 'Android updater declares and gates APK install permission', 'PackageInstaller requires REQUEST_INSTALL_PACKAGES and an unknown-source settings gate');
-assert(androidBuildGradle.includes('versionCode = 115') && androidBuildGradle.includes('versionName = "1.0.115"') && androidBuildGradle.includes('signingConfig = signingConfigs.getByName("debug")'), 'Android release artifact can update existing sideload installs', 'release APK should be version-bumped and signed for sideload updates');
+assert(androidBuildGradle.includes('versionCode = 116') && androidBuildGradle.includes('versionName = "1.0.116"') && androidBuildGradle.includes('signingConfig = signingConfigs.getByName("debug")'), 'Android release artifact can update existing sideload installs', 'release APK should be version-bumped and signed for sideload updates');
 assert(mainActivity.includes('foundInstalledMatch') && mainActivity.includes('checking next source') && mainActivity.indexOf('continue') < mainActivity.indexOf('Уже установлена актуальная версия приложения'), 'Android updater keeps checking fallback sources after installed SHA match', 'stale extension APK must not stop the updater before GitHub fallback is checked');
 assert(mainActivity.includes('UpdateReadyDialog') && mainActivity.includes('UpdateStatusDialog') && mainActivity.includes('onStatus("Скачивание обновления') && mainActivity.includes('onStatus("Проверка APK') && mainActivity.includes('PendingVerifiedApk') && mainActivity.includes('onReadyDialogFinished = { pendingVerifiedApk = null }') && mainActivity.includes('onInstallPermissionRequired = { pendingVerifiedApk = update }') && mainActivity.includes('Handler(Looper.getMainLooper()).post') && mainActivity.includes('Intent.ACTION_VIEW') && mainActivity.includes('Intent.ACTION_INSTALL_PACKAGE') && !mainActivity.includes('Intent.EXTRA_RETURN_RESULT') && mainActivity.includes('startActivityForResult(intent, updateInstallRequestCode)') && mainActivity.includes('startActivityForResult(installIntent, updateInstallRequestCode)') && !mainActivity.includes('Intent.FLAG_ACTIVITY_NEW_TASK'), 'Android updater uses the Package Installer handoff style without forced return-result', 'verified APK should open through ACTION_VIEW and keep ACTION_INSTALL_PACKAGE as fallback without forcing result mode');
 assert(mainActivity.includes('onInstallPermissionRequired()') && mainActivity.includes('ACTION_MANAGE_UNKNOWN_APP_SOURCES') && mainActivity.indexOf('onInstallPermissionRequired()') > mainActivity.indexOf('startActivity(settingsIntent)'), 'Android updater preserves APK after unknown-source permission handoff', 'permission settings should keep the verified APK ready for a second install tap');
@@ -460,6 +520,7 @@ assert(codexScreen.includes('showCurrentThreadMenu') && codexScreen.includes('pe
 assert(!codexScreen.includes('showThreads') && !codexScreen.includes('История Codex') && codexScreen.includes('onOpenNavigation()'), 'Android chat history uses the Codex drawer only', 'chat history should not be duplicated in a separate modal dialog');
 assert(codexScreen.includes('attachmentPicker.launch') && codexScreen.includes('startVoiceInput'), 'Android composer file and voice buttons work', 'composer media/voice wiring missing');
 assert(codexScreen.includes('onStopGeneration') && codexScreen.includes('onRespondToAction'), 'Android stop and approve/deny actions are wired', 'stop/approval wiring missing');
+assert(modelsFile.includes('data class AppApkStatus') && modelsFile.includes('val appApk: AppApkStatus?') && remoteCodeApp.includes('APK в расширении') && remoteCodeApp.includes('APK SHA') && codexScreen.includes('mobileChatVersionLabel(workspaceStatus)'), 'Android shows explicit app/extension versions', 'chat and settings should expose installed APK, served APK, extension version and APK SHA');
 assert(codexScreen.includes('contentAlignment = Alignment.Center') && codexScreen.includes('val userBubbleMaxWidth') && codexScreen.includes('modifier = Modifier.widthIn(max = userBubbleMaxWidth)'), 'Android user messages match Codex centered cards', 'user prompt bubble should be centered and constrained like Codex');
 assert(codexScreen.includes('BasicTextField') && codexScreen.includes('heightIn(min = 40.dp, max = 108.dp)') && codexScreen.includes('Modifier.size(37.dp)') && codexScreen.includes('navigationBarsPadding()'), 'Android composer is compact like Codex', 'mobile composer should avoid excessive vertical height and gesture bar overlap');
 assert(codexScreen.includes('startNumber: Int = 1') && codexScreen.includes('"${startNumber + index}."') && codexScreen.includes('nextListItemIndex') && codexScreen.includes('val startNumber = ordered.groupValues[1]'), 'Android ordered lists preserve sequential numbering', 'ordered list blocks should not restart at 1 after item descriptions');

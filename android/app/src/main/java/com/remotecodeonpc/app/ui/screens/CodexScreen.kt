@@ -68,7 +68,9 @@ import com.remotecodeonpc.app.CodexThread
 import com.remotecodeonpc.app.FileContent
 import com.remotecodeonpc.app.FileTreeItem
 import com.remotecodeonpc.app.FoldersResponse
+import com.remotecodeonpc.app.BuildConfig
 import com.remotecodeonpc.app.MessageAttachment
+import com.remotecodeonpc.app.WorkspaceStatus
 import com.remotecodeonpc.app.ui.theme.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -92,6 +94,7 @@ fun CodexScreen(
     projects: List<CodexProject>,
     currentThreadId: String,
     currentProjectId: String,
+    workspaceStatus: WorkspaceStatus? = null,
     isLoading: Boolean,
     error: String?,
     changeDiff: CodexChangeActionResponse? = null,
@@ -156,6 +159,7 @@ fun CodexScreen(
             projects = projects,
             currentThreadId = currentThreadId,
             currentProjectId = currentProjectId,
+            workspaceStatus = workspaceStatus,
             isLoading = isLoading,
             error = error,
             changeDiff = changeDiff,
@@ -628,6 +632,7 @@ fun CodexChatTab(
     projects: List<CodexProject>,
     currentThreadId: String,
     currentProjectId: String,
+    workspaceStatus: WorkspaceStatus? = null,
     isLoading: Boolean,
     error: String?,
     changeDiff: CodexChangeActionResponse? = null,
@@ -736,6 +741,11 @@ fun CodexChatTab(
     val currentProject = projectGroups.firstOrNull { project -> project.id == currentProjectId }
         ?: projectGroups.firstOrNull { project -> project.threads.any { it.id == currentThreadId } }
     val currentProjectLabel = currentProject?.name ?: currentThread?.let { threadProjectName(it) }
+    val versionLabel = mobileChatVersionLabel(workspaceStatus)
+    val projectVersionLine = listOf(
+        currentProjectLabel?.takeIf { it.isNotBlank() } ?: "Выберите проект",
+        versionLabel.takeIf { it.isNotBlank() }
+    ).joinToString(" · ")
     val visibleChatHistory = remember(chatHistory) {
         dedupeMobileChatMessages(chatHistory.filterNot { isMobileActionResultMessage(it.content) })
     }
@@ -823,7 +833,7 @@ fun CodexChatTab(
                         Icon(Icons.Outlined.Folder, contentDescription = null, tint = TextSecondary, modifier = Modifier.size(13.dp))
                         Spacer(modifier = Modifier.width(5.dp))
                         Text(
-                            currentProjectLabel?.takeIf { it.isNotBlank() } ?: "Выберите проект",
+                            projectVersionLine,
                             color = TextSecondary,
                             fontSize = 11.sp,
                             lineHeight = 13.sp,
@@ -2049,6 +2059,11 @@ private fun formatAttachmentSize(size: Long): String {
         size < 1024 * 1024 -> "${size / 1024} KB"
         else -> String.format(Locale.getDefault(), "%.1f MB", size / 1024.0 / 1024.0)
     }
+}
+
+private fun mobileChatVersionLabel(status: WorkspaceStatus?): String {
+    val extensionVersion = status?.serverVersion?.takeIf { it.isNotBlank() } ?: "?"
+    return "APK ${BuildConfig.VERSION_NAME} · EXT $extensionVersion"
 }
 
 @Composable

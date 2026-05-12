@@ -170,6 +170,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         return WorkspaceStatus(
             version = this?.version ?: "",
             serverVersion = this?.serverVersion ?: "",
+            appApk = this?.appApk,
             appName = this?.appName ?: "",
             isRunning = this?.isRunning ?: false,
             platform = this?.platform ?: "",

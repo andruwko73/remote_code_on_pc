@@ -13,6 +13,7 @@ data class ServerConfig(
 data class WorkspaceStatus(
     val version: String = "",
     val serverVersion: String = "",
+    val appApk: AppApkStatus? = null,
     val appName: String = "",
     val isRunning: Boolean = false,
     val platform: String = "",
@@ -20,6 +21,13 @@ data class WorkspaceStatus(
     val workspace: WorkspaceInfo? = null,
     val uptime: Double = 0.0,
     val memoryUsage: Long = 0
+)
+
+data class AppApkStatus(
+    val sizeBytes: Long = 0,
+    val sha256: String = "",
+    val versionName: String? = null,
+    val versionCode: Int? = null
 )
 
 data class RemoteCodeStatus(
@@ -113,6 +121,7 @@ data class DiagnosticsResponse(
 data class StatusResponse(
     val version: String = "",
     val serverVersion: String = "",
+    val appApk: AppApkStatus? = null,
     val appName: String = "",
     val isRunning: Boolean = false,
     val platform: String = "",

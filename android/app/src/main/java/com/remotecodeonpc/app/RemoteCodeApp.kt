@@ -162,6 +162,7 @@ fun RemoteCodeApp(
                         projects = state.codexProjects,
                         currentThreadId = state.currentCodexThreadId,
                         currentProjectId = state.currentCodexProjectId,
+                        workspaceStatus = state.status,
                         isLoading = state.isCodexLoading,
                         error = state.codexError,
                         changeDiff = state.codexChangeDiff,
@@ -893,7 +894,12 @@ private fun SettingsScreenV2(
     val hasChanges = compactConfig != serverConfig
     val modeLabel = if (compactUseTunnel) "Внешняя сеть" else "Локальная сеть"
     val remoteStatus = status?.remoteCode
+    val serverApk = status?.appApk
     val extensionVersion = status?.serverVersion?.takeIf { it.isNotBlank() } ?: "—"
+    val serverApkVersionLabel = serverApk
+        ?.let { apk -> apk.versionName?.let { version -> "$version (${apk.versionCode ?: "?"})" } }
+        ?: "—"
+    val serverApkShaLabel = serverApk?.sha256?.takeIf { it.isNotBlank() }?.let { sha -> "${sha.take(12)}…${sha.takeLast(8)}" }
     val currentTunnelProvider = tunnelProvider ?: remoteStatus?.tunnelProvider
     val providerLabel = when {
         currentTunnelProvider == "keenetic" ||
@@ -940,7 +946,9 @@ private fun SettingsScreenV2(
                 if (compactUseTunnel || tunnelActive || compactTunnelUrl.isNotBlank()) {
                     InfoSettingRow("Провайдер", providerLabel)
                 }
-                InfoSettingRow("APK", BuildConfig.VERSION_NAME)
+                InfoSettingRow("APK установлен", "${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})")
+                InfoSettingRow("APK в расширении", serverApkVersionLabel)
+                if (serverApkShaLabel != null) InfoSettingRow("APK SHA", serverApkShaLabel)
                 InfoSettingRow("Расширение", extensionVersion)
                 InfoSettingRow("Токен", authLabel)
                 InfoSettingRow("VS Code", status?.version ?: "—")
