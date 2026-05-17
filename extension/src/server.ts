@@ -202,8 +202,10 @@ export class RemoteServer {
     private pcChatRefreshTimer?: ReturnType<typeof setTimeout>;
     private pcCodexMirrorTimer?: ReturnType<typeof setInterval>;
     private pcCodexMirrorSignature = '';
+    private pcCodexSessionsSignature = '';
     private wsCodexMirrorTimer?: ReturnType<typeof setInterval>;
     private wsCodexMirrorSignature = '';
+    private wsCodexSessionsSignature = '';
     private remoteCodeStateSaveTimer?: ReturnType<typeof setTimeout>;
     private remoteCodeThreadsCache?: { timestamp: number; threads: RemoteCodeThreadSummary[] };
     private gitChangeSummaryCache: Map<string, GitChangeSummary | undefined> = new Map();
@@ -4546,9 +4548,32 @@ ol{padding-left:20px}li{margin:6px 0}.note{margin-top:12px;font-size:13px;color:
         }
     }
 
+    private codexSessionsListSignature(maxFiles = 24): string {
+        try {
+            return this.getCodexSessionFiles(maxFiles)
+                .map(filePath => {
+                    try {
+                        const stat = fs.statSync(filePath);
+                        return `${path.basename(filePath)}:${Math.round(stat.mtimeMs)}:${stat.size}`;
+                    } catch {
+                        return path.basename(filePath);
+                    }
+                })
+                .join('|');
+        } catch {
+            return '';
+        }
+    }
+
+    private latestCodexThreadIdFromFiles(): string | undefined {
+        const latest = this.getCodexThreadSummariesFast()[0];
+        return latest ? this.toCodexThreadId(latest.id) : undefined;
+    }
+
     private updatePcCodexMirrorSignature(): void {
         const signature = this.currentCodexSessionSignature();
         this.pcCodexMirrorSignature = signature || '';
+        this.pcCodexSessionsSignature = this.codexSessionsListSignature();
     }
 
     private startPcCodexMirrorPolling(): void {
@@ -4565,11 +4590,13 @@ ol{padding-left:20px}li{margin:6px 0}.note{margin-top:12px;font-size:13px;color:
             this.pcCodexMirrorTimer = undefined;
         }
         this.pcCodexMirrorSignature = '';
+        this.pcCodexSessionsSignature = '';
     }
 
     private startWsCodexMirrorPolling(): void {
         if (this.wsCodexMirrorTimer) return;
         this.wsCodexMirrorSignature = this.currentCodexSessionSignature() || '';
+        this.wsCodexSessionsSignature = this.codexSessionsListSignature();
         this.wsCodexMirrorTimer = setInterval(() => {
             this.refreshWsCodexMirrorForExternalCodexChange();
         }, 1500);
@@ -4581,6 +4608,7 @@ ol{padding-left:20px}li{margin:6px 0}.note{margin-top:12px;font-size:13px;color:
             this.wsCodexMirrorTimer = undefined;
         }
         this.wsCodexMirrorSignature = '';
+        this.wsCodexSessionsSignature = '';
     }
 
     private refreshWsCodexMirrorForExternalCodexChange(): void {
@@ -4589,15 +4617,23 @@ ol{padding-left:20px}li{margin:6px 0}.note{margin-top:12px;font-size:13px;color:
             return;
         }
         const signature = this.currentCodexSessionSignature();
-        if (!signature) {
-            this.wsCodexMirrorSignature = '';
+        const sessionsSignature = this.codexSessionsListSignature();
+        if (signature === this.wsCodexMirrorSignature && sessionsSignature === this.wsCodexSessionsSignature) {
             return;
         }
-        if (signature === this.wsCodexMirrorSignature) return;
 
-        this.wsCodexMirrorSignature = signature;
+        const sessionsChanged = sessionsSignature !== this.wsCodexSessionsSignature;
+        this.wsCodexMirrorSignature = signature || '';
+        this.wsCodexSessionsSignature = sessionsSignature;
         this.codexSessionFilesCache = undefined;
         this.remoteCodeThreadsCache = undefined;
+        if (sessionsChanged && !this.activeChatThreadId) {
+            const latestThreadId = this.latestCodexThreadIdFromFiles();
+            if (latestThreadId && (!this.currentRemoteThreadId || this.currentRemoteThreadId.startsWith('codex-file:'))) {
+                this.currentRemoteThreadId = latestThreadId;
+                this.saveRemoteCodeState();
+            }
+        }
         this.broadcastCodexCurrentThreadRefresh();
     }
 
@@ -4607,25 +4643,34 @@ ol{padding-left:20px}li{margin:6px 0}.note{margin-top:12px;font-size:13px;color:
             return;
         }
         const signature = this.currentCodexSessionSignature();
-        if (!signature) {
-            this.pcCodexMirrorSignature = '';
+        const sessionsSignature = this.codexSessionsListSignature();
+        if (signature === this.pcCodexMirrorSignature && sessionsSignature === this.pcCodexSessionsSignature) {
             return;
         }
-        if (signature === this.pcCodexMirrorSignature) return;
 
-        this.pcCodexMirrorSignature = signature;
+        const sessionsChanged = sessionsSignature !== this.pcCodexSessionsSignature;
+        this.pcCodexMirrorSignature = signature || '';
+        this.pcCodexSessionsSignature = sessionsSignature;
+        this.codexSessionFilesCache = undefined;
         this.remoteCodeThreadsCache = undefined;
+        if (sessionsChanged && !this.activeChatThreadId) {
+            const latestThreadId = this.latestCodexThreadIdFromFiles();
+            if (latestThreadId && (!this.currentRemoteThreadId || this.currentRemoteThreadId.startsWith('codex-file:'))) {
+                this.currentRemoteThreadId = latestThreadId;
+                this.saveRemoteCodeState();
+            }
+        }
         this.refreshPcChatPanel(true);
         this.broadcastCodexCurrentThreadRefresh();
     }
 
     private broadcastCodexCurrentThreadRefresh(): void {
         const threadId = this.currentRemoteThreadId;
-        if (!threadId) return;
         this.broadcast({
             ...this.getRemoteCodeThreadsUpdatePayload(),
             type: 'codex:sessions-update'
         });
+        if (!threadId) return;
         this.broadcast({
             type: 'codex:message-refresh',
             threadId,

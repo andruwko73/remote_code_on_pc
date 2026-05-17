@@ -1115,6 +1115,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             callId = this["callId"] as? String,
             source = this["source"] as? String,
             actionable = this["actionable"] as? Boolean ?: false,
+            command = this["command"] as? String,
+            cwd = this["cwd"] as? String,
+            filePath = this["filePath"] as? String,
+            stdout = this["stdout"] as? String,
+            stderr = this["stderr"] as? String,
+            diff = this["diff"] as? String,
             startedAt = this["startedAt"].asLongOrNull() ?: 0,
             completedAt = this["completedAt"].asLongOrNull() ?: 0,
             completedCommandCount = this["completedCommandCount"].asIntOrNull() ?: 0
@@ -1199,10 +1205,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             try {
                 val api = ApiClient.getApi(_uiState.value.serverConfig)
+                val requestCurrentThreadId = _uiState.value.currentCodexThreadId
                 val selectedThreadId = threadId ?: _uiState.value.currentCodexThreadId.takeIf { it.isNotBlank() }
                 val response = api.getCodexHistory(selectedThreadId)
                 if (response.isSuccessful) {
                     val body = response.body()
+                    val responseThreadId = body?.threadId?.takeIf { it.isNotBlank() }
+                    if (!shouldApplyCodexThreadResponse(threadId, requestCurrentThreadId, responseThreadId)) {
+                        return@launch
+                    }
                     val serverMessages = body?.messages ?: emptyList()
                     val localPending = _uiState.value.codexChatHistory.filter { local ->
                         local.id.startsWith("mobile_user_") &&
@@ -1214,12 +1225,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         codexChatHistory = (serverMessages + localPending)
                             .dedupeCodexMessages()
                             .takeLast(120),
-                        currentCodexThreadId = body?.threadId?.takeIf { it.isNotBlank() }
+                        currentCodexThreadId = responseThreadId
                             ?: selectedThreadId
                             ?: _uiState.value.currentCodexThreadId,
                         currentCodexProjectId = body?.projectId?.takeIf { it.isNotBlank() }
                             ?: selectedProjectIdForThread(
-                                body?.threadId?.takeIf { it.isNotBlank() } ?: selectedThreadId.orEmpty(),
+                                responseThreadId ?: selectedThreadId.orEmpty(),
                                 _uiState.value.codexProjects,
                                 _uiState.value.codexThreads
                             ),
@@ -1236,13 +1247,18 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             try {
                 val api = ApiClient.getApi(_uiState.value.serverConfig)
+                val requestCurrentThreadId = _uiState.value.currentCodexThreadId
                 val selectedThreadId = threadId ?: _uiState.value.currentCodexThreadId.takeIf { it.isNotBlank() }
                 val response = api.getCodexEvents(selectedThreadId)
                 if (response.isSuccessful) {
                     val body = response.body()
+                    val responseThreadId = body?.threadId?.takeIf { it.isNotBlank() }
+                    if (!shouldApplyCodexThreadResponse(threadId, requestCurrentThreadId, responseThreadId)) {
+                        return@launch
+                    }
                     _uiState.value = _uiState.value.copy(
                         codexActionEvents = body?.events ?: emptyList(),
-                        currentCodexThreadId = body?.threadId?.takeIf { it.isNotBlank() }
+                        currentCodexThreadId = responseThreadId
                             ?: selectedThreadId
                             ?: _uiState.value.currentCodexThreadId,
                         codexError = null
@@ -1274,6 +1290,23 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 _uiState.value = _uiState.value.copy(codexError = e.message)
             }
         }
+    }
+
+    private fun shouldApplyCodexThreadResponse(
+        requestedThreadId: String?,
+        requestCurrentThreadId: String,
+        responseThreadId: String?
+    ): Boolean {
+        val currentThreadId = _uiState.value.currentCodexThreadId
+        val explicitThreadId = requestedThreadId?.takeIf { it.isNotBlank() }
+        if (explicitThreadId == null) {
+            return currentThreadId == requestCurrentThreadId
+        }
+        if (currentThreadId.isBlank()) {
+            return requestCurrentThreadId.isBlank()
+        }
+        val effectiveThreadId = responseThreadId?.takeIf { it.isNotBlank() } ?: explicitThreadId
+        return currentThreadId == effectiveThreadId
     }
 
     fun selectCodexModel(modelId: String) {
@@ -1345,9 +1378,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             try {
                 val api = ApiClient.getApi(_uiState.value.serverConfig)
-                val threadId = _uiState.value.currentCodexThreadId.takeIf { current ->
-                    current.isNotBlank() && _uiState.value.codexThreads.any { it.id == current }
-                } ?: _uiState.value.codexThreads.firstOrNull()?.id.orEmpty()
+                val threadId = _uiState.value.currentCodexThreadId
+                    .takeIf { it.isNotBlank() }
+                    ?: _uiState.value.codexThreads.firstOrNull()?.id.orEmpty()
                 val response = api.sendCodexMessage(
                     mapOf(
                         "message" to text,
@@ -1394,6 +1427,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     val projects = body?.projects?.takeIf { it.isNotEmpty() } ?: buildCodexProjects(threads)
                     val current = _uiState.value.currentCodexThreadId
                     val currentStillExists = threads.any { it.id == current }
+                    val hasCurrentActivity = _uiState.value.codexChatHistory.isNotEmpty() ||
+                        _uiState.value.codexActionEvents.isNotEmpty() ||
+                        _uiState.value.codexSendResult != null ||
+                        _uiState.value.isCodexLoading
+                    val keepPendingCurrent = loadCurrent && current.isNotBlank() && !currentStillExists && hasCurrentActivity
                     val preferredProjectId = if (currentStillExists) {
                         ""
                     } else {
@@ -1406,19 +1444,22 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     val preferredProject = projects.firstOrNull { it.id == preferredProjectId }
                     val nextCurrent = when {
                         currentStillExists -> current
+                        keepPendingCurrent -> current
                         preferredProject?.threads?.isNotEmpty() == true -> preferredProject.threads.first().id
                         body?.currentThreadId?.isNotBlank() == true && threads.any { it.id == body.currentThreadId } -> body.currentThreadId
                         else -> threads.firstOrNull()?.id ?: ""
                     }
-                    val nextProject = preferredProjectId.takeIf { it.isNotBlank() }
+                    val nextProject = _uiState.value.currentCodexProjectId.takeIf { keepPendingCurrent && it.isNotBlank() }
+                        ?: preferredProjectId.takeIf { it.isNotBlank() }
                         ?: selectedProjectIdForThread(nextCurrent, projects, threads)
+                    val shouldClearThreadState = threads.isEmpty() && !keepPendingCurrent
                     _uiState.value = _uiState.value.copy(
                         codexThreads = threads,
                         codexProjects = projects,
                         currentCodexThreadId = nextCurrent,
                         currentCodexProjectId = nextProject,
-                        codexChatHistory = if (threads.isEmpty()) emptyList() else _uiState.value.codexChatHistory,
-                        codexActionEvents = if (threads.isEmpty()) emptyList() else _uiState.value.codexActionEvents,
+                        codexChatHistory = if (shouldClearThreadState) emptyList() else _uiState.value.codexChatHistory,
+                        codexActionEvents = if (shouldClearThreadState) emptyList() else _uiState.value.codexActionEvents,
                         codexError = null
                     )
                     saveCodexProjectId(nextProject)

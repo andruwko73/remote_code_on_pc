@@ -253,6 +253,12 @@ data class CodexActionEvent(
     val callId: String? = null,
     val source: String? = null,
     val actionable: Boolean = false,
+    val command: String? = null,
+    val cwd: String? = null,
+    val filePath: String? = null,
+    val stdout: String? = null,
+    val stderr: String? = null,
+    val diff: String? = null,
     val startedAt: Long = 0,
     val completedAt: Long = 0,
     val completedCommandCount: Int = 0

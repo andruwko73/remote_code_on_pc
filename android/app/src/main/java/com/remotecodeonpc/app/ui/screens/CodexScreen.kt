@@ -772,6 +772,14 @@ fun CodexChatTab(
     val timelineActionEvents = actionEvents
         .filterNot { it.actionable && it.status == "pending" }
         .takeLast(120)
+    val timelineWorkEvents = remember(timelineActionEvents) {
+        recentMobileWorkEvents(timelineActionEvents)
+    }
+    val isTimelineRunning = timelineWorkEvents.any { event ->
+        event.status == "running" ||
+            event.status == "approved" ||
+            (event.type == "work_summary" && event.status == "running")
+    }
     val approvalActionEvents = actionEvents
         .filter { it.actionable && it.status == "pending" }
         .takeLast(8)
@@ -790,6 +798,7 @@ fun CodexChatTab(
         visibleChatHistory.lastOrNull()?.content,
         timelineActionEvents.size,
         timelineActionEvents.lastOrNull()?.status,
+        timelineActionEvents.lastOrNull()?.detail,
         approvalActionEvents.size,
         approvalActionEvents.lastOrNull()?.status
     ) {
@@ -1027,11 +1036,14 @@ fun CodexChatTab(
 
         Box(modifier = Modifier.fillMaxWidth().weight(1f)) {
             LazyColumn(state = listState, modifier = Modifier.fillMaxSize().padding(horizontal = chatHorizontalPadding), verticalArrangement = Arrangement.spacedBy(6.dp), contentPadding = PaddingValues(top = 10.dp, bottom = 6.dp)) {
-                val timelineInsertIndex = visibleChatHistory.indexOfLast { it.role == "assistant" }
+                val timelineInsertAfterIndex = when {
+                    timelineActionEvents.isEmpty() || visibleChatHistory.isEmpty() -> -1
+                    isTimelineRunning -> visibleChatHistory.lastIndex
+                    else -> visibleChatHistory.indexOfLast { it.role == "assistant" }
+                        .takeIf { it >= 0 }
+                        ?: visibleChatHistory.lastIndex
+                }
                 visibleChatHistory.forEachIndexed { index, msg ->
-                    if (timelineActionEvents.isNotEmpty() && index == timelineInsertIndex) {
-                        item(key = "action-timeline") { MobileActionTimeline(timelineActionEvents) }
-                    }
                     item(key = msg.id.ifBlank { "msg-$index" }) {
                         CodexMessageBubble(
                             message = msg,
@@ -1048,8 +1060,11 @@ fun CodexChatTab(
                             onMessageFeedback = onMessageFeedback
                         )
                     }
+                    if (timelineActionEvents.isNotEmpty() && index == timelineInsertAfterIndex) {
+                        item(key = "action-timeline") { MobileActionTimeline(timelineActionEvents) }
+                    }
                 }
-                if (timelineActionEvents.isNotEmpty() && timelineInsertIndex < 0) item { MobileActionTimeline(timelineActionEvents) }
+                if (timelineActionEvents.isNotEmpty() && timelineInsertAfterIndex < 0) item { MobileActionTimeline(timelineActionEvents) }
                 items(approvalActionEvents) { event -> DesktopToolBlock(event, onRespondToAction) }
                 if (chatHistory.isEmpty() && sendResult == null && actionEvents.isEmpty()) item {
                     Column(modifier = Modifier.padding(top = 32.dp)) {
@@ -1591,10 +1606,11 @@ private fun DesktopToolBlock(
                     fontSize = 12.sp
                 )
             }
-            if (event.detail.isNotBlank()) {
+            val detailText = event.command ?: event.filePath ?: event.detail
+            if (detailText.isNotBlank()) {
                 Spacer(modifier = Modifier.height(8.dp))
                 Text(
-                    event.detail,
+                    detailText,
                     color = TextSecondary,
                     fontSize = 13.sp,
                     maxLines = 4,
@@ -1622,14 +1638,14 @@ private fun DesktopToolBlock(
 @Composable
 private fun MobileActionTimeline(events: List<CodexActionEvent>) {
     val summaryEvent = events.lastOrNull { it.type == "work_summary" && it.detail.isNotBlank() }
-    val timelineEvents = events.filterNot { it.type == "work_summary" }
+    val timelineEvents = recentMobileWorkEvents(events.filterNot { it.type == "work_summary" })
     val completedCommands = timelineEvents.filter { it.status == "completed" && it.isCommandActionEvent() }
     val otherEvents = timelineEvents
         .filterNot { it.status == "completed" && it.isCommandActionEvent() }
         .takeLast(6)
     val visibleEvents = (otherEvents + completedCommands.takeLast(5)).takeLast(8)
-    var expanded by remember(events.map { it.id to it.status }) { mutableStateOf(false) }
     val running = summaryEvent?.status == "running" || timelineEvents.any { it.status == "running" || it.status == "approved" }
+    var expanded by remember(events.map { it.id to it.status }, running) { mutableStateOf(running) }
     val summary = remember(events, running) { summaryEvent?.detail ?: mobileWorkSummary(timelineEvents, running) }
     val previewEvents = visibleEvents.takeLast(if (running) 4 else 3)
 
@@ -1701,15 +1717,29 @@ private fun CodexActionEvent.isCommandActionEvent(): Boolean = type.contains("co
 @Composable
 private fun MobileTimelineEventPreview(event: CodexActionEvent) {
     if (event.status == "completed" && event.isCommandActionEvent()) {
-        Text(
-            compactActionText(event),
-            color = TextSecondary,
-            fontSize = 11.sp,
-            lineHeight = 14.sp,
-            fontFamily = FontFamily.Monospace,
-            maxLines = 2,
-            overflow = TextOverflow.Ellipsis
-        )
+        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Text(
+                compactActionText(event),
+                color = TextSecondary,
+                fontSize = 11.sp,
+                lineHeight = 14.sp,
+                fontFamily = FontFamily.Monospace,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis
+            )
+            val output = compactActionOutput(event)
+            if (output.isNotBlank()) {
+                Text(
+                    output,
+                    color = TextSecondary.copy(alpha = 0.72f),
+                    fontSize = 10.5.sp,
+                    lineHeight = 13.sp,
+                    fontFamily = FontFamily.Monospace,
+                    maxLines = 4,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+        }
     } else {
         MobileActionLine(event)
     }
@@ -1856,16 +1886,32 @@ private fun actionStatusText(event: CodexActionEvent): String {
 private fun compactActionText(event: CodexActionEvent): String {
     val title = event.title.trim()
     val raw = if (title.isNotBlank() && !event.isCommandActionEvent()) {
-        event.detail
+        event.filePath ?: event.detail
     } else {
-        event.detail.ifBlank { title.ifBlank { event.type } }
+        event.command ?: event.filePath ?: event.detail.ifBlank { title.ifBlank { event.type } }
     }
-    return raw
+    val base = raw
         .lineSequence()
         .firstOrNull { it.isNotBlank() }
         .orEmpty()
         .replace(Regex("\\s+"), " ")
         .take(120)
+    val cwd = event.cwd?.trim()?.takeIf { it.isNotBlank() }
+    return if (cwd != null && event.isCommandActionEvent()) "$base  @ $cwd".take(160) else base
+}
+
+private fun compactActionOutput(event: CodexActionEvent): String {
+    val raw = event.stdout
+        ?: event.stderr
+        ?: event.diff
+        ?: ""
+    return raw
+        .lineSequence()
+        .dropWhile { it.isBlank() }
+        .take(8)
+        .joinToString("\n")
+        .trim()
+        .take(800)
 }
 
 @Composable
