@@ -471,7 +471,7 @@ assert(
     'APK downloads must be verified before install'
 );
 assert(androidManifest.includes('REQUEST_INSTALL_PACKAGES') && mainActivity.includes('canRequestPackageInstalls') && mainActivity.includes('ACTION_MANAGE_UNKNOWN_APP_SOURCES'), 'Android updater declares and gates APK install permission', 'PackageInstaller requires REQUEST_INSTALL_PACKAGES and an unknown-source settings gate');
-assert(androidBuildGradle.includes('versionCode = 122') && androidBuildGradle.includes('versionName = "1.0.122"') && androidBuildGradle.includes('signingConfig = signingConfigs.getByName("debug")'), 'Android release artifact can update existing sideload installs', 'release APK should be version-bumped and signed for sideload updates');
+assert(androidBuildGradle.includes('versionCode = 123') && androidBuildGradle.includes('versionName = "1.0.123"') && androidBuildGradle.includes('signingConfig = signingConfigs.getByName("debug")'), 'Android release artifact can update existing sideload installs', 'release APK should be version-bumped and signed for sideload updates');
 assert(mainActivity.includes('foundInstalledMatch') && mainActivity.includes('checking next source') && mainActivity.indexOf('continue') < mainActivity.indexOf('Уже установлена актуальная версия приложения'), 'Android updater keeps checking fallback sources after installed SHA match', 'stale extension APK must not stop the updater before GitHub fallback is checked');
 assert(mainActivity.includes('UpdateReadyDialog') && mainActivity.includes('UpdateStatusDialog') && mainActivity.includes('onStatus("Скачивание обновления') && mainActivity.includes('onStatus("Проверка APK') && mainActivity.includes('PendingVerifiedApk') && mainActivity.includes('onReadyDialogFinished = { pendingVerifiedApk = null }') && mainActivity.includes('onInstallPermissionRequired = { pendingVerifiedApk = update }') && mainActivity.includes('Handler(Looper.getMainLooper()).post') && mainActivity.includes('Intent.ACTION_VIEW') && mainActivity.includes('Intent.ACTION_INSTALL_PACKAGE') && !mainActivity.includes('Intent.EXTRA_RETURN_RESULT') && mainActivity.includes('startActivityForResult(intent, updateInstallRequestCode)') && mainActivity.includes('startActivityForResult(installIntent, updateInstallRequestCode)') && !mainActivity.includes('Intent.FLAG_ACTIVITY_NEW_TASK'), 'Android updater uses the Package Installer handoff style without forced return-result', 'verified APK should open through ACTION_VIEW and keep ACTION_INSTALL_PACKAGE as fallback without forcing result mode');
 assert(mainActivity.includes('onInstallPermissionRequired()') && mainActivity.includes('ACTION_MANAGE_UNKNOWN_APP_SOURCES') && mainActivity.indexOf('onInstallPermissionRequired()') > mainActivity.indexOf('startActivity(settingsIntent)'), 'Android updater preserves APK after unknown-source permission handoff', 'permission settings should keep the verified APK ready for a second install tap');
@@ -549,6 +549,22 @@ assert(codexScreen.includes('startNumber: Int = 1') && codexScreen.includes('"${
 assert(codexScreen.includes('summaryEvent?.detail ?: mobileWorkSummary(timelineEvents, running)') && codexScreen.includes('type == "work_summary"') && codexScreen.includes('takeLast(120)') && codexScreen.includes('на протяжении'), 'Android shows Codex-like work summary', 'mobile work summary should match Codex wording');
 assert(codexScreen.includes('val previewEvents = visibleEvents.takeLast(if (running) 4 else 3)') && codexScreen.includes('MobileTimelineEventPreview(event)') && codexScreen.includes('title.isNotBlank() && !event.isCommandActionEvent()'), 'Android action timeline shows public work steps', 'mobile chat should expose recent public action/model progress lines without requiring expansion');
 assert(modelsFile.includes('val command: String? = null') && modelsFile.includes('val stdout: String? = null') && mainVm.includes('command = this["command"] as? String') && codexScreen.includes('compactActionOutput(event)') && codexScreen.includes('event.command ?: event.filePath'), 'Android keeps full Codex action details', 'mobile action events should preserve command/cwd/path/stdout/stderr/diff so the timeline can match Codex detail');
+assert(
+    serverContent.includes('turnId?: string') &&
+    serverContent.includes('sequence?: number') &&
+    serverContent.includes('latestSequence') &&
+    serverContent.includes('afterSequence') &&
+    serverContent.includes('activeRemoteCodeTurnIds') &&
+    serverContent.includes('relinkTurnEvents') &&
+    modelsFile.includes('val turnId: String? = null') &&
+    modelsFile.includes('val sequence: Long = 0') &&
+    modelsFile.includes('val latestSequence: Long = 0') &&
+    mainVm.includes('sortedByCodexActionOrder') &&
+    codexScreen.includes('latestTurnId') &&
+    codexScreen.includes('compactActionMeta(event)'),
+    'Codex chat uses turn/event schema v2',
+    'chat action output should be tied to a turn, ordered by sequence, replayable by afterSequence, and rendered with command metadata'
+);
 assert(codexScreen.includes('timelineWorkEvents') && codexScreen.includes('recentMobileWorkEvents(events.filterNot { it.type == "work_summary" })'), 'Android timeline ignores stale work events', 'mobile running state and visible timeline should use the same recent-turn filtering as the Codex-like work summary');
 assert(mainVm.includes('"codex:message-refresh"') && mainVm.includes('data["messages"]') && mainVm.includes('data["events"]') && mainVm.includes('codexActionEvents = nextEvents'), 'Android applies live Codex message refresh events', 'mobile WebSocket handler should update chat messages and action timeline from codex:message-refresh');
 assert(mainVm.includes('shouldApplyCodexThreadResponse') && mainVm.includes('requestCurrentThreadId') && mainVm.includes('val effectiveThreadId = responseThreadId') && mainVm.includes('val threadId = _uiState.value.currentCodexThreadId') && !mainVm.includes('current.isNotBlank() && _uiState.value.codexThreads.any'), 'Android keeps requests attached to the selected Codex chat', 'history/events responses must not overwrite a newer selected thread and sends must not fall back from a pending current thread to the first thread');

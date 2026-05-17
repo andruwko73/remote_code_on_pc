@@ -73,7 +73,10 @@ interface RemoteCodeApi {
     suspend fun getCodexHistory(@Query("threadId") threadId: String? = null): Response<CodexHistoryResponse>
 
     @GET("/api/codex/events")
-    suspend fun getCodexEvents(@Query("threadId") threadId: String? = null): Response<CodexEventsResponse>
+    suspend fun getCodexEvents(
+        @Query("threadId") threadId: String? = null,
+        @Query("afterSequence") afterSequence: Long? = null
+    ): Response<CodexEventsResponse>
 
     @POST("/api/codex/actions")
     suspend fun respondToCodexAction(@Body body: Map<String, String>): Response<CodexActionResponse>

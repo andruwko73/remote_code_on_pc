@@ -771,6 +771,11 @@ fun CodexChatTab(
     }
     val timelineActionEvents = actionEvents
         .filterNot { it.actionable && it.status == "pending" }
+        .sortedWith(
+            compareBy<CodexActionEvent> { if (it.sequence > 0) it.sequence else Long.MAX_VALUE }
+                .thenBy { it.timestamp }
+                .thenBy { it.id }
+        )
         .takeLast(120)
     val timelineWorkEvents = remember(timelineActionEvents) {
         recentMobileWorkEvents(timelineActionEvents)
@@ -797,8 +802,12 @@ fun CodexChatTab(
         visibleChatHistory.size,
         visibleChatHistory.lastOrNull()?.content,
         timelineActionEvents.size,
+        timelineActionEvents.lastOrNull()?.sequence,
+        timelineActionEvents.lastOrNull()?.turnId,
         timelineActionEvents.lastOrNull()?.status,
         timelineActionEvents.lastOrNull()?.detail,
+        timelineActionEvents.lastOrNull()?.stdout,
+        timelineActionEvents.lastOrNull()?.stderr,
         approvalActionEvents.size,
         approvalActionEvents.lastOrNull()?.status
     ) {
@@ -1617,6 +1626,31 @@ private fun DesktopToolBlock(
                     overflow = TextOverflow.Ellipsis
                 )
             }
+            val metaText = compactActionMeta(event)
+            if (metaText.isNotBlank()) {
+                Spacer(modifier = Modifier.height(5.dp))
+                Text(
+                    metaText,
+                    color = TextSecondary.copy(alpha = 0.7f),
+                    fontSize = 11.sp,
+                    fontFamily = FontFamily.Monospace,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+            val outputText = compactActionOutput(event)
+            if (outputText.isNotBlank()) {
+                Spacer(modifier = Modifier.height(7.dp))
+                Text(
+                    outputText,
+                    color = TextSecondary.copy(alpha = 0.76f),
+                    fontSize = 11.sp,
+                    lineHeight = 14.sp,
+                    fontFamily = FontFamily.Monospace,
+                    maxLines = 6,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
             if (event.actionable) {
                 Spacer(modifier = Modifier.height(10.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -1637,8 +1671,13 @@ private fun DesktopToolBlock(
 
 @Composable
 private fun MobileActionTimeline(events: List<CodexActionEvent>) {
-    val summaryEvent = events.lastOrNull { it.type == "work_summary" && it.detail.isNotBlank() }
     val timelineEvents = recentMobileWorkEvents(events.filterNot { it.type == "work_summary" })
+    val latestTurnId = timelineEvents.lastOrNull()?.turnId?.takeIf { it.isNotBlank() }
+    val summaryEvent = events.lastOrNull {
+        it.type == "work_summary" &&
+            it.detail.isNotBlank() &&
+            (latestTurnId == null || it.turnId == latestTurnId)
+    } ?: events.lastOrNull { it.type == "work_summary" && it.detail.isNotBlank() }
     val completedCommands = timelineEvents.filter { it.status == "completed" && it.isCommandActionEvent() }
     val otherEvents = timelineEvents
         .filterNot { it.status == "completed" && it.isCommandActionEvent() }
@@ -1727,6 +1766,18 @@ private fun MobileTimelineEventPreview(event: CodexActionEvent) {
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis
             )
+            val meta = compactActionMeta(event)
+            if (meta.isNotBlank()) {
+                Text(
+                    meta,
+                    color = TextSecondary.copy(alpha = 0.62f),
+                    fontSize = 10.sp,
+                    lineHeight = 12.sp,
+                    fontFamily = FontFamily.Monospace,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
             val output = compactActionOutput(event)
             if (output.isNotBlank()) {
                 Text(
@@ -1775,8 +1826,20 @@ private fun mobileWorkSummary(events: List<CodexActionEvent>, running: Boolean):
 private fun recentMobileWorkEvents(events: List<CodexActionEvent>): List<CodexActionEvent> {
     val sorted = events
         .filter { it.timestamp > 0 }
-        .sortedBy { it.timestamp }
+        .sortedWith(
+            compareBy<CodexActionEvent> { if (it.sequence > 0) it.sequence else Long.MAX_VALUE }
+                .thenBy { it.timestamp }
+                .thenBy { it.id }
+        )
     if (sorted.size <= 1) return sorted
+
+    val latestTurnId = sorted
+        .mapNotNull { it.turnId?.takeIf { turnId -> turnId.isNotBlank() } }
+        .lastOrNull()
+    if (latestTurnId != null) {
+        val scoped = sorted.filter { it.turnId == latestTurnId }
+        if (scoped.isNotEmpty()) return scoped
+    }
 
     var startIndex = sorted.lastIndex
     for (index in sorted.lastIndex downTo 1) {
@@ -1852,6 +1915,18 @@ private fun MobileActionLine(event: CodexActionEvent) {
                 modifier = Modifier.weight(1f)
             )
         }
+        val meta = compactActionMeta(event)
+        if (meta.isNotBlank()) {
+            Spacer(modifier = Modifier.width(6.dp))
+            Text(
+                meta,
+                color = TextSecondary.copy(alpha = 0.58f),
+                fontSize = 10.5.sp,
+                fontFamily = FontFamily.Monospace,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
     }
 }
 
@@ -1898,6 +1973,15 @@ private fun compactActionText(event: CodexActionEvent): String {
         .take(120)
     val cwd = event.cwd?.trim()?.takeIf { it.isNotBlank() }
     return if (cwd != null && event.isCommandActionEvent()) "$base  @ $cwd".take(160) else base
+}
+
+private fun compactActionMeta(event: CodexActionEvent): String {
+    val parts = mutableListOf<String>()
+    event.exitCode?.let { parts += "exit $it" }
+    if (event.durationMs > 0) parts += formatMobileDuration(event.durationMs)
+    val phase = event.phase?.takeIf { it.isNotBlank() && it != "tool" && it != "summary" }
+    if (phase != null) parts += phase
+    return parts.joinToString(" В· ").take(160)
 }
 
 private fun compactActionOutput(event: CodexActionEvent): String {

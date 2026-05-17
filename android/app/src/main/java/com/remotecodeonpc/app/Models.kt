@@ -220,6 +220,7 @@ data class CodexChatMessage(
     val role: String = "",
     val content: String = "",
     val timestamp: Long = 0,
+    val turnId: String? = null,
     val model: String? = null,
     val reasoningEffort: String? = null,
     val includeContext: Boolean? = null,
@@ -250,8 +251,13 @@ data class CodexActionEvent(
     val detail: String = "",
     val status: String = "",
     val timestamp: Long = 0,
+    val turnId: String? = null,
+    val messageId: String? = null,
     val callId: String? = null,
+    val sequence: Long = 0,
+    val phase: String? = null,
     val source: String? = null,
+    val statusDetail: String? = null,
     val actionable: Boolean = false,
     val command: String? = null,
     val cwd: String? = null,
@@ -259,8 +265,10 @@ data class CodexActionEvent(
     val stdout: String? = null,
     val stderr: String? = null,
     val diff: String? = null,
+    val exitCode: Int? = null,
     val startedAt: Long = 0,
     val completedAt: Long = 0,
+    val durationMs: Long = 0,
     val completedCommandCount: Int = 0
 )
 
@@ -275,7 +283,8 @@ data class CodexHistoryResponse(
 
 data class CodexEventsResponse(
     val threadId: String = "",
-    val events: List<CodexActionEvent> = emptyList()
+    val events: List<CodexActionEvent> = emptyList(),
+    val latestSequence: Long = 0
 )
 
 data class CodexActionResponse(

@@ -35,6 +35,7 @@ interface CodexChatMessage {
     role: 'user' | 'assistant' | 'system';
     content: string;
     timestamp: number;
+    turnId?: string;
     model?: string;
     reasoningEffort?: string;
     includeContext?: boolean;
@@ -141,6 +142,13 @@ interface RemoteCodeActionEvent {
     status: 'pending' | 'approved' | 'denied' | 'running' | 'completed' | 'failed';
     timestamp: number;
     threadId: string;
+    turnId?: string;
+    messageId?: string;
+    callId?: string;
+    sequence?: number;
+    phase?: string;
+    statusDetail?: string;
+    source?: string;
     actionable: boolean;
     command?: string;
     cwd?: string;
@@ -150,8 +158,10 @@ interface RemoteCodeActionEvent {
     diff?: string;
     stdout?: string;
     stderr?: string;
+    exitCode?: number;
     startedAt?: number;
     completedAt?: number;
+    durationMs?: number;
     completedCommandCount?: number;
 }
 
@@ -195,9 +205,11 @@ export class RemoteServer {
     private lmModelsBlockedUntil = 0;
     private codexHistory: CodexChatMessage[] = [];
     private codexActionEvents: RemoteCodeActionEvent[] = [];
+    private codexActionSequence = 0;
     private remoteCodeThreads: RemoteCodeThreadSummary[] = [];
     private currentRemoteThreadId: string = '';
     private liveDraftThreadIds: Set<string> = new Set();
+    private activeRemoteCodeTurnIds: Map<string, string> = new Map();
     private pcChatPanel?: vscode.WebviewPanel;
     private pcChatRefreshTimer?: ReturnType<typeof setTimeout>;
     private pcCodexMirrorTimer?: ReturnType<typeof setInterval>;
@@ -2073,21 +2085,28 @@ export class RemoteServer {
             command: command.trim(),
             cwd: typeof cwd === 'string' && cwd.trim() ? cwd.trim() : undefined
         };
-        this.codexActionEvents = this.codexActionEvents.concat(event).slice(-250);
+        const stampedEvent = this.prepareActionEvent({
+            ...event,
+            turnId: this.activeRemoteCodeTurnIds.get(threadId),
+            phase: 'approval',
+            source: 'mobile'
+        });
+        this.codexActionEvents = this.codexActionEvents.concat(stampedEvent).slice(-250);
         this.saveRemoteCodeState();
         this.refreshPcChatPanel();
         this.broadcast({
             type: 'codex:approval-request',
             threadId,
-            event,
+            event: stampedEvent,
             events: this.getActionEventsForThread(threadId),
+            latestSequence: Number(stampedEvent.sequence || 0),
             timestamp: Date.now()
         });
         this.jsonResponse(res, 202, {
             success: false,
             pendingApproval: true,
-            actionId: event.id,
-            command: event.command,
+            actionId: stampedEvent.id,
+            command: stampedEvent.command,
             message: 'Command queued for approval in Remote Code chat.'
         });
     }
@@ -2814,6 +2833,7 @@ export class RemoteServer {
             const allowedModelIds = new Set(this.getDefaultCodexModels().map(model => model.id));
             this.codexHistory = Array.isArray(savedHistory) ? savedHistory.slice(-200) : [];
             this.codexActionEvents = Array.isArray(savedActions) ? savedActions.slice(-250) : [];
+            this.normalizeRestoredActionEvents();
             this.remoteCodeThreads = Array.isArray(savedThreads)
                 ? savedThreads
                     .filter(thread => thread && typeof thread.id === 'string' && thread.id.trim())
@@ -2882,6 +2902,16 @@ export class RemoteServer {
         void this._context.globalState.update('remote_code_hidden_messages', Array.from(this.hiddenRemoteMessageIds).slice(-500));
         void this._context.globalState.update('remote_code_pinned_threads', Array.from(this.pinnedThreadIds).slice(-250));
         void this._context.globalState.update('remote_code_archived_threads', Array.from(this.archivedThreadIds).slice(-250));
+    }
+
+    private normalizeRestoredActionEvents(): void {
+        let maxSequence = 0;
+        for (const event of this.codexActionEvents) {
+            const sequence = Number(event.sequence || 0);
+            if (Number.isFinite(sequence) && sequence > maxSequence) maxSequence = sequence;
+        }
+        this.codexActionSequence = Math.max(this.codexActionSequence, maxSequence);
+        this.codexActionEvents = this.codexActionEvents.map(event => this.prepareActionEvent(event));
     }
 
     private upsertRemoteCodeThread(threadId: string, title?: string, timestamp?: number, workspaceOverride?: WorkspaceSummary): void {
@@ -3705,7 +3735,9 @@ export class RemoteServer {
         reasoningEffort?: string,
         includeContext: boolean = true,
         attachments: LocalAttachment[] = [],
-        priorHistory?: CodexChatMessage[]
+        priorHistory?: CodexChatMessage[],
+        turnId: string = `turn_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+        userMessageId?: string
     ): Promise<void> {
         const effort = this.normalizeReasoningEffort(reasoningEffort || this.selectedReasoningEffort);
         this.stopActiveGeneration(false);
@@ -3717,6 +3749,7 @@ export class RemoteServer {
             role: 'assistant',
             content: '...',
             timestamp: Date.now(),
+            turnId,
             model: typeof model === 'string' && model ? model : undefined,
             reasoningEffort: effort,
             includeContext,
@@ -3727,7 +3760,7 @@ export class RemoteServer {
         this.codexHistory = this.codexHistory.slice(-200);
         this.saveRemoteCodeState();
         this.refreshPcChatPanel();
-        this.broadcast({ type: 'codex:message', message: thinking, threadId, timestamp: Date.now() });
+        this.broadcast({ type: 'codex:message', message: thinking, threadId, turnId, timestamp: Date.now() });
 
         const progressBase = `progress_${thinking.id}`;
         const contextProgressId = `${progressBase}_context`;
@@ -3738,14 +3771,16 @@ export class RemoteServer {
             contextProgressId,
             'Сбор контекста IDE',
             includeContext ? 'Рабочие папки, активный редактор, история чата и вложения.' : 'Контекст отключен для этого запроса.',
-            'completed'
+            'completed',
+            { turnId, messageId: thinking.id, phase: 'context', source: 'remote-code', statusDetail: userMessageId }
         );
         this.upsertProgressEvent(
             threadId,
             modelProgressId,
             'Ожидание модели',
             `${model || this.selectedAgent || 'auto'} · ${effort}`,
-            'running'
+            'running',
+            { turnId, messageId: thinking.id, phase: 'model', source: 'remote-code' }
         );
         let streamStarted = false;
 
@@ -3763,14 +3798,16 @@ export class RemoteServer {
                         modelProgressId,
                         'Модель ответила',
                         `${model || this.selectedAgent || 'auto'} · ${effort}`,
-                        'completed'
+                        'completed',
+                        { turnId, messageId: thinking.id, phase: 'model', source: 'remote-code' }
                     );
                     this.upsertProgressEvent(
                         threadId,
                         streamProgressId,
                         'Поток ответа',
                         'Получаем видимый текст ответа.',
-                        'running'
+                        'running',
+                        { turnId, messageId: thinking.id, phase: 'stream', source: 'remote-code' }
                     );
                 }
                 thinking.content = this.stripActionDirectives(content || '...');
@@ -3783,6 +3820,7 @@ export class RemoteServer {
                     messageId: thinking.id,
                     content: thinking.content,
                     threadId,
+                    turnId,
                     timestamp: thinking.timestamp
                 });
             },
@@ -3798,21 +3836,25 @@ export class RemoteServer {
                 id: `codex_assistant_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
                 content: cleanResponse,
                 timestamp: Date.now(),
+                turnId,
                 isStreaming: false,
                 changeSummary
             };
             this.codexHistory = this.codexHistory.filter(m => m.id !== thinking.id).concat(done).slice(-200);
-            this.createActionsFromAssistantResponse(response, threadId);
+            this.relinkTurnEvents(threadId, turnId, thinking.id, done.id);
+            this.createActionsFromAssistantResponse(response, threadId, turnId, done.id);
             this.upsertProgressEvent(
                 threadId,
                 streamStarted ? streamProgressId : modelProgressId,
                 streamStarted ? 'Ответ готов' : 'Модель ответила',
                 'Финальное сообщение доступно.',
-                'completed'
+                'completed',
+                { turnId, messageId: done.id, phase: 'final', source: 'remote-code' }
             );
             this.saveRemoteCodeState();
             this.refreshPcChatPanel();
-            this.broadcast({ type: 'codex:message', message: done, threadId, timestamp: Date.now() });
+            this.broadcast({ type: 'codex:message', message: done, threadId, turnId, timestamp: Date.now() });
+            this.broadcastCodexThreadSnapshot(threadId);
         } catch (err: any) {
             if (cancellation.token.isCancellationRequested || err?.message === 'cancelled') {
                 const stopped: CodexChatMessage = {
@@ -3822,6 +3864,7 @@ export class RemoteServer {
                         ? `${thinking.content}\n\nОстановлено.`
                         : 'Остановлено.',
                     timestamp: Date.now(),
+                    turnId,
                     isStreaming: false
                 };
                 this.codexHistory = this.codexHistory.filter(m => m.id !== thinking.id).concat(stopped).slice(-200);
@@ -3830,11 +3873,13 @@ export class RemoteServer {
                     streamStarted ? streamProgressId : modelProgressId,
                     'Остановлено',
                     'Активная генерация остановлена.',
-                    'denied'
+                    'denied',
+                    { turnId, messageId: stopped.id, phase: 'stop', source: 'remote-code' }
                 );
                 this.saveRemoteCodeState();
                 this.refreshPcChatPanel(true);
-                this.broadcast({ type: 'codex:message', message: stopped, threadId, timestamp: Date.now() });
+                this.broadcast({ type: 'codex:message', message: stopped, threadId, turnId, timestamp: Date.now() });
+                this.broadcastCodexThreadSnapshot(threadId);
                 return;
             }
             this.upsertProgressEvent(
@@ -3842,7 +3887,8 @@ export class RemoteServer {
                 streamStarted ? streamProgressId : modelProgressId,
                 'Ошибка запроса к модели',
                 err?.message || String(err),
-                'failed'
+                'failed',
+                { turnId, messageId: thinking.id, phase: 'error', source: 'remote-code' }
             );
             const errorText = err?.message || String(err);
             const failed: CodexChatMessage = {
@@ -3850,17 +3896,22 @@ export class RemoteServer {
                 id: `codex_assistant_failed_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
                 content: `Не удалось получить ответ модели.\n\n${errorText}\n\nПопробуйте отправить сообщение ещё раз или выберите другую модель.`,
                 timestamp: Date.now(),
+                turnId,
                 isStreaming: false
             };
             this.codexHistory = this.codexHistory.filter(m => m.id !== thinking.id).concat(failed).slice(-200);
             this.saveRemoteCodeState();
             this.refreshPcChatPanel(true);
-            this.broadcast({ type: 'codex:message', message: failed, threadId, timestamp: Date.now() });
+            this.broadcast({ type: 'codex:message', message: failed, threadId, turnId, timestamp: Date.now() });
+            this.broadcastCodexThreadSnapshot(threadId);
             return;
         } finally {
             if (this.activeChatCancellation === cancellation) {
                 this.activeChatCancellation = undefined;
                 this.activeChatThreadId = undefined;
+            }
+            if (this.activeRemoteCodeTurnIds.get(threadId) === turnId) {
+                this.activeRemoteCodeTurnIds.delete(threadId);
             }
             cancellation.dispose();
             this.refreshPcChatPanel(true);
@@ -3922,13 +3973,7 @@ export class RemoteServer {
             this.refreshPcChatPanel(true);
         }
         for (const threadId of staleThreadIds) {
-            this.broadcast({
-                type: 'codex:message-refresh',
-                threadId,
-                messages: this.getMessagesForRemoteThread(threadId, 120).filter(m => m.role !== 'system'),
-                events: this.getActionEventsForThread(threadId),
-                timestamp: Date.now()
-            });
+            this.broadcastCodexThreadSnapshot(threadId);
         }
         return true;
     }
@@ -3963,11 +4008,14 @@ export class RemoteServer {
             .filter(item => item.role !== 'system' && !item.isStreaming);
         const displayMessage = message.trim() || (attachmentFiles.length ? 'Проверь вложения.' : message);
         const messageForAgent = this.withAttachmentInstructions(displayMessage, attachmentFiles);
+        const turnId = `turn_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+        this.activeRemoteCodeTurnIds.set(targetThreadId, turnId);
         const userMessage: CodexChatMessage = {
             id: `remote_user_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
             role: 'user',
             content: displayMessage,
             timestamp: Date.now(),
+            turnId,
             model: model || undefined,
             reasoningEffort: effort,
             includeContext: this.selectedIncludeContext,
@@ -3981,23 +4029,24 @@ export class RemoteServer {
         this.saveRemoteCodeState();
         this.openPcChatPanel();
         this.refreshPcChatPanel();
-        this.broadcast({ type: 'codex:message', message: userMessage, threadId: targetThreadId, timestamp: Date.now() });
-        this.broadcast({ type: 'codex:sent', message: messageForAgent, model, reasoningEffort: effort, includeContext: this.selectedIncludeContext, threadId: targetThreadId, timestamp: Date.now() });
+        this.broadcast({ type: 'codex:message', message: userMessage, threadId: targetThreadId, turnId, timestamp: Date.now() });
+        this.broadcast({ type: 'codex:sent', message: messageForAgent, model, reasoningEffort: effort, includeContext: this.selectedIncludeContext, threadId: targetThreadId, turnId, timestamp: Date.now() });
         this.broadcast(this.getRemoteCodeThreadsUpdatePayload());
 
-        this.answerInPcMirror(messageForAgent, targetThreadId, model, effort, this.selectedIncludeContext, attachmentFiles, priorHistory).catch(err => {
+        this.answerInPcMirror(messageForAgent, targetThreadId, model, effort, this.selectedIncludeContext, attachmentFiles, priorHistory, turnId, userMessage.id).catch(err => {
             const errorMessage: CodexChatMessage = {
                 id: `remote_assistant_error_${Date.now()}`,
                 role: 'assistant',
                 content: `Remote Code error: ${err?.message || String(err)}`,
                 timestamp: Date.now(),
+                turnId,
                 threadId: targetThreadId
             };
             this.codexHistory.push(errorMessage);
             this.codexHistory = this.codexHistory.slice(-200);
             this.saveRemoteCodeState();
             this.refreshPcChatPanel();
-            this.broadcast({ type: 'codex:message', message: errorMessage, threadId: targetThreadId, timestamp: Date.now() });
+            this.broadcast({ type: 'codex:message', message: errorMessage, threadId: targetThreadId, turnId, timestamp: Date.now() });
         });
         return targetThreadId;
     }
@@ -4671,13 +4720,7 @@ ol{padding-left:20px}li{margin:6px 0}.note{margin-top:12px;font-size:13px;color:
             type: 'codex:sessions-update'
         });
         if (!threadId) return;
-        this.broadcast({
-            type: 'codex:message-refresh',
-            threadId,
-            messages: this.getMessagesForRemoteThread(threadId, 120).filter(m => m.role !== 'system'),
-            events: this.getActionEventsForThread(threadId),
-            timestamp: Date.now()
-        });
+        this.broadcastCodexThreadSnapshot(threadId);
     }
 
     private async handlePcChatAction(action: string, msg: any): Promise<void> {
@@ -5161,6 +5204,9 @@ ol{padding-left:20px}li{margin:6px 0}.note{margin-top:12px;font-size:13px;color:
             status: 'pending',
             timestamp: Date.now(),
             threadId: this.currentRemoteThreadId,
+            turnId: this.activeRemoteCodeTurnIds.get(this.currentRemoteThreadId),
+            phase: 'approval',
+            source: 'remote-code',
             actionable: true,
             command,
             cwd: finalCwd,
@@ -5280,24 +5326,25 @@ ol{padding-left:20px}li{margin:6px 0}.note{margin-top:12px;font-size:13px;color:
             event.status = 'denied';
             event.actionable = false;
             event.timestamp = Date.now();
-            this.saveRemoteCodeState();
-            this.refreshPcChatPanel();
-            this.broadcastActionUpdate(event);
+            event.completedAt = event.timestamp;
+            event.durationMs = event.startedAt ? Math.max(0, event.completedAt - event.startedAt) : 0;
+            this.upsertActionEvent(event);
             return event;
         }
         event.status = 'running';
         event.actionable = false;
         event.timestamp = Date.now();
-        this.saveRemoteCodeState();
-        this.refreshPcChatPanel();
-        this.broadcastActionUpdate(event);
+        event.startedAt = event.startedAt || event.timestamp;
+        this.upsertActionEvent(event);
         try {
             if (event.type === 'command_approval' && event.command) {
                 const result = await this.runApprovedCommand(event.command, event.cwd);
                 event.stdout = result.stdout;
                 event.stderr = result.stderr;
+                event.exitCode = result.code;
                 event.detail = [
                     event.command,
+                    `exit code: ${result.code}`,
                     result.stdout ? `stdout:\n${result.stdout}` : '',
                     result.stderr ? `stderr:\n${result.stderr}` : ''
                 ].filter(Boolean).join('\n\n').slice(0, 5000);
@@ -5321,9 +5368,9 @@ ol{padding-left:20px}li{margin:6px 0}.note{margin-top:12px;font-size:13px;color:
             event.detail = event.stderr || event.detail;
         }
         event.timestamp = Date.now();
-        this.saveRemoteCodeState();
-        this.refreshPcChatPanel();
-        this.broadcastActionUpdate(event);
+        event.completedAt = event.timestamp;
+        event.durationMs = event.startedAt ? Math.max(0, event.completedAt - event.startedAt) : 0;
+        this.upsertActionEvent(event);
         if (event.status === 'failed') {
             this.appendActionResultMessage(event);
         }
@@ -5415,12 +5462,35 @@ ol{padding-left:20px}li{margin:6px 0}.note{margin-top:12px;font-size:13px;color:
     }
 
     private broadcastActionUpdate(event: RemoteCodeActionEvent): void {
+        const events = this.getActionEventsForThread(event.threadId);
         this.broadcast({
             type: 'codex:action-update',
             threadId: event.threadId,
             event,
-            events: this.getActionEventsForThread(event.threadId),
+            events,
+            latestSequence: events.reduce((max, item) => Math.max(max, Number(item.sequence || 0)), 0),
             timestamp: Date.now()
+        });
+    }
+
+    private broadcastCodexThreadSnapshot(threadId: string): void {
+        const events = this.getActionEventsForThread(threadId);
+        this.broadcast({
+            type: 'codex:message-refresh',
+            threadId,
+            messages: this.getMessagesForRemoteThread(threadId, 120).filter(m => m.role !== 'system'),
+            events,
+            latestSequence: events.reduce((max, item) => Math.max(max, Number(item.sequence || 0)), 0),
+            timestamp: Date.now()
+        });
+    }
+
+    private relinkTurnEvents(threadId: string, turnId: string, fromMessageId: string, toMessageId: string): void {
+        this.codexActionEvents = this.codexActionEvents.map(event => {
+            if (event.threadId !== threadId || event.turnId !== turnId || event.messageId !== fromMessageId) {
+                return event;
+            }
+            return { ...event, messageId: toMessageId };
         });
     }
 
@@ -5433,6 +5503,7 @@ ol{padding-left:20px}li{margin:6px 0}.note{margin-top:12px;font-size:13px;color:
             role: 'assistant',
             content: content.slice(0, 6000),
             timestamp: Date.now(),
+            turnId: event.turnId,
             threadId: event.threadId
         };
         this.codexHistory.push(message);
@@ -5442,7 +5513,7 @@ ol{padding-left:20px}li{margin:6px 0}.note{margin-top:12px;font-size:13px;color:
         this.broadcast({ type: 'codex:message', message, threadId: event.threadId, timestamp: Date.now() });
     }
 
-    private createActionsFromAssistantResponse(response: string, threadId: string): void {
+    private createActionsFromAssistantResponse(response: string, threadId: string, turnId?: string, messageId?: string): void {
         const directiveRegex = /::(run-command|write-file|apply-patch|read-file|show-diagnostics)(\{[^\n]*\})/g;
         let match: RegExpExecArray | null;
         const created: RemoteCodeActionEvent[] = [];
@@ -5507,18 +5578,26 @@ ol{padding-left:20px}li{margin:6px 0}.note{margin-top:12px;font-size:13px;color:
             }
         }
         if (toolResults.length > 0) {
-            this.appendToolResultMessage(toolResults.join('\n\n'), threadId);
+            this.appendToolResultMessage(toolResults.join('\n\n'), threadId, turnId);
         }
         if (created.length === 0) return;
-        this.codexActionEvents = this.codexActionEvents.concat(created).slice(-250);
+        const stampedCreated = created.map(event => this.prepareActionEvent({
+            ...event,
+            turnId: event.turnId || turnId,
+            messageId: event.messageId || messageId,
+            phase: event.phase || (event.type.includes('patch') ? 'patch' : 'tool'),
+            source: event.source || 'remote-code'
+        }));
+        this.codexActionEvents = this.codexActionEvents.concat(stampedCreated).slice(-250);
         this.saveRemoteCodeState();
         this.refreshPcChatPanel();
-        for (const event of created) {
+        for (const event of stampedCreated) {
             this.broadcast({
                 type: 'codex:approval-request',
                 threadId,
                 event,
                 events: this.getActionEventsForThread(threadId),
+                latestSequence: Number(event.sequence || 0),
                 timestamp: Date.now()
             });
             if (this.shouldAutoApproveAction(event)) {
@@ -5561,19 +5640,20 @@ ol{padding-left:20px}li{margin:6px 0}.note{margin-top:12px;font-size:13px;color:
             .trim() || 'Запросил данные у VS Code. Результат ниже.';
     }
 
-    private appendToolResultMessage(content: string, threadId: string): void {
+    private appendToolResultMessage(content: string, threadId: string, turnId?: string): void {
         const message: CodexChatMessage = {
             id: `tool_result_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
             role: 'assistant',
             content: content.slice(0, 9000),
             timestamp: Date.now(),
+            turnId,
             threadId
         };
         this.codexHistory.push(message);
         this.codexHistory = this.codexHistory.slice(-200);
         this.saveRemoteCodeState();
         this.refreshPcChatPanel();
-        this.broadcast({ type: 'codex:message', message, threadId, timestamp: Date.now() });
+        this.broadcast({ type: 'codex:message', message, threadId, turnId, timestamp: Date.now() });
     }
 
     private readFileToolResult(filePath: string): string {
@@ -5717,7 +5797,11 @@ ol{padding-left:20px}li{margin:6px 0}.note{margin-top:12px;font-size:13px;color:
             byId.set(event.id, event);
         }
         return Array.from(byId.values())
-            .sort((a, b) => Number(a.timestamp || 0) - Number(b.timestamp || 0))
+            .sort((a, b) => {
+                const sequenceDelta = Number(a.sequence || 0) - Number(b.sequence || 0);
+                if (sequenceDelta !== 0) return sequenceDelta;
+                return Number(a.timestamp || 0) - Number(b.timestamp || 0);
+            })
             .slice(-160);
     }
 
@@ -5733,26 +5817,32 @@ ol{padding-left:20px}li{margin:6px 0}.note{margin-top:12px;font-size:13px;color:
             const events = new Map<string, RemoteCodeActionEvent>();
             let reasoningIndex = 0;
             let commentaryIndex = 0;
+            let lineIndex = 0;
             const seenCommentary = new Set<string>();
             let currentTurnStartedAt = 0;
             let currentTurnEndedAt = 0;
+            let currentTurnId = '';
             let currentTurnHasFinalAnswer = false;
             const currentTurnCommandCallIds = new Set<string>();
             const currentTurnCompletedCommandCallIds = new Set<string>();
 
             for (const line of lines) {
+                lineIndex += 1;
                 let item: any;
                 try { item = JSON.parse(line); } catch { continue; }
                 const payload = item.payload || {};
                 const itemTime = Math.round(item.timestamp ? new Date(item.timestamp).getTime() : Date.now());
+                const sequence = itemTime * 1000 + lineIndex;
                 const startsUserTurn = this.isExternalCodexUserTurnStart(item, payload);
                 if (startsUserTurn) {
                     currentTurnStartedAt = itemTime;
                     currentTurnEndedAt = itemTime;
+                    currentTurnId = `external_${fileId}_${itemTime}`;
                     currentTurnHasFinalAnswer = false;
                     currentTurnCommandCallIds.clear();
                     currentTurnCompletedCommandCallIds.clear();
                 }
+                const eventTurnId = currentTurnId || `external_${fileId}_${itemTime}`;
                 const isCurrentTurnActivity = currentTurnStartedAt > 0
                     && itemTime >= currentTurnStartedAt
                     && this.isExternalCodexWorkActivity(item, payload);
@@ -5777,6 +5867,11 @@ ol{padding-left:20px}li{margin:6px 0}.note{margin-top:12px;font-size:13px;color:
                             status: 'completed',
                             timestamp: itemTime,
                             threadId: target,
+                            turnId: eventTurnId,
+                            messageId: id,
+                            sequence,
+                            phase: 'commentary',
+                            source: 'codex-jsonl',
                             actionable: false
                         });
                     }
@@ -5793,6 +5888,11 @@ ol{padding-left:20px}li{margin:6px 0}.note{margin-top:12px;font-size:13px;color:
                         status: 'completed',
                         timestamp: itemTime,
                         threadId: target,
+                        turnId: eventTurnId,
+                        messageId: id,
+                        sequence,
+                        phase: 'reasoning',
+                        source: 'codex-jsonl',
                         actionable: false
                     });
                     continue;
@@ -5813,6 +5913,12 @@ ol{padding-left:20px}li{margin:6px 0}.note{margin-top:12px;font-size:13px;color:
                         status: 'running',
                         timestamp: itemTime,
                         threadId: target,
+                        turnId: eventTurnId,
+                        messageId: callId,
+                        sequence,
+                        phase: 'tool',
+                        source: 'codex-jsonl',
+                        callId,
                         actionable: false,
                         command: info.command,
                         cwd: info.cwd,
@@ -5841,6 +5947,15 @@ ol{padding-left:20px}li{margin:6px 0}.note{margin-top:12px;font-size:13px;color:
                         } as RemoteCodeActionEvent),
                         status: this.externalToolOutputFailed(payload, output) ? 'failed' : 'completed',
                         timestamp: itemTime,
+                        turnId: existing?.turnId || eventTurnId,
+                        messageId: existing?.messageId || callId,
+                        sequence,
+                        phase: existing?.phase || 'tool',
+                        source: existing?.source || 'codex-jsonl',
+                        callId,
+                        completedAt: itemTime,
+                        durationMs: existing?.startedAt ? Math.max(0, itemTime - existing.startedAt) : undefined,
+                        exitCode: this.extractExternalExitCode(payload, output),
                         stdout: output
                     });
                     continue;
@@ -5856,22 +5971,30 @@ ol{padding-left:20px}li{margin:6px 0}.note{margin-top:12px;font-size:13px;color:
                             title: 'Правка файлов',
                             detail: 'Применение patch',
                             threadId: target,
+                            turnId: eventTurnId,
+                            messageId: id,
+                            sequence,
+                            phase: 'patch',
+                            source: 'codex-jsonl',
                             actionable: false
                         } as RemoteCodeActionEvent),
                         status: payload.type === 'patch_apply_begin'
                             ? 'running'
                             : (payload.success === false ? 'failed' : 'completed'),
-                        timestamp: itemTime
+                        timestamp: itemTime,
+                        completedAt: payload.type === 'patch_apply_end' ? itemTime : existing?.completedAt
                     });
                 }
             }
 
             const summaryEvent = this.buildExternalCodexWorkSummaryEvent(
                 target,
+                currentTurnId,
                 currentTurnStartedAt,
                 currentTurnEndedAt,
                 currentTurnCompletedCommandCallIds.size,
-                !currentTurnHasFinalAnswer
+                !currentTurnHasFinalAnswer,
+                lineIndex > 0 ? currentTurnEndedAt * 1000 + lineIndex + 1 : undefined
             );
             if (summaryEvent) {
                 events.set(summaryEvent.id, summaryEvent);
@@ -5922,10 +6045,12 @@ ol{padding-left:20px}li{margin:6px 0}.note{margin-top:12px;font-size:13px;color:
 
     private buildExternalCodexWorkSummaryEvent(
         threadId: string,
+        turnId: string,
         startedAt: number,
         endedAt: number,
         completedCommandCount: number,
-        isRunning: boolean
+        isRunning: boolean,
+        sequence?: number
     ): RemoteCodeActionEvent | undefined {
         if (!Number.isFinite(startedAt) || startedAt <= 0) return undefined;
         const completedAt = Number.isFinite(endedAt) && endedAt >= startedAt ? endedAt : startedAt;
@@ -5938,6 +6063,11 @@ ol{padding-left:20px}li{margin:6px 0}.note{margin-top:12px;font-size:13px;color:
             status: isRunning ? 'running' : 'completed',
             timestamp: completedAt,
             threadId,
+            turnId,
+            messageId: id,
+            sequence,
+            phase: 'summary',
+            source: 'codex-jsonl',
             actionable: false,
             startedAt,
             completedAt,
@@ -6057,6 +6187,14 @@ ol{padding-left:20px}li{margin:6px 0}.note{margin-top:12px;font-size:13px;color:
         return status === 'failed' || status === 'error' || /\b(exit code|error)\s*[:=]\s*[1-9]\d*/i.test(output);
     }
 
+    private extractExternalExitCode(payload: any, output: string): number | undefined {
+        const rawCode = payload?.exit_code ?? payload?.exitCode ?? payload?.code;
+        const numericCode = Number(rawCode);
+        if (Number.isFinite(numericCode)) return numericCode;
+        const match = output.match(/\bexit code\s*[:=]\s*(-?\d+)/i);
+        return match ? Number(match[1]) : undefined;
+    }
+
     private sanitizeActionText(value: string): string {
         return value
             .replace(/(Authorization:\s*Bearer\s+)[^\s"']+/gi, '$1***')
@@ -6071,17 +6209,62 @@ ol{padding-left:20px}li{margin:6px 0}.note{margin-top:12px;font-size:13px;color:
         return compact ? compact[0].toUpperCase() + compact.slice(1) : 'Инструмент';
     }
 
+    private nextActionSequence(): number {
+        this.codexActionSequence += 1;
+        return this.codexActionSequence;
+    }
+
+    private prepareActionEvent(event: RemoteCodeActionEvent, existing?: RemoteCodeActionEvent): RemoteCodeActionEvent {
+        const now = Date.now();
+        const timestamp = Number.isFinite(Number(event.timestamp)) && Number(event.timestamp) > 0
+            ? Number(event.timestamp)
+            : now;
+        const startedAt = Number.isFinite(Number(event.startedAt)) && Number(event.startedAt) > 0
+            ? Number(event.startedAt)
+            : (Number.isFinite(Number(existing?.startedAt)) && Number(existing?.startedAt) > 0
+                ? Number(existing?.startedAt)
+                : timestamp);
+        const isFinished = ['completed', 'failed', 'denied'].includes(event.status);
+        const completedAt = Number.isFinite(Number(event.completedAt)) && Number(event.completedAt) > 0
+            ? Number(event.completedAt)
+            : (isFinished ? timestamp : existing?.completedAt);
+        const durationMs = Number.isFinite(Number(event.durationMs)) && Number(event.durationMs) >= 0
+            ? Number(event.durationMs)
+            : (completedAt && startedAt ? Math.max(0, completedAt - startedAt) : existing?.durationMs);
+        const sequence = Number.isFinite(Number(event.sequence)) && Number(event.sequence) > 0
+            ? Number(event.sequence)
+            : (Number.isFinite(Number(existing?.sequence)) && Number(existing?.sequence) > 0
+                ? Number(existing?.sequence)
+                : this.nextActionSequence());
+        this.codexActionSequence = Math.max(this.codexActionSequence, sequence);
+
+        return {
+            ...event,
+            timestamp,
+            startedAt,
+            completedAt,
+            durationMs,
+            sequence,
+            turnId: event.turnId || existing?.turnId,
+            messageId: event.messageId || existing?.messageId,
+            phase: event.phase || existing?.phase,
+            source: event.source || existing?.source || 'remote-code'
+        };
+    }
+
     private upsertActionEvent(event: RemoteCodeActionEvent, refresh = true): void {
         const index = this.codexActionEvents.findIndex(item => item.id === event.id);
+        const existing = index >= 0 ? this.codexActionEvents[index] : undefined;
+        const nextEvent = this.prepareActionEvent(event, existing);
         if (index >= 0) {
-            this.codexActionEvents = this.codexActionEvents.map(item => item.id === event.id ? event : item);
+            this.codexActionEvents = this.codexActionEvents.map(item => item.id === event.id ? nextEvent : item);
         } else {
-            this.codexActionEvents = this.codexActionEvents.concat(event);
+            this.codexActionEvents = this.codexActionEvents.concat(nextEvent);
         }
         this.codexActionEvents = this.codexActionEvents.slice(-250);
         this.saveRemoteCodeState();
         if (refresh) this.refreshPcChatPanel();
-        this.broadcastActionUpdate(event);
+        this.broadcastActionUpdate(nextEvent);
     }
 
     private upsertProgressEvent(
@@ -6089,7 +6272,8 @@ ol{padding-left:20px}li{margin:6px 0}.note{margin-top:12px;font-size:13px;color:
         id: string,
         title: string,
         detail: string,
-        status: RemoteCodeActionEvent['status']
+        status: RemoteCodeActionEvent['status'],
+        metadata: Partial<Pick<RemoteCodeActionEvent, 'turnId' | 'messageId' | 'phase' | 'source' | 'statusDetail'>> = {}
     ): RemoteCodeActionEvent {
         const existing = this.codexActionEvents.find(event => event.id === id);
         const event: RemoteCodeActionEvent = {
@@ -6105,7 +6289,8 @@ ol{padding-left:20px}li{margin:6px 0}.note{margin-top:12px;font-size:13px;color:
             status,
             timestamp: Date.now(),
             threadId,
-            actionable: false
+            actionable: false,
+            ...metadata
         };
         this.upsertActionEvent(event);
         return event;
@@ -6518,6 +6703,7 @@ pre{margin:0;white-space:pre-wrap;word-wrap:break-word;font:inherit}
 .action-timeline{max-width:var(--chat-max);margin:0 auto 16px;color:#8f9094;font-size:12.75px;line-height:1.38}
 .action-line,.action-log-summary{display:flex;align-items:center;gap:8px;min-height:26px;color:#8f9094}
 .action-line strong,.action-log-summary strong{color:#aeb0b3;font-weight:500}
+.action-line small,.action-meta{color:#777a80;font:11.5px/1.35 var(--codex-mono)}
 .action-line svg,.action-log-summary svg{width:14px;height:14px;color:#8f9094;flex:0 0 auto}
 .action-line.running svg{animation:spin .9s linear infinite}
 .action-line.pending strong{color:#d2d2d2}
@@ -6528,6 +6714,7 @@ pre{margin:0;white-space:pre-wrap;word-wrap:break-word;font:inherit}
 .action-log summary::-webkit-details-marker{display:none}
 .action-log-body{margin:3px 0 2px 22px;border-left:1px solid var(--codex-border);padding-left:10px}
 .action-log-entry{padding:4px 0;color:#aeb0b3}
+.action-log-entry .action-meta{display:block;margin-top:2px}
 .action-log-entry pre{margin:4px 0 0;max-height:130px;overflow:auto;color:#9fa1a5;font:12px/1.45 var(--codex-mono)}
 .action{max-width:var(--chat-max);margin:0 auto 16px;padding:10px 12px;background:var(--codex-surface);border:1px solid var(--codex-border);border-radius:9px;color:var(--codex-text)}
 .action.resolved{padding:8px 10px}
@@ -7284,7 +7471,8 @@ prompt.addEventListener('keydown', event => {
             const entries = completedCommands.slice(-6).map(event => {
                 const command = this.compactActionDetail(event);
                 const detail = (event.stdout || event.stderr || '').trim();
-                return `<div class="action-log-entry"><strong>${this.escapeHtml(command)}</strong>${detail ? `<pre>${this.escapeHtml(detail).slice(0, 1800)}</pre>` : ''}</div>`;
+                const meta = this.compactActionMeta(event);
+                return `<div class="action-log-entry"><strong>${this.escapeHtml(command)}</strong>${meta ? `<span class="action-meta">${this.escapeHtml(meta)}</span>` : ''}${detail ? `<pre>${this.escapeHtml(detail).slice(0, 1800)}</pre>` : ''}</div>`;
             }).join('');
             parts.push(`<details class="action-log">
                 <summary class="action-log-summary">${this.webIcon('terminal')}<strong>Выполнено ${summaryCommandCount} ${word}</strong></summary>
@@ -7294,7 +7482,8 @@ prompt.addEventListener('keydown', event => {
         for (const event of visibleEvents) {
             const label = this.actionTimelineLabel(event);
             const detail = this.compactActionDetail(event);
-            parts.push(`<div class="action-line ${this.escapeHtml(event.status)}">${this.webIcon(this.actionTimelineIcon(event))}<strong>${this.escapeHtml(label)}</strong>${detail ? `<span>${this.escapeHtml(detail)}</span>` : ''}</div>`);
+            const meta = this.compactActionMeta(event);
+            parts.push(`<div class="action-line ${this.escapeHtml(event.status)}">${this.webIcon(this.actionTimelineIcon(event))}<strong>${this.escapeHtml(label)}</strong>${detail ? `<span>${this.escapeHtml(detail)}</span>` : ''}${meta ? `<small>${this.escapeHtml(meta)}</small>` : ''}</div>`);
         }
         return parts.length ? `<div class="action-timeline">${parts.join('')}</div>` : '';
     }
@@ -7339,6 +7528,15 @@ prompt.addEventListener('keydown', event => {
             .slice()
             .sort((a, b) => Number(a.timestamp || 0) - Number(b.timestamp || 0));
         if (sorted.length <= 1) return sorted;
+
+        const latestTurnId = sorted
+            .map(event => event.turnId)
+            .filter((turnId): turnId is string => typeof turnId === 'string' && turnId.trim().length > 0)
+            .pop();
+        if (latestTurnId) {
+            const scoped = sorted.filter(event => event.turnId === latestTurnId);
+            if (scoped.length > 0) return scoped;
+        }
 
         const idleGapMs = 30 * 60 * 1000;
         let startIndex = sorted.length - 1;
@@ -7386,6 +7584,18 @@ prompt.addEventListener('keydown', event => {
             .replace(/\s+/g, ' ')
             .trim()
             .slice(0, 140);
+    }
+
+    private compactActionMeta(event: RemoteCodeActionEvent): string {
+        const parts: string[] = [];
+        if (Number.isFinite(Number(event.exitCode))) parts.push(`exit ${Number(event.exitCode)}`);
+        if (Number.isFinite(Number(event.durationMs)) && Number(event.durationMs) > 0) {
+            parts.push(this.formatWorkDuration(Number(event.durationMs)));
+        }
+        if (event.cwd && this.isCommandTimelineEvent(event)) {
+            parts.push(`cwd ${event.cwd}`);
+        }
+        return parts.join(' В· ').slice(0, 180);
     }
 
     private getProgressItems(
@@ -8522,9 +8732,15 @@ prompt.addEventListener('keydown', event => {
         this.finalizeStaleStreamingMessages();
         const params = url.parse(req.url || '', true).query;
         const threadId = (params.threadId as string) || this.currentRemoteThreadId;
+        const afterSequence = typeof params.afterSequence === 'string' ? Number(params.afterSequence) : 0;
+        const allEvents = this.getActionEventsForThread(threadId);
+        const events = allEvents
+            .filter(event => !Number.isFinite(afterSequence) || afterSequence <= 0 || Number(event.sequence || 0) > afterSequence);
+        const latestSequence = allEvents.reduce((max, event) => Math.max(max, Number(event.sequence || 0)), afterSequence || 0);
         this.jsonResponse(res, 200, {
             threadId,
-            events: this.getActionEventsForThread(threadId)
+            events,
+            latestSequence
         });
     }
 
@@ -9460,6 +9676,7 @@ prompt.addEventListener('keydown', event => {
             let title = 'Codex';
             let timestamp = Math.round(fs.statSync(filePath).mtimeMs);
             const messages: CodexChatMessage[] = [];
+            let currentTurnId = '';
 
             for (const line of lines) {
                 let item: any;
@@ -9482,11 +9699,13 @@ prompt.addEventListener('keydown', event => {
                 if (item.type === 'event_msg' && payload.type === 'user_message') {
                     const content = payload.message || this.extractTextParts(payload.text_elements) || '';
                     if (content.trim()) {
+                        currentTurnId = `external_${id}_${itemTime}`;
                         messages.push({
                             id: `codex_user_${messages.length}_${itemTime}`,
                             role: 'user',
                             content: this.cleanCodexMessage(content),
-                            timestamp: Math.round(itemTime)
+                            timestamp: Math.round(itemTime),
+                            turnId: currentTurnId
                         });
                     }
                     timestamp = Math.round(itemTime || timestamp);
@@ -9503,7 +9722,8 @@ prompt.addEventListener('keydown', event => {
                         id: `codex_assistant_${messages.length}_${itemTime}`,
                         role: 'assistant',
                         content: this.cleanCodexMessage(payload.message),
-                        timestamp: Math.round(itemTime)
+                        timestamp: Math.round(itemTime),
+                        turnId: currentTurnId || `external_${id}_${itemTime}`
                     });
                     timestamp = Math.round(itemTime || timestamp);
                     continue;
@@ -9522,7 +9742,8 @@ prompt.addEventListener('keydown', event => {
                             id: `codex_${payload.role}_${messages.length}_${itemTime}`,
                             role: payload.role,
                             content: this.cleanCodexMessage(content),
-                            timestamp: Math.round(itemTime)
+                            timestamp: Math.round(itemTime),
+                            turnId: currentTurnId || `external_${id}_${itemTime}`
                         });
                     }
                     timestamp = Math.round(itemTime || timestamp);

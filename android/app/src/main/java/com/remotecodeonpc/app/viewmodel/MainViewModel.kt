@@ -521,7 +521,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         val timestamp = (data["timestamp"] as? Double)?.toLong()
                             ?: (data["timestamp"] as? Long)
                             ?: System.currentTimeMillis()
-                        updateCodexStreamingMessage(messageId, content, timestamp)
+                        updateCodexStreamingMessage(messageId, content, timestamp, data["turnId"] as? String)
                         _uiState.value = _uiState.value.copy(isCodexLoading = true)
                     }
                     "codex:message-refresh" -> {
@@ -536,7 +536,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                             ?.dedupeCodexMessages()
                             ?.takeLast(120)
                             ?: _uiState.value.codexChatHistory
-                        val nextEvents = events ?: _uiState.value.codexActionEvents
+                        val nextEvents = events?.sortedByCodexActionOrder() ?: _uiState.value.codexActionEvents
                         _uiState.value = _uiState.value.copy(
                             currentCodexThreadId = threadId ?: _uiState.value.currentCodexThreadId,
                             codexChatHistory = nextMessages,
@@ -588,7 +588,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         when {
                             events != null -> _uiState.value = _uiState.value.copy(
                                 currentCodexThreadId = threadId ?: _uiState.value.currentCodexThreadId,
-                                codexActionEvents = events
+                                codexActionEvents = events.sortedByCodexActionOrder()
                             )
                             event != null -> upsertCodexActionEvent(event, threadId)
                             else -> viewModelScope.launch { loadCodexEvents(threadId) }
@@ -1008,13 +1008,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _uiState.value = _uiState.value.copy(codexChatHistory = current.dedupeCodexMessages().takeLast(120))
     }
 
-    private fun updateCodexStreamingMessage(messageId: String, content: String, timestamp: Long) {
+    private fun updateCodexStreamingMessage(messageId: String, content: String, timestamp: Long, turnId: String? = null) {
         val current = _uiState.value.codexChatHistory.toMutableList()
         val index = current.indexOfFirst { it.id == messageId }
         if (index >= 0) {
             current[index] = current[index].copy(
                 content = content,
                 timestamp = timestamp,
+                turnId = turnId ?: current[index].turnId,
                 isStreaming = true
             )
         } else {
@@ -1024,6 +1025,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     role = "assistant",
                     content = content,
                     timestamp = timestamp,
+                    turnId = turnId,
                     isStreaming = true
                 )
             )
@@ -1039,6 +1041,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             timestamp = (this["timestamp"] as? Double)?.toLong()
                 ?: (this["timestamp"] as? Long)
                 ?: 0L,
+            turnId = this["turnId"] as? String,
             model = this["model"] as? String,
             reasoningEffort = this["reasoningEffort"] as? String,
             isStreaming = this["isStreaming"] as? Boolean ?: false,
@@ -1112,8 +1115,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             detail = this["detail"] as? String ?: this["diff"] as? String ?: "",
             status = this["status"] as? String ?: "",
             timestamp = this["timestamp"].asLongOrNull() ?: System.currentTimeMillis(),
+            turnId = this["turnId"] as? String,
+            messageId = this["messageId"] as? String,
             callId = this["callId"] as? String,
+            sequence = this["sequence"].asLongOrNull() ?: 0,
+            phase = this["phase"] as? String,
             source = this["source"] as? String,
+            statusDetail = this["statusDetail"] as? String,
             actionable = this["actionable"] as? Boolean ?: false,
             command = this["command"] as? String,
             cwd = this["cwd"] as? String,
@@ -1121,9 +1129,19 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             stdout = this["stdout"] as? String,
             stderr = this["stderr"] as? String,
             diff = this["diff"] as? String,
+            exitCode = this["exitCode"].asIntOrNull(),
             startedAt = this["startedAt"].asLongOrNull() ?: 0,
             completedAt = this["completedAt"].asLongOrNull() ?: 0,
+            durationMs = this["durationMs"].asLongOrNull() ?: 0,
             completedCommandCount = this["completedCommandCount"].asIntOrNull() ?: 0
+        )
+    }
+
+    private fun List<CodexActionEvent>.sortedByCodexActionOrder(): List<CodexActionEvent> {
+        return sortedWith(
+            compareBy<CodexActionEvent> { if (it.sequence > 0) it.sequence else Long.MAX_VALUE }
+                .thenBy { it.timestamp }
+                .thenBy { it.id }
         )
     }
 
@@ -1133,7 +1151,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             current.map { if (it.id == event.id) event else it }
         } else {
             current + event
-        }.takeLast(80)
+        }.sortedByCodexActionOrder().takeLast(80)
         _uiState.value = _uiState.value.copy(
             currentCodexThreadId = threadId ?: _uiState.value.currentCodexThreadId,
             codexActionEvents = next
@@ -1257,7 +1275,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         return@launch
                     }
                     _uiState.value = _uiState.value.copy(
-                        codexActionEvents = body?.events ?: emptyList(),
+                        codexActionEvents = body?.events?.sortedByCodexActionOrder() ?: emptyList(),
                         currentCodexThreadId = responseThreadId
                             ?: selectedThreadId
                             ?: _uiState.value.currentCodexThreadId,
