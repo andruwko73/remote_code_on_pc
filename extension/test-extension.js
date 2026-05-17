@@ -287,7 +287,7 @@ assert(serverContent.includes('decodeBasicHtmlEntities') && serverContent.includ
 assert(serverContent.includes('.msg.user{max-width:var(--chat-max);margin:0 auto 23px 0;color:var(--codex-bright);display:flex;justify-content:flex-end') && serverContent.includes('border-radius:16px 16px 4px 16px') && serverContent.includes('.msg.user .msg-tools{right:0;left:auto'), 'Extension user messages align right', 'user prompt bubble and toolbar should sit on the right in the webview');
 const compactWebviewChecks = [
     '--codex-sidebar:#17191d',
-    '--codex-sidebar-width:350px',
+    '--codex-sidebar-width:332px',
     '--codex-selected:#303236',
     'font:13px/1.46 var(--codex-font)',
     '.top{position:absolute;top:8px;left:var(--codex-sidebar-width);right:0',
@@ -296,10 +296,10 @@ const compactWebviewChecks = [
     '.edit-icon,.icon-btn.edit-icon{display:none}',
     '.version-chip,.live-chip{display:none;height:26px',
     '.wide-sidebar{width:var(--codex-sidebar-width);flex:0 0 var(--codex-sidebar-width)',
-    '.sidebar-action{width:100%;height:36px;border:0;background:transparent;color:#cfd0d2;border-radius:9px;display:flex;align-items:center;gap:9px;padding:0 8px',
+    '.sidebar-action{width:100%;height:34px;border:0;background:transparent;color:#cfd0d2;border-radius:9px;display:flex;align-items:center;gap:9px;padding:0 8px',
     '.sidebar-project.active,.sidebar-project-group.selected>.sidebar-project{background:transparent}',
     '.sidebar-project-threads{display:flex;flex-direction:column;gap:2px;margin:3px 0 9px}',
-    '.sidebar-thread{min-height:42px',
+    '.sidebar-thread{min-height:40px',
     '.sidebar-thread.selected{background:var(--codex-selected)}',
     '.sidebar-thread.selected::before{display:none}',
     '.thread-row.selected::before{display:none}',
@@ -311,7 +311,7 @@ const compactWebviewChecks = [
     '.change-row{display:flex;align-items:center;gap:8px;min-height:28px',
     '.change-card.collapsed .change-row{display:none}',
     '.msg{position:relative;padding:0;margin:0 auto 22px 0',
-    '.action-timeline{max-width:var(--chat-max);margin:0 auto 16px 0',
+    '.action-timeline{max-width:var(--chat-max);margin:0 auto 12px 0',
     '.composer{max-width:var(--composer-max);margin:0 auto 0 0;border:1px solid var(--codex-strong-border);background:#2d2d2d;border-radius:18px',
     '@media (min-width: 760px){.composer-wrap{margin-left:var(--codex-sidebar-width);padding-left:clamp(16px,1.7vw,28px)',
     'font-size:14px;outline:none;line-height:1.5',
@@ -583,10 +583,10 @@ assert(serverContent.includes('withTimeout') && serverContent.includes('finalize
 assert(modelsFile.includes('data class AppApkStatus') && modelsFile.includes('val appApk: AppApkStatus?') && remoteCodeApp.includes('APK в расширении') && remoteCodeApp.includes('APK SHA') && codexScreen.includes('mobileChatVersionLabel(workspaceStatus)'), 'Android shows explicit app/extension versions', 'chat and settings should expose installed APK, served APK, extension version and APK SHA');
 assert(codexScreen.includes('contentAlignment = Alignment.CenterEnd') && codexScreen.includes('alignEnd = true') && codexScreen.includes('bottomEnd = 4.dp') && codexScreen.includes('modifier = Modifier.widthIn(max = userBubbleMaxWidth)'), 'Android user messages align right', 'user prompt bubble and toolbar should sit on the right and stay constrained');
 assert(!codexScreen.includes('folders: FoldersResponse?') && !codexScreen.includes('currentFiles: FileTreeItem?') && !codexScreen.includes('fileContent: FileContent?') && !codexScreen.includes('onNavigateToDir: (String) -> Unit') && !codexScreen.includes('onGoUp: () -> Unit'), 'Android CodexScreen has no stale file-surface params', 'unused file params/callbacks should stay in FilesScreen, not CodexScreen');
-assert(codexScreen.includes('BasicTextField') && codexScreen.includes('heightIn(min = 40.dp, max = 108.dp)') && codexScreen.includes('Modifier.size(37.dp)') && codexScreen.includes('navigationBarsPadding()'), 'Android composer is compact like Codex', 'mobile composer should avoid excessive vertical height and gesture bar overlap');
+assert(codexScreen.includes('BasicTextField') && codexScreen.includes('heightIn(min = 34.dp, max = 102.dp)') && codexScreen.includes('Modifier.size(34.dp)') && codexScreen.includes('navigationBarsPadding()'), 'Android composer is compact like Codex', 'mobile composer should avoid excessive vertical height and gesture bar overlap');
 assert(codexScreen.includes('startNumber: Int = 1') && codexScreen.includes('"${startNumber + index}."') && codexScreen.includes('nextListItemIndex') && codexScreen.includes('val startNumber = ordered.groupValues[1]'), 'Android ordered lists preserve sequential numbering', 'ordered list blocks should not restart at 1 after item descriptions');
 assert(codexScreen.includes('summaryEvent?.detail ?: mobileWorkSummary(timelineEvents, running)') && codexScreen.includes('type == "work_summary"') && codexScreen.includes('takeLast(120)') && codexScreen.includes('на протяжении'), 'Android shows Codex-like work summary', 'mobile work summary should match Codex wording');
-assert(codexScreen.includes('val previewEvents = visibleEvents.takeLast(if (running) 4 else 3)') && codexScreen.includes('val hasFreshOutput = visibleEvents.any') && codexScreen.includes('mutableStateOf(running || hasFreshOutput)') && codexScreen.includes('MobileTimelineEventPreview(event)') && codexScreen.includes('title.isNotBlank() && !event.isCommandActionEvent()'), 'Android action timeline shows public work steps', 'mobile chat should expose recent public action/model progress lines without requiring expansion');
+assert(codexScreen.includes('val previewEvents = if (running) visibleEvents.takeLast(1) else emptyList()') && codexScreen.includes('mutableStateOf(false)') && codexScreen.includes('MobileTimelineEventPreview(event)') && codexScreen.includes('compactMobileWorkSummaryText') && codexScreen.includes('isMobileTimelineNoise') && codexScreen.includes('title.isNotBlank() && !event.isCommandActionEvent()'), 'Android action timeline shows public work steps', 'mobile chat should expose a compact public work step and keep details available on expansion');
 assert(modelsFile.includes('val command: String? = null') && modelsFile.includes('val stdout: String? = null') && mainVm.includes('command = this["command"] as? String') && codexScreen.includes('compactActionOutput(event)') && codexScreen.includes('event.command ?: event.filePath'), 'Android keeps full Codex action details', 'mobile action events should preserve command/cwd/path/stdout/stderr/diff so the timeline can match Codex detail');
 assert(
     serverContent.includes('turnId?: string') &&
@@ -604,7 +604,7 @@ assert(
     'Codex chat uses turn/event schema v2',
     'chat action output should be tied to a turn, ordered by sequence, replayable by afterSequence, and rendered with command metadata'
 );
-assert(codexScreen.includes('timelineWorkEvents') && codexScreen.includes('recentMobileWorkEvents(events.filterNot { it.type == "work_summary" })'), 'Android timeline ignores stale work events', 'mobile running state and visible timeline should use the same recent-turn filtering as the Codex-like work summary');
+assert(codexScreen.includes('timelineWorkEvents') && codexScreen.includes('recentMobileWorkEvents(events.filterNot { it.type == "work_summary" || it.isMobileTimelineNoise() })'), 'Android timeline ignores stale work events', 'mobile running state and visible timeline should use the same recent-turn filtering as the Codex-like work summary');
 assert(mainVm.includes('"codex:message-refresh"') && mainVm.includes('data["messages"]') && mainVm.includes('data["events"]') && mainVm.includes('codexActionEvents = nextEvents'), 'Android applies live Codex message refresh events', 'mobile WebSocket handler should update chat messages and action timeline from codex:message-refresh');
 assert(mainVm.includes('shouldApplyCodexThreadResponse') && mainVm.includes('requestCurrentThreadId') && mainVm.includes('val effectiveThreadId = responseThreadId') && mainVm.includes('val threadId = _uiState.value.currentCodexThreadId') && !mainVm.includes('current.isNotBlank() && _uiState.value.codexThreads.any'), 'Android keeps requests attached to the selected Codex chat', 'history/events responses must not overwrite a newer selected thread and sends must not fall back from a pending current thread to the first thread');
 assert(codexScreen.includes('val visibleFiles = if (expanded) summary.files else emptyList()') && codexScreen.includes('fontSize = 14.sp') && codexScreen.includes('modifier = Modifier.width(24.dp)'), 'Android answer and change-card density matches Codex', 'mobile assistant text, ordered markers, and collapsed change cards should stay close to Codex density');

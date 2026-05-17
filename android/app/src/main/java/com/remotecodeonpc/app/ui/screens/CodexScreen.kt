@@ -1044,7 +1044,7 @@ fun CodexChatTab(
         if (error != null) Text(error, color = ErrorRed, fontSize = 13.sp, modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp))
 
         Box(modifier = Modifier.fillMaxWidth().weight(1f)) {
-            LazyColumn(state = listState, modifier = Modifier.fillMaxSize().padding(horizontal = chatHorizontalPadding), verticalArrangement = Arrangement.spacedBy(6.dp), contentPadding = PaddingValues(top = 10.dp, bottom = 6.dp)) {
+            LazyColumn(state = listState, modifier = Modifier.fillMaxSize().padding(horizontal = chatHorizontalPadding), verticalArrangement = Arrangement.spacedBy(6.dp), contentPadding = PaddingValues(top = 18.dp, bottom = 6.dp)) {
                 val timelineInsertAfterIndex = when {
                     timelineActionEvents.isEmpty() || visibleChatHistory.isEmpty() -> -1
                     isTimelineRunning -> visibleChatHistory.lastIndex
@@ -1100,8 +1100,8 @@ fun CodexChatTab(
             }
         }
 
-        Surface(modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp), color = Color(0xFF2D2D2D), shape = RoundedCornerShape(18.dp), border = BorderStroke(1.dp, Color(0xFF3A3A3F))) {
-            Column(modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp)) {
+        Surface(modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 5.dp), color = Color(0xFF2D2D2D), shape = RoundedCornerShape(16.dp), border = BorderStroke(1.dp, Color(0xFF3A3A3F))) {
+            Column(modifier = Modifier.padding(horizontal = 9.dp, vertical = 4.dp)) {
                 if (attachments.isNotEmpty()) {
                     LazyColumn(modifier = Modifier.heightIn(max = 90.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                         items(attachments) { attachment ->
@@ -1118,14 +1118,14 @@ fun CodexChatTab(
                 BasicTextField(
                     value = messageText,
                     onValueChange = { messageText = it },
-                    modifier = Modifier.fillMaxWidth().heightIn(min = 40.dp, max = 108.dp),
+                    modifier = Modifier.fillMaxWidth().heightIn(min = 34.dp, max = 102.dp),
                     textStyle = LocalTextStyle.current.copy(color = TextPrimary, fontSize = 13.5.sp, lineHeight = 19.sp),
                     cursorBrush = SolidColor(TextPrimary),
                     keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
                     keyboardActions = KeyboardActions(onSend = { if (!isLoading) submitMessage() }),
                     decorationBox = { innerTextField ->
                         Box(
-                            modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 8.dp),
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 6.dp),
                             contentAlignment = Alignment.TopStart
                         ) {
                             if (messageText.isBlank()) {
@@ -1145,20 +1145,20 @@ fun CodexChatTab(
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .heightIn(min = 38.dp),
+                        .heightIn(min = 34.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     IconButton(
                         onClick = { attachmentPicker.launch("*/*") },
-                        modifier = Modifier.size(31.dp)
+                        modifier = Modifier.size(29.dp)
                     ) {
-                        Icon(Icons.Default.Add, contentDescription = "\u0414\u043E\u0431\u0430\u0432\u0438\u0442\u044C", tint = TextSecondary, modifier = Modifier.size(19.dp))
+                        Icon(Icons.Default.Add, contentDescription = "\u0414\u043E\u0431\u0430\u0432\u0438\u0442\u044C", tint = TextSecondary, modifier = Modifier.size(18.dp))
                     }
                     Box {
                         TextButton(
                             onClick = { showProfileSelector = true },
                             contentPadding = PaddingValues(horizontal = 3.dp),
-                            modifier = Modifier.widthIn(min = 72.dp, max = 92.dp)
+                            modifier = Modifier.widthIn(min = 68.dp, max = 88.dp)
                         ) {
                             Icon(Icons.Outlined.Settings, contentDescription = profileLabel, tint = TextSecondary, modifier = Modifier.size(18.dp))
                             Spacer(modifier = Modifier.width(4.dp))
@@ -1218,20 +1218,20 @@ fun CodexChatTab(
                         }
                     }
                     Spacer(modifier = Modifier.weight(1f))
-                    IconButton(onClick = onToggleContext, modifier = Modifier.size(31.dp)) {
+                    IconButton(onClick = onToggleContext, modifier = Modifier.size(29.dp)) {
                         Icon(
                             Icons.Default.AutoAwesome,
                             contentDescription = "\u041A\u043E\u043D\u0442\u0435\u043A\u0441\u0442 IDE",
                             tint = if (includeContext) AccentBlue else TextSecondary,
-                            modifier = Modifier.size(17.dp)
+                            modifier = Modifier.size(16.dp)
                         )
                     }
-                    IconButton(onClick = { startVoiceInput() }, modifier = Modifier.size(31.dp)) {
+                    IconButton(onClick = { startVoiceInput() }, modifier = Modifier.size(29.dp)) {
                         Icon(
                             Icons.Default.Mic,
                             contentDescription = "\u0413\u043E\u043B\u043E\u0441\u043E\u0432\u043E\u0439 \u0432\u0432\u043E\u0434",
                             tint = TextSecondary,
-                            modifier = Modifier.size(17.dp)
+                            modifier = Modifier.size(16.dp)
                         )
                     }
                     FilledIconButton(
@@ -1239,7 +1239,7 @@ fun CodexChatTab(
                         enabled = isLoading || messageText.isNotBlank() || attachments.isNotEmpty(),
                         shape = CircleShape,
                         colors = IconButtonDefaults.filledIconButtonColors(containerColor = Color(0xFFD9D9D9), disabledContainerColor = Color(0xFF414141)),
-                        modifier = Modifier.size(37.dp)
+                        modifier = Modifier.size(34.dp)
                     ) {
                         if (isLoading) {
                             Icon(Icons.Default.Stop, contentDescription = "Остановить", tint = Color.Black)
@@ -1671,7 +1671,7 @@ private fun DesktopToolBlock(
 
 @Composable
 private fun MobileActionTimeline(events: List<CodexActionEvent>) {
-    val timelineEvents = recentMobileWorkEvents(events.filterNot { it.type == "work_summary" })
+    val timelineEvents = recentMobileWorkEvents(events.filterNot { it.type == "work_summary" || it.isMobileTimelineNoise() })
     val latestTurnId = timelineEvents.lastOrNull()?.turnId?.takeIf { it.isNotBlank() }
     val summaryEvent = events.lastOrNull {
         it.type == "work_summary" &&
@@ -1680,14 +1680,13 @@ private fun MobileActionTimeline(events: List<CodexActionEvent>) {
     } ?: events.lastOrNull { it.type == "work_summary" && it.detail.isNotBlank() }
     val otherEvents = timelineEvents
         .filterNot { it.status == "completed" && it.isCommandActionEvent() }
-        .takeLast(6)
-    val visibleEvents = compactMobileTimelineEventsForDisplay(otherEvents, limit = 8)
+        .takeLast(4)
+    val visibleEvents = compactMobileTimelineEventsForDisplay(otherEvents, limit = 4)
     val running = summaryEvent?.status == "running" || timelineEvents.any { it.status == "running" || it.status == "approved" }
-    val summary = remember(events, running) { summaryEvent?.detail ?: mobileWorkSummary(timelineEvents, running) }
-    val previewEvents = visibleEvents.takeLast(if (running) 4 else 3)
-    val hasFreshOutput = visibleEvents.any { !it.isCommandActionEvent() && compactActionOutput(it).isNotBlank() }
-    var expanded by remember(events.map { it.id to it.status }, running, hasFreshOutput) {
-        mutableStateOf(running || hasFreshOutput)
+    val summary = remember(events, running) { compactMobileWorkSummaryText(summaryEvent?.detail ?: mobileWorkSummary(timelineEvents, running)) }
+    val previewEvents = if (running) visibleEvents.takeLast(1) else emptyList()
+    var expanded by remember(events.map { it.id to it.status }, running) {
+        mutableStateOf(false)
     }
 
     Column(
@@ -1740,7 +1739,7 @@ private fun MobileActionTimeline(events: List<CodexActionEvent>) {
                 modifier = Modifier.padding(start = 23.dp, end = 4.dp, bottom = 2.dp),
                 verticalArrangement = Arrangement.spacedBy(3.dp)
             ) {
-                visibleEvents.forEach { event -> MobileTimelineEventPreview(event, showOutput = true) }
+                visibleEvents.forEach { event -> MobileTimelineEventPreview(event, showOutput = false) }
                 if (visibleEvents.isEmpty()) {
                     Text(
                         "Подробностей пока нет",
@@ -1754,6 +1753,21 @@ private fun MobileActionTimeline(events: List<CodexActionEvent>) {
 }
 
 private fun CodexActionEvent.isCommandActionEvent(): Boolean = type.contains("command", ignoreCase = true)
+
+private fun CodexActionEvent.isMobileTimelineNoise(): Boolean {
+    val normalizedType = type.lowercase(Locale.getDefault())
+    if (normalizedType == "file_view" || normalizedType == "image_view") return true
+    val text = listOf(type, title, detail, command ?: "", filePath ?: "")
+        .joinToString(" ")
+        .lowercase(Locale.getDefault())
+    return "capture-visual" in text ||
+        "capture-codex" in text ||
+        "run-e2e-smoke" in text ||
+        "artifacts\\screenshots" in text ||
+        "artifacts/screenshots" in text ||
+        "view_image" in text ||
+        "просмотр изображения" in text
+}
 
 private fun compactMobileTimelineEventsForDisplay(events: List<CodexActionEvent>, limit: Int): List<CodexActionEvent> {
     val reversed = mutableListOf<CodexActionEvent>()
@@ -1770,6 +1784,10 @@ private fun compactMobileTimelineEventsForDisplay(events: List<CodexActionEvent>
         if (reversed.size >= limit) break
     }
     return reversed.asReversed()
+}
+
+private fun compactMobileWorkSummaryText(value: String): String {
+    return value.substringBefore(",").trim().ifBlank { value }
 }
 
 @Composable

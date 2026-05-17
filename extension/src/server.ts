@@ -6651,7 +6651,7 @@ ol{padding-left:20px}li{margin:6px 0}.note{margin-top:12px;font-size:13px;color:
 <meta charset="UTF-8">
 <style>
 html,body{height:100%}
-:root{--codex-bg:#181818;--codex-sidebar:#17191d;--codex-sidebar-2:#1c1d22;--codex-surface:#242424;--codex-surface-2:#2b2b2b;--codex-selected:#303236;--codex-chip:#232323;--codex-border:#2d2d32;--codex-strong-border:#37373c;--codex-text:#d8d8d8;--codex-bright:#f5f5f5;--codex-muted:#96999a;--codex-green:#50cf8e;--codex-red:#ee7070;--codex-blue:#5aa7ff;--codex-font:-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;--codex-mono:var(--vscode-editor-font-family,"Cascadia Mono",Consolas,monospace);--codex-sidebar-width:350px;--chat-max:850px;--composer-max:880px;--bubble-max:680px}
+:root{--codex-bg:#181818;--codex-sidebar:#17191d;--codex-sidebar-2:#1c1d22;--codex-surface:#242424;--codex-surface-2:#2b2b2b;--codex-selected:#303236;--codex-chip:#232323;--codex-border:#2d2d32;--codex-strong-border:#37373c;--codex-text:#d8d8d8;--codex-bright:#f5f5f5;--codex-muted:#96999a;--codex-green:#50cf8e;--codex-red:#ee7070;--codex-blue:#5aa7ff;--codex-font:-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;--codex-mono:var(--vscode-editor-font-family,"Cascadia Mono",Consolas,monospace);--codex-sidebar-width:332px;--chat-max:850px;--composer-max:880px;--bubble-max:680px}
 body{margin:0;background:var(--codex-bg);color:var(--codex-text);font:13px/1.46 var(--codex-font);display:flex;flex-direction:column;letter-spacing:0;-webkit-font-smoothing:antialiased;position:relative;overflow:hidden}
 button{font:inherit}
 svg{width:15px;height:15px;display:block;fill:none;stroke:currentColor;stroke-width:1.75;stroke-linecap:round;stroke-linejoin:round;shape-rendering:geometricPrecision}
@@ -6702,17 +6702,17 @@ svg{width:15px;height:15px;display:block;fill:none;stroke:currentColor;stroke-wi
 .thread-row:hover .thread-delete{opacity:1}
 .thread-delete:hover{background:#463033;color:#f2b0b0}
 .content-shell{flex:1;min-height:0;display:flex;overflow:hidden}
-.wide-sidebar{width:var(--codex-sidebar-width);flex:0 0 var(--codex-sidebar-width);background:var(--codex-sidebar);border-right:1px solid var(--codex-border);display:flex;flex-direction:column;min-height:0;color:#cfcfcf;padding:18px 12px 10px;box-sizing:border-box}
-.sidebar-actions{display:flex;flex-direction:column;gap:7px;margin-bottom:28px}
-.sidebar-action{width:100%;height:36px;border:0;background:transparent;color:#cfd0d2;border-radius:9px;display:flex;align-items:center;gap:9px;padding:0 8px;cursor:pointer;text-align:left;font:inherit;font-size:14px}
+.wide-sidebar{width:var(--codex-sidebar-width);flex:0 0 var(--codex-sidebar-width);background:var(--codex-sidebar);border-right:1px solid var(--codex-border);display:flex;flex-direction:column;min-height:0;color:#cfcfcf;padding:16px 12px 10px;box-sizing:border-box}
+.sidebar-actions{display:flex;flex-direction:column;gap:6px;margin-bottom:22px}
+.sidebar-action{width:100%;height:34px;border:0;background:transparent;color:#cfd0d2;border-radius:9px;display:flex;align-items:center;gap:9px;padding:0 8px;cursor:pointer;text-align:left;font:inherit;font-size:13.5px}
 .sidebar-action:hover{background:rgba(255,255,255,.055);color:#fff}
 .sidebar-action svg{width:17px;height:17px;flex:0 0 auto;color:#aeb0b4}
-.sidebar-section-title{font-size:13.5px;color:#858585;margin:4px 8px 13px;display:flex;align-items:center;justify-content:space-between}
+.sidebar-section-title{font-size:13px;color:#858585;margin:3px 8px 10px;display:flex;align-items:center;justify-content:space-between}
 .sidebar-projects{display:flex;flex-direction:column;gap:4px;min-height:0;overflow:auto;padding-right:2px}
 .sidebar-project-group{display:flex;flex-direction:column;gap:2px}
 .sidebar-project{display:flex;align-items:center;border-radius:8px}
 .sidebar-project.active,.sidebar-project-group.selected>.sidebar-project{background:transparent}
-.sidebar-project-btn{flex:1;min-width:0;min-height:36px;border:0;background:transparent;color:#c9c9ca;border-radius:8px;display:flex;align-items:center;gap:9px;padding:3px 8px;cursor:pointer;text-align:left;font:inherit;font-size:14px}
+.sidebar-project-btn{flex:1;min-width:0;min-height:34px;border:0;background:transparent;color:#c9c9ca;border-radius:8px;display:flex;align-items:center;gap:9px;padding:3px 8px;cursor:pointer;text-align:left;font:inherit;font-size:13.5px}
 .sidebar-project-btn:hover,.sidebar-project-open:hover{background:rgba(255,255,255,.055);color:#fff}
 .sidebar-project-btn svg{width:15px;height:15px;color:#9fa1a5;flex:0 0 auto}
 .sidebar-project-text{display:flex;flex-direction:column;min-width:0;line-height:1.2}
@@ -6722,10 +6722,10 @@ svg{width:15px;height:15px;display:block;fill:none;stroke:currentColor;stroke-wi
 .sidebar-project-open svg{width:13px;height:13px}
 .sidebar-project:hover .sidebar-project-open{opacity:.9}
 .sidebar-project-threads{display:flex;flex-direction:column;gap:2px;margin:3px 0 9px}
-.sidebar-thread{min-height:42px;display:flex;align-items:center;gap:2px;border-radius:8px;position:relative}
+.sidebar-thread{min-height:40px;display:flex;align-items:center;gap:2px;border-radius:8px;position:relative}
 .sidebar-thread.selected{background:var(--codex-selected)}
 .sidebar-thread.selected::before{display:none}
-.sidebar-thread-btn{flex:1;min-width:0;min-height:42px;border:0;background:transparent;color:#d8d8d8;border-radius:8px;display:flex;flex-direction:column;justify-content:center;gap:2px;padding:4px 7px 5px 8px;cursor:pointer;text-align:left;font:inherit;font-size:13.25px}
+.sidebar-thread-btn{flex:1;min-width:0;min-height:40px;border:0;background:transparent;color:#d8d8d8;border-radius:8px;display:flex;flex-direction:column;justify-content:center;gap:2px;padding:4px 7px 5px 8px;cursor:pointer;text-align:left;font:inherit;font-size:13px}
 .sidebar-thread:not(.selected) .sidebar-thread-btn:hover{background:rgba(255,255,255,.05)}
 .sidebar-thread-main{width:100%;display:flex;align-items:center;gap:8px;min-width:0}
 .sidebar-thread-title{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -6839,7 +6839,7 @@ pre{margin:0;white-space:pre-wrap;word-wrap:break-word;font:inherit}
 .hover-btn svg{width:14px;height:14px}
 .hover-btn:hover{background:var(--codex-surface);color:#e6e6e6}
 .hover-btn.danger:hover{background:#463033;color:#f3b4b4}
-.action-timeline{max-width:var(--chat-max);margin:0 auto 16px 0;color:#8f9094;font-size:12.75px;line-height:1.38}
+.action-timeline{max-width:var(--chat-max);margin:0 auto 12px 0;color:#8f9094;font-size:12.5px;line-height:1.38}
 .action-line,.action-log-summary{display:flex;align-items:center;gap:8px;min-height:26px;color:#8f9094;min-width:0;max-width:100%;overflow:hidden}
 .action-line strong,.action-log-summary strong{color:#aeb0b3;font-weight:500;flex:0 0 auto;white-space:nowrap}
 .action-log-summary strong{min-width:0;overflow:hidden;text-overflow:ellipsis}
@@ -6855,6 +6855,11 @@ pre{margin:0;white-space:pre-wrap;word-wrap:break-word;font:inherit}
 .action-detail summary{list-style:none;cursor:pointer}
 .action-detail summary::-webkit-details-marker{display:none}
 .action-detail pre{margin:2px 0 2px 22px;border-left:1px solid var(--codex-border);padding:6px 0 6px 10px;max-height:170px;overflow:auto;color:#9fa1a5;font:12px/1.45 var(--codex-mono)}
+.action-details-group{margin:2px 0 4px 22px}
+.action-details-group summary{list-style:none;cursor:pointer;display:flex;align-items:center;gap:7px;color:#85878b;font-size:12px;min-height:24px}
+.action-details-group summary::-webkit-details-marker{display:none}
+.action-details-group summary:hover{color:#c0c2c5}
+.action-details-body{margin:2px 0 2px 8px;border-left:1px solid var(--codex-border);padding-left:10px}
 .action-log{margin:2px 0 4px}
 .action-log summary{list-style:none;cursor:pointer}
 .action-log summary::-webkit-details-marker{display:none}
@@ -7606,12 +7611,13 @@ prompt.addEventListener('keydown', event => {
         const isRunning = summaryEvent?.status === 'running'
             || recent.some(event => event.status === 'running' || event.status === 'approved');
         const visibleEvents = this.compactTimelineEventsForDisplay(
-            recent.filter(event => !(this.isCommandTimelineEvent(event) && event.status === 'completed')),
-            8
+            recent.filter(event => !(this.isCommandTimelineEvent(event) && event.status === 'completed') && !this.isNoisyTimelineEvent(event)),
+            4
         );
-        const summary = summaryEvent?.detail || this.actionTimelineSummary(recent, summaryCommandCount, isRunning);
+        const summary = this.compactWorkSummaryText(summaryEvent?.detail || this.actionTimelineSummary(recent, summaryCommandCount, isRunning));
         const parts: string[] = [];
         parts.push(`<div class="work-summary-line ${isRunning ? 'running' : 'done'}"><span class="work-dot"></span><strong>${this.escapeHtml(summary)}</strong></div>`);
+        const detailParts: string[] = [];
         if (summaryCommandCount > 0) {
             const word = this.pluralRu(summaryCommandCount, 'команда', 'команды', 'команд');
             const entries = completedCommands.slice(-6).map(event => {
@@ -7620,7 +7626,7 @@ prompt.addEventListener('keydown', event => {
                 const meta = this.compactActionMeta(event);
                 return `<div class="action-log-entry"><strong>${this.escapeHtml(command)}</strong>${meta ? `<span class="action-meta">${this.escapeHtml(meta)}</span>` : ''}${detail ? `<pre>${this.escapeHtml(detail).slice(0, 900)}</pre>` : ''}</div>`;
             }).join('');
-            parts.push(`<details class="action-log">
+            detailParts.push(`<details class="action-log">
                 <summary class="action-log-summary">${this.webIcon('terminal')}<strong>Выполнено ${summaryCommandCount} ${word}</strong></summary>
                 <div class="action-log-body">${entries}</div>
             </details>`);
@@ -7633,10 +7639,16 @@ prompt.addEventListener('keydown', event => {
             const lineClass = `action-line ${this.escapeHtml(event.status)}`;
             const lineBody = `${this.webIcon(this.actionTimelineIcon(event))}<strong>${this.escapeHtml(label)}</strong>${detail ? `<span>${this.escapeHtml(detail)}</span>` : ''}${meta ? `<small>${this.escapeHtml(meta)}</small>` : ''}`;
             if (output) {
-                parts.push(`<details class="action-detail ${this.escapeHtml(event.status)}"><summary class="${lineClass}">${lineBody}</summary><pre>${this.escapeHtml(output.slice(0, 1200))}</pre></details>`);
+                detailParts.push(`<details class="action-detail ${this.escapeHtml(event.status)}"><summary class="${lineClass}">${lineBody}</summary><pre>${this.escapeHtml(output.slice(0, 1200))}</pre></details>`);
             } else {
-                parts.push(`<div class="${lineClass}">${lineBody}</div>`);
+                detailParts.push(`<div class="${lineClass}">${lineBody}</div>`);
             }
+        }
+        if (detailParts.length > 0) {
+            parts.push(`<details class="action-details-group">
+                <summary>${this.webIcon('play')}<span>Детали работы</span></summary>
+                <div class="action-details-body">${detailParts.join('')}</div>
+            </details>`);
         }
         return parts.length ? `<div class="action-timeline">${parts.join('')}</div>` : '';
     }
@@ -7660,6 +7672,11 @@ prompt.addEventListener('keydown', event => {
         return result.reverse();
     }
 
+    private compactWorkSummaryText(value: string): string {
+        const compact = String(value || '').split(',')[0]?.trim();
+        return compact || value;
+    }
+
     private latestWorkSummaryEvent(events: RemoteCodeActionEvent[]): RemoteCodeActionEvent | undefined {
         return events
             .filter(event => event.type === 'work_summary' && event.detail)
@@ -7669,6 +7686,13 @@ prompt.addEventListener('keydown', event => {
 
     private isCommandTimelineEvent(event: Pick<RemoteCodeActionEvent, 'type'>): boolean {
         return String(event.type || '').toLowerCase().includes('command');
+    }
+
+    private isNoisyTimelineEvent(event: RemoteCodeActionEvent): boolean {
+        const type = String(event.type || '').toLowerCase();
+        if (type === 'file_view' || type === 'image_view') return true;
+        const text = [event.title, event.detail, event.command, event.filePath].filter(Boolean).join(' ').toLowerCase();
+        return /capture-(?:visual|codex)|run-e2e-smoke|artifacts[\\/]+screenshots|view_image|просмотр изображения/.test(text);
     }
 
     private actionTimelineSummary(events: RemoteCodeActionEvent[], completedCommandCount: number, isRunning: boolean): string {
