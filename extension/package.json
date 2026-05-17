@@ -2,7 +2,7 @@
   "name": "remote-code-on-pc",
   "displayName": "Remote Code on PC",
   "description": "HTTP/WebSocket сервер для удаленного управления VS Code с Android-приложения",
-  "version": "1.1.124",
+  "version": "1.1.126",
   "publisher": "remote-code-on-pc",
   "license": "MIT",
   "repository": {
@@ -101,6 +101,11 @@
           "type": "boolean",
           "default": false,
           "description": "Enable live filesystem watchers for VS Code/Codex chat JSONL files. Disabled by default to reduce CPU load."
+        },
+        "remoteCodeOnPC.codexFocusMode": {
+          "type": "boolean",
+          "default": true,
+          "description": "Close VS Code sidebars/panels when opening the Remote Code chat so the webview stays visually close to Codex."
         }
       }
     }

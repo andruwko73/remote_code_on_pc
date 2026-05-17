@@ -4501,14 +4501,16 @@ ol{padding-left:20px}li{margin:6px 0}.note{margin-top:12px;font-size:13px;color:
     }
 
     private openPcChatPanel(): void {
+        this.maybeSwitchToLatestCodexThread(true);
         if (this.pcChatPanel) {
             this.pcChatPanel.reveal(vscode.ViewColumn.One, true);
+            this.enterCodexFocusMode();
             this.startPcCodexMirrorPolling();
             return;
         }
         this.pcChatPanel = vscode.window.createWebviewPanel(
             'remoteCodePcChat',
-            'Remote Code',
+            'Codex',
             vscode.ViewColumn.One,
             { enableScripts: true, retainContextWhenHidden: true }
         );
@@ -4553,7 +4555,18 @@ ol{padding-left:20px}li{margin:6px 0}.note{margin-top:12px;font-size:13px;color:
             this.pcChatPanel = undefined;
         });
         this.refreshPcChatPanel(true);
+        this.enterCodexFocusMode();
         this.startPcCodexMirrorPolling();
+    }
+
+    private enterCodexFocusMode(): void {
+        const enabled = vscode.workspace.getConfiguration('remoteCodeOnPC').get<boolean>('codexFocusMode', true);
+        if (!enabled) return;
+        setTimeout(() => {
+            void vscode.commands.executeCommand('workbench.action.closeSidebar').then(undefined, () => undefined);
+            void vscode.commands.executeCommand('workbench.action.closePanel').then(undefined, () => undefined);
+            void vscode.commands.executeCommand('workbench.action.focusActiveEditorGroup').then(undefined, () => undefined);
+        }, 80);
     }
 
     private refreshPcChatPanel(immediate = false): void {
@@ -4619,6 +4632,32 @@ ol{padding-left:20px}li{margin:6px 0}.note{margin-top:12px;font-size:13px;color:
         return latest ? this.toCodexThreadId(latest.id) : undefined;
     }
 
+    private maybeSwitchToLatestCodexThread(force = false): boolean {
+        if (this.activeChatThreadId) return false;
+        const latest = this.getCodexThreadSummariesFast()[0];
+        if (!latest) return false;
+        const latestThreadId = this.toCodexThreadId(latest.id);
+        if (this.currentRemoteThreadId === latestThreadId) return false;
+
+        const currentThreadId = this.currentRemoteThreadId || '';
+        const currentThread = this.getRemoteCodeThreads().find(thread => thread.id === currentThreadId);
+        const currentTimestamp = Math.round(currentThread?.timestamp || 0);
+        const latestTimestamp = Math.round(latest.timestamp || 0);
+        const currentLooksDraft = !currentThreadId ||
+            this.isUntitledRemoteThread(currentThread?.title) ||
+            !this.hasVisibleRemoteThreadContent(currentThreadId);
+        const shouldSwitch = force ||
+            currentThreadId.startsWith('codex-file:') ||
+            currentLooksDraft ||
+            latestTimestamp > currentTimestamp + 1000;
+        if (!shouldSwitch) return false;
+
+        this.currentRemoteThreadId = latestThreadId;
+        this.remoteCodeThreadsCache = undefined;
+        this.saveRemoteCodeState();
+        return true;
+    }
+
     private updatePcCodexMirrorSignature(): void {
         const signature = this.currentCodexSessionSignature();
         this.pcCodexMirrorSignature = signature || '';
@@ -4677,11 +4716,7 @@ ol{padding-left:20px}li{margin:6px 0}.note{margin-top:12px;font-size:13px;color:
         this.codexSessionFilesCache = undefined;
         this.remoteCodeThreadsCache = undefined;
         if (sessionsChanged && !this.activeChatThreadId) {
-            const latestThreadId = this.latestCodexThreadIdFromFiles();
-            if (latestThreadId && (!this.currentRemoteThreadId || this.currentRemoteThreadId.startsWith('codex-file:'))) {
-                this.currentRemoteThreadId = latestThreadId;
-                this.saveRemoteCodeState();
-            }
+            this.maybeSwitchToLatestCodexThread(false);
         }
         this.broadcastCodexCurrentThreadRefresh();
     }
@@ -4703,11 +4738,7 @@ ol{padding-left:20px}li{margin:6px 0}.note{margin-top:12px;font-size:13px;color:
         this.codexSessionFilesCache = undefined;
         this.remoteCodeThreadsCache = undefined;
         if (sessionsChanged && !this.activeChatThreadId) {
-            const latestThreadId = this.latestCodexThreadIdFromFiles();
-            if (latestThreadId && (!this.currentRemoteThreadId || this.currentRemoteThreadId.startsWith('codex-file:'))) {
-                this.currentRemoteThreadId = latestThreadId;
-                this.saveRemoteCodeState();
-            }
+            this.maybeSwitchToLatestCodexThread(false);
         }
         this.refreshPcChatPanel(true);
         this.broadcastCodexCurrentThreadRefresh();
@@ -6457,8 +6488,10 @@ ol{padding-left:20px}li{margin:6px 0}.note{margin-top:12px;font-size:13px;color:
         </aside>`;
         const visibleMessages = messages.filter(message => !this.isActionResultMessage(message));
         const actionTimelineRows = this.renderActionTimeline(actions);
-        const timelineInsertIndex = actionTimelineRows
-            ? Math.max(visibleMessages.map(message => message.role).lastIndexOf('assistant'), 0)
+        const isTimelineRunning = actions.some(event => event.status === 'running' || event.status === 'approved' || event.status === 'pending');
+        const latestAssistantIndex = visibleMessages.map(message => message.role).lastIndexOf('assistant');
+        const timelineInsertIndex = actionTimelineRows && visibleMessages.length > 0
+            ? (isTimelineRunning ? visibleMessages.length - 1 : latestAssistantIndex >= 0 ? latestAssistantIndex : visibleMessages.length - 1)
             : -1;
         const rows = visibleMessages.map((message, index) => {
             const role = message.role === 'system' ? 'Система' : '';
@@ -6709,6 +6742,10 @@ pre{margin:0;white-space:pre-wrap;word-wrap:break-word;font:inherit}
 .action-line.pending strong{color:#d2d2d2}
 .action-line.failed strong{color:var(--codex-red)}
 .action-line.denied strong{color:#c7a0a0}
+.action-detail{margin:2px 0 5px}
+.action-detail summary{list-style:none;cursor:pointer}
+.action-detail summary::-webkit-details-marker{display:none}
+.action-detail pre{margin:2px 0 2px 22px;border-left:1px solid var(--codex-border);padding:6px 0 6px 10px;max-height:170px;overflow:auto;color:#9fa1a5;font:12px/1.45 var(--codex-mono)}
 .action-log{margin:2px 0 4px}
 .action-log summary{list-style:none;cursor:pointer}
 .action-log summary::-webkit-details-marker{display:none}
@@ -6895,7 +6932,7 @@ let attachedFiles = [];
 const isBusy = ${JSON.stringify(isBusy)};
 const includeContext = true;
 const savedViewState = vscode.getState?.() || {};
-let progressOpen = Boolean(savedViewState.progressOpen);
+let progressOpen = Boolean(savedViewState.progressOpen || isBusy);
 let expandedChangeCards = new Set(Array.isArray(savedViewState.expandedChangeCards) ? savedViewState.expandedChangeCards : []);
 let submitLocked = false;
 function formatBytes(bytes) {
@@ -7474,7 +7511,7 @@ prompt.addEventListener('keydown', event => {
                 const meta = this.compactActionMeta(event);
                 return `<div class="action-log-entry"><strong>${this.escapeHtml(command)}</strong>${meta ? `<span class="action-meta">${this.escapeHtml(meta)}</span>` : ''}${detail ? `<pre>${this.escapeHtml(detail).slice(0, 1800)}</pre>` : ''}</div>`;
             }).join('');
-            parts.push(`<details class="action-log">
+            parts.push(`<details class="action-log"${isRunning ? ' open' : ''}>
                 <summary class="action-log-summary">${this.webIcon('terminal')}<strong>Выполнено ${summaryCommandCount} ${word}</strong></summary>
                 <div class="action-log-body">${entries}</div>
             </details>`);
@@ -7483,7 +7520,15 @@ prompt.addEventListener('keydown', event => {
             const label = this.actionTimelineLabel(event);
             const detail = this.compactActionDetail(event);
             const meta = this.compactActionMeta(event);
-            parts.push(`<div class="action-line ${this.escapeHtml(event.status)}">${this.webIcon(this.actionTimelineIcon(event))}<strong>${this.escapeHtml(label)}</strong>${detail ? `<span>${this.escapeHtml(detail)}</span>` : ''}${meta ? `<small>${this.escapeHtml(meta)}</small>` : ''}</div>`);
+            const output = this.compactActionOutput(event);
+            const lineClass = `action-line ${this.escapeHtml(event.status)}`;
+            const lineBody = `${this.webIcon(this.actionTimelineIcon(event))}<strong>${this.escapeHtml(label)}</strong>${detail ? `<span>${this.escapeHtml(detail)}</span>` : ''}${meta ? `<small>${this.escapeHtml(meta)}</small>` : ''}`;
+            if (output) {
+                const openAttr = event.status === 'running' || event.status === 'failed' ? ' open' : '';
+                parts.push(`<details class="action-detail ${this.escapeHtml(event.status)}"${openAttr}><summary class="${lineClass}">${lineBody}</summary><pre>${this.escapeHtml(output.slice(0, 2400))}</pre></details>`);
+            } else {
+                parts.push(`<div class="${lineClass}">${lineBody}</div>`);
+            }
         }
         return parts.length ? `<div class="action-timeline">${parts.join('')}</div>` : '';
     }
@@ -7584,6 +7629,13 @@ prompt.addEventListener('keydown', event => {
             .replace(/\s+/g, ' ')
             .trim()
             .slice(0, 140);
+    }
+
+    private compactActionOutput(event: RemoteCodeActionEvent): string {
+        const raw = event.stderr || event.stdout || event.diff || (event.status === 'failed' ? event.detail : '');
+        return String(raw || '')
+            .trim()
+            .slice(0, 2400);
     }
 
     private compactActionMeta(event: RemoteCodeActionEvent): string {

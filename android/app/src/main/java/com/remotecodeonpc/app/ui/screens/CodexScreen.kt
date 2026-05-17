@@ -1684,9 +1684,12 @@ private fun MobileActionTimeline(events: List<CodexActionEvent>) {
         .takeLast(6)
     val visibleEvents = (otherEvents + completedCommands.takeLast(5)).takeLast(8)
     val running = summaryEvent?.status == "running" || timelineEvents.any { it.status == "running" || it.status == "approved" }
-    var expanded by remember(events.map { it.id to it.status }, running) { mutableStateOf(running) }
     val summary = remember(events, running) { summaryEvent?.detail ?: mobileWorkSummary(timelineEvents, running) }
     val previewEvents = visibleEvents.takeLast(if (running) 4 else 3)
+    val hasFreshOutput = visibleEvents.any { compactActionOutput(it).isNotBlank() }
+    var expanded by remember(events.map { it.id to it.status }, running, hasFreshOutput) {
+        mutableStateOf(running || hasFreshOutput)
+    }
 
     Column(
         modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),

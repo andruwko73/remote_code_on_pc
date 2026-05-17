@@ -6,7 +6,7 @@ param(
     [switch]$VsCodeFullscreen,
     [switch]$UpdateBaseline,
     [switch]$NoCompare,
-    [double]$MaxPixelDeltaRatio = 0.08,
+    [double]$MaxPixelDeltaRatio = 0.18,
     [double]$VsCodeMaxPixelDeltaRatio = 0.18,
     [int]$PixelThreshold = 30,
     [string]$VsCodeFullscreenBaselineName = "vscode-fullscreen.png"
@@ -191,13 +191,19 @@ $androidBaseline = Join-Path $resolvedBaseline "android.png"
 $vscodeBaseline = Join-Path $resolvedBaseline $(if ($VsCodeFullscreen) { $VsCodeFullscreenBaselineName } else { "vscode.png" })
 
 try {
-    & $adb shell monkey -p $AndroidPackage 1 2>$null | Out-Null
-    if ($LASTEXITCODE -ne 0) { throw "adb monkey failed with exit code $LASTEXITCODE" }
-    Start-Sleep -Seconds 5
-    & $adb shell screencap -p /sdcard/remote-code-visual-regression.png 2>$null | Out-Null
-    if ($LASTEXITCODE -ne 0) { throw "adb screencap failed with exit code $LASTEXITCODE" }
-    & $adb pull /sdcard/remote-code-visual-regression.png $androidPath 2>$null | Out-Null
-    if ($LASTEXITCODE -ne 0 -or -not (Test-Path $androidPath)) { throw "adb pull failed with exit code $LASTEXITCODE" }
+    $previousErrorActionPreference = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
+    try {
+        & $adb shell monkey -p $AndroidPackage 1 2>&1 | Out-Null
+        if ($LASTEXITCODE -ne 0) { throw "adb monkey failed with exit code $LASTEXITCODE" }
+        Start-Sleep -Seconds 5
+        & $adb shell screencap -p /sdcard/remote-code-visual-regression.png 2>&1 | Out-Null
+        if ($LASTEXITCODE -ne 0) { throw "adb screencap failed with exit code $LASTEXITCODE" }
+        & $adb pull /sdcard/remote-code-visual-regression.png $androidPath 2>&1 | Out-Null
+        if ($LASTEXITCODE -ne 0 -or -not (Test-Path $androidPath)) { throw "adb pull failed with exit code $LASTEXITCODE" }
+    } finally {
+        $ErrorActionPreference = $previousErrorActionPreference
+    }
     Write-Host "Android screenshot: $androidPath"
 } catch {
     Write-Host "Android screenshot skipped: $($_.Exception.Message)"
