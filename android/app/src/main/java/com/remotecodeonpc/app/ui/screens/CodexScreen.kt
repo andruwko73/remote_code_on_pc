@@ -1678,15 +1678,14 @@ private fun MobileActionTimeline(events: List<CodexActionEvent>) {
             it.detail.isNotBlank() &&
             (latestTurnId == null || it.turnId == latestTurnId)
     } ?: events.lastOrNull { it.type == "work_summary" && it.detail.isNotBlank() }
-    val completedCommands = timelineEvents.filter { it.status == "completed" && it.isCommandActionEvent() }
     val otherEvents = timelineEvents
         .filterNot { it.status == "completed" && it.isCommandActionEvent() }
         .takeLast(6)
-    val visibleEvents = (otherEvents + completedCommands.takeLast(5)).takeLast(8)
+    val visibleEvents = otherEvents.takeLast(8)
     val running = summaryEvent?.status == "running" || timelineEvents.any { it.status == "running" || it.status == "approved" }
     val summary = remember(events, running) { summaryEvent?.detail ?: mobileWorkSummary(timelineEvents, running) }
     val previewEvents = visibleEvents.takeLast(if (running) 4 else 3)
-    val hasFreshOutput = visibleEvents.any { compactActionOutput(it).isNotBlank() }
+    val hasFreshOutput = visibleEvents.any { !it.isCommandActionEvent() && compactActionOutput(it).isNotBlank() }
     var expanded by remember(events.map { it.id to it.status }, running, hasFreshOutput) {
         mutableStateOf(running || hasFreshOutput)
     }
@@ -1741,7 +1740,7 @@ private fun MobileActionTimeline(events: List<CodexActionEvent>) {
                 modifier = Modifier.padding(start = 23.dp, end = 4.dp, bottom = 2.dp),
                 verticalArrangement = Arrangement.spacedBy(3.dp)
             ) {
-                visibleEvents.forEach { event -> MobileTimelineEventPreview(event) }
+                visibleEvents.forEach { event -> MobileTimelineEventPreview(event, showOutput = true) }
                 if (visibleEvents.isEmpty()) {
                     Text(
                         "Подробностей пока нет",
@@ -1757,7 +1756,7 @@ private fun MobileActionTimeline(events: List<CodexActionEvent>) {
 private fun CodexActionEvent.isCommandActionEvent(): Boolean = type.contains("command", ignoreCase = true)
 
 @Composable
-private fun MobileTimelineEventPreview(event: CodexActionEvent) {
+private fun MobileTimelineEventPreview(event: CodexActionEvent, showOutput: Boolean = false) {
     if (event.status == "completed" && event.isCommandActionEvent()) {
         Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
             Text(
@@ -1781,7 +1780,7 @@ private fun MobileTimelineEventPreview(event: CodexActionEvent) {
                     overflow = TextOverflow.Ellipsis
                 )
             }
-            val output = compactActionOutput(event)
+            val output = if (showOutput && (!event.isCommandActionEvent() || event.status == "failed")) compactActionOutput(event) else ""
             if (output.isNotBlank()) {
                 Text(
                     output,
@@ -1995,10 +1994,10 @@ private fun compactActionOutput(event: CodexActionEvent): String {
     return raw
         .lineSequence()
         .dropWhile { it.isBlank() }
-        .take(8)
+        .take(4)
         .joinToString("\n")
         .trim()
-        .take(800)
+        .take(420)
 }
 
 @Composable

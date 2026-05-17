@@ -7594,9 +7594,9 @@ prompt.addEventListener('keydown', event => {
                 const command = this.compactActionDetail(event);
                 const detail = (event.stdout || event.stderr || '').trim();
                 const meta = this.compactActionMeta(event);
-                return `<div class="action-log-entry"><strong>${this.escapeHtml(command)}</strong>${meta ? `<span class="action-meta">${this.escapeHtml(meta)}</span>` : ''}${detail ? `<pre>${this.escapeHtml(detail).slice(0, 1800)}</pre>` : ''}</div>`;
+                return `<div class="action-log-entry"><strong>${this.escapeHtml(command)}</strong>${meta ? `<span class="action-meta">${this.escapeHtml(meta)}</span>` : ''}${detail ? `<pre>${this.escapeHtml(detail).slice(0, 900)}</pre>` : ''}</div>`;
             }).join('');
-            parts.push(`<details class="action-log"${isRunning ? ' open' : ''}>
+            parts.push(`<details class="action-log">
                 <summary class="action-log-summary">${this.webIcon('terminal')}<strong>Выполнено ${summaryCommandCount} ${word}</strong></summary>
                 <div class="action-log-body">${entries}</div>
             </details>`);
@@ -7609,8 +7609,8 @@ prompt.addEventListener('keydown', event => {
             const lineClass = `action-line ${this.escapeHtml(event.status)}`;
             const lineBody = `${this.webIcon(this.actionTimelineIcon(event))}<strong>${this.escapeHtml(label)}</strong>${detail ? `<span>${this.escapeHtml(detail)}</span>` : ''}${meta ? `<small>${this.escapeHtml(meta)}</small>` : ''}`;
             if (output) {
-                const openAttr = event.status === 'running' || event.status === 'failed' ? ' open' : '';
-                parts.push(`<details class="action-detail ${this.escapeHtml(event.status)}"${openAttr}><summary class="${lineClass}">${lineBody}</summary><pre>${this.escapeHtml(output.slice(0, 2400))}</pre></details>`);
+                const openAttr = event.status === 'running' ? ' open' : '';
+                parts.push(`<details class="action-detail ${this.escapeHtml(event.status)}"${openAttr}><summary class="${lineClass}">${lineBody}</summary><pre>${this.escapeHtml(output.slice(0, 1200))}</pre></details>`);
             } else {
                 parts.push(`<div class="${lineClass}">${lineBody}</div>`);
             }
@@ -7720,7 +7720,7 @@ prompt.addEventListener('keydown', event => {
         const raw = event.stderr || event.stdout || event.diff || (event.status === 'failed' ? event.detail : '');
         return String(raw || '')
             .trim()
-            .slice(0, 2400);
+            .slice(0, 1200);
     }
 
     private compactActionMeta(event: RemoteCodeActionEvent): string {
