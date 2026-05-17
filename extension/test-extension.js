@@ -416,7 +416,8 @@ assert(
     visualRegressionScript.includes('UpdateBaseline') &&
     visualRegressionScript.includes('VsCodeFullscreen') &&
     visualRegressionScript.includes('vscode-fullscreen.png') &&
-    visualRegressionScript.includes('ShowWindow($window.MainWindowHandle, 3)'),
+    visualRegressionScript.includes('ShowWindow($window.MainWindowHandle, 3)') &&
+    visualRegressionScript.includes('PrintWindow($window.MainWindowHandle'),
     'Visual regression capture script is available',
     'visual regression script should capture Android, normal VS Code, and fullscreen VS Code chat screenshots and compare them with baselines'
 );

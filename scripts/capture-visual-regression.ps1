@@ -52,6 +52,8 @@ public static class Win32VisualRegression {
     public static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
     [DllImport("user32.dll")]
     public static extern bool SetForegroundWindow(IntPtr hWnd);
+    [DllImport("user32.dll")]
+    public static extern bool PrintWindow(IntPtr hwnd, IntPtr hdcBlt, uint nFlags);
     public struct RECT {
         public int Left;
         public int Top;
@@ -89,7 +91,15 @@ public static class Win32VisualRegression {
     $bitmap = New-Object System.Drawing.Bitmap $width, $height
     $graphics = [System.Drawing.Graphics]::FromImage($bitmap)
     try {
-        $graphics.CopyFromScreen($rect.Left, $rect.Top, 0, 0, $bitmap.Size)
+        $hdc = $graphics.GetHdc()
+        try {
+            $captured = [Win32VisualRegression]::PrintWindow($window.MainWindowHandle, $hdc, 2)
+        } finally {
+            $graphics.ReleaseHdc($hdc)
+        }
+        if (-not $captured) {
+            throw "PrintWindow failed for '$($window.MainWindowTitle)'"
+        }
         $bitmap.Save($Path, [System.Drawing.Imaging.ImageFormat]::Png)
         return $true
     } finally {
