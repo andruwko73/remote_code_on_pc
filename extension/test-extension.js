@@ -284,17 +284,21 @@ assert(
 );
 assert(serverContent.includes('isCorruptedThreadTitle') && serverContent.includes('pickThreadTitle(existing?.title, thread.title'), 'Повреждённые заголовки чатов чинятся из Codex index', 'corrupted saved thread titles should not override Codex thread titles');
 assert(serverContent.includes('decodeBasicHtmlEntities') && serverContent.includes('isTechnicalProgressLine'), 'Прогресс не показывает технические строки вложений', 'Фильтрация технических progress-строк не найдена');
-assert(serverContent.includes('.msg.user{max-width:var(--chat-max);margin:0 auto 23px;color:var(--codex-bright);display:flex;justify-content:flex-end') && serverContent.includes('border-radius:16px 16px 4px 16px') && serverContent.includes('.msg.user .msg-tools{right:0;left:auto'), 'Extension user messages align right', 'user prompt bubble and toolbar should sit on the right in the webview');
+assert(serverContent.includes('.msg.user{max-width:var(--chat-max);margin:0 auto 23px 0;color:var(--codex-bright);display:flex;justify-content:flex-end') && serverContent.includes('border-radius:16px 16px 4px 16px') && serverContent.includes('.msg.user .msg-tools{right:0;left:auto'), 'Extension user messages align right', 'user prompt bubble and toolbar should sit on the right in the webview');
 const compactWebviewChecks = [
     '--codex-sidebar:#17191d',
+    '--codex-sidebar-width:350px',
     '--codex-selected:#303236',
     'font:13px/1.46 var(--codex-font)',
-    '.top{position:absolute;top:8px',
-    'border-radius:18px 18px 0 0;background:#151515',
+    '.top{position:absolute;top:8px;left:var(--codex-sidebar-width);right:0',
+    'border-radius:18px 0 0 0;background:#151515',
+    '.thread-menu{display:none;position:absolute;left:0;top:68px;width:min(520px,calc(100vw - var(--codex-sidebar-width) - 18px))',
     '.edit-icon,.icon-btn.edit-icon{display:none}',
     '.version-chip,.live-chip{display:none;height:26px',
-    '.sidebar-action{width:100%;height:36px',
+    '.wide-sidebar{width:var(--codex-sidebar-width);flex:0 0 var(--codex-sidebar-width)',
+    '.sidebar-action{width:100%;height:36px;border:0;background:transparent;color:#cfd0d2;border-radius:9px;display:flex;align-items:center;gap:9px;padding:0 8px',
     '.sidebar-project.active,.sidebar-project-group.selected>.sidebar-project{background:transparent}',
+    '.sidebar-project-threads{display:flex;flex-direction:column;gap:2px;margin:3px 0 9px}',
     '.sidebar-thread{min-height:42px',
     '.sidebar-thread.selected{background:var(--codex-selected)}',
     '.sidebar-thread.selected::before{display:none}',
@@ -306,11 +310,14 @@ const compactWebviewChecks = [
     '.change-action{border:0;background:transparent;color:#9a9a9a;height:26px',
     '.change-row{display:flex;align-items:center;gap:8px;min-height:28px',
     '.change-card.collapsed .change-row{display:none}',
-    '.composer{max-width:var(--composer-max);margin:0 auto;border:1px solid var(--codex-strong-border);background:#2d2d2d;border-radius:18px',
+    '.msg{position:relative;padding:0;margin:0 auto 22px 0',
+    '.action-timeline{max-width:var(--chat-max);margin:0 auto 16px 0',
+    '.composer{max-width:var(--composer-max);margin:0 auto 0 0;border:1px solid var(--codex-strong-border);background:#2d2d2d;border-radius:18px',
+    '@media (min-width: 760px){.composer-wrap{margin-left:var(--codex-sidebar-width);padding-left:clamp(16px,1.7vw,28px)',
     'font-size:14px;outline:none;line-height:1.5',
 ];
 assert(compactWebviewChecks.every((snippet) => serverContent.includes(snippet)), 'Extension webview uses compact Codex-like density', 'webview sidebar/message/change-card/composer density drifted from Codex target');
-assert(!serverContent.includes('id="topRun"') && !serverContent.includes('id="connectorDrop"') && !serverContent.includes('class="icon-btn edit-icon"') && serverContent.includes('id="progressToggle"') && serverContent.includes('data-progress-toggle') && serverContent.includes('.progress-toggle{display:none}') && serverContent.includes('.content-shell.progress-open .progress-panel{display:block') && serverContent.includes('setProgressPanelOpen(progressOpen, false)') && serverContent.includes('savedViewState.progressOpen || isBusy') && serverContent.includes('enterCodexFocusMode') && serverContent.includes('workbench.action.closeSidebar') && serverContent.includes('min-height:40px;max-height:152px'), 'Extension top bar matches Codex surface', 'Remote Code utility buttons should stay out of the main chat surface and the progress sidebar should be user-toggleable');
+assert(!serverContent.includes('id="topRun"') && !serverContent.includes('id="connectorDrop"') && !serverContent.includes('class="icon-btn edit-icon"') && serverContent.includes('id="progressToggle"') && serverContent.includes('data-progress-toggle') && serverContent.includes('.progress-toggle{display:none}') && serverContent.includes('.content-shell.progress-open .progress-panel{display:block') && serverContent.includes('setProgressPanelOpen(progressOpen, false)') && serverContent.includes('let progressOpen = Boolean(savedViewState.progressOpen);') && serverContent.includes('enterCodexFocusMode') && serverContent.includes('workbench.action.closeSidebar') && serverContent.includes('workbench.action.closeAuxiliaryBar') && serverContent.includes('workbench.action.activityBarLocation.hide') && serverContent.includes('min-height:40px;max-height:152px'), 'Extension top bar matches Codex surface', 'Remote Code utility buttons should stay out of the main chat surface and the progress sidebar should be user-toggleable');
 assert(serverContent.includes('latestAssistantIndex') && serverContent.includes('isTimelineRunning ? visibleMessages.length - 1') && serverContent.includes('compactActionOutput(event)') && serverContent.includes('class="action-detail'), 'Extension timeline stays next to active work', 'activity timeline should be placed under the active turn and expose stdout/stderr/diff details');
 assert(serverContent.includes('liveChipLabel') && serverContent.includes('liveChipTitle') && serverContent.includes('Live-канал') && serverContent.includes('this.wsClients.size'), 'Extension shows live update status', 'webview should expose WebSocket/live status without opening diagnostics');
 assert(serverContent.includes('pcCodexMirrorTimer') && serverContent.includes('refreshPcChatPanelForExternalCodexChange') && serverContent.includes("type: 'codex:message-refresh'") && serverContent.includes('getExternalCodexActionEventsForThread') && serverContent.includes('sanitizeActionText') && serverContent.includes('readUtf8FileTailLines') && serverContent.includes('parseCodexSessionFileTail') && serverContent.includes('codexSessionFilesCache'), 'Extension mirrors live Codex chat updates', 'VS Code webview should live-refresh current Codex JSONL and show public tool/action events without leaking tokens or repeatedly scanning full session files');
