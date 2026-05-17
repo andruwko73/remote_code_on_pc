@@ -1681,7 +1681,7 @@ private fun MobileActionTimeline(events: List<CodexActionEvent>) {
     val otherEvents = timelineEvents
         .filterNot { it.status == "completed" && it.isCommandActionEvent() }
         .takeLast(6)
-    val visibleEvents = otherEvents.takeLast(8)
+    val visibleEvents = compactMobileTimelineEventsForDisplay(otherEvents, limit = 8)
     val running = summaryEvent?.status == "running" || timelineEvents.any { it.status == "running" || it.status == "approved" }
     val summary = remember(events, running) { summaryEvent?.detail ?: mobileWorkSummary(timelineEvents, running) }
     val previewEvents = visibleEvents.takeLast(if (running) 4 else 3)
@@ -1754,6 +1754,23 @@ private fun MobileActionTimeline(events: List<CodexActionEvent>) {
 }
 
 private fun CodexActionEvent.isCommandActionEvent(): Boolean = type.contains("command", ignoreCase = true)
+
+private fun compactMobileTimelineEventsForDisplay(events: List<CodexActionEvent>, limit: Int): List<CodexActionEvent> {
+    val reversed = mutableListOf<CodexActionEvent>()
+    val seenModelProgress = mutableSetOf<String>()
+    for (event in events.asReversed()) {
+        if (event.type == "model_progress") {
+            val key = listOf(
+                event.title.replace(Regex("\\s+"), " ").trim(),
+                event.detail.replace(Regex("\\s+"), " ").trim()
+            ).joinToString("\u0000")
+            if (!seenModelProgress.add(key)) continue
+        }
+        reversed += event
+        if (reversed.size >= limit) break
+    }
+    return reversed.asReversed()
+}
 
 @Composable
 private fun MobileTimelineEventPreview(event: CodexActionEvent, showOutput: Boolean = false) {
@@ -1948,8 +1965,15 @@ private fun actionKindLabel(event: CodexActionEvent): String {
 
 private fun actionStatusText(event: CodexActionEvent): String {
     val title = event.title.trim()
+    if (event.type == "model_progress") {
+        val normalizedTitle = title.replace(Regex("\\s+"), " ").trim()
+        val titleWithoutCodex = Regex("\\s+Codex$", RegexOption.IGNORE_CASE).replace(normalizedTitle, "").trim()
+        return when {
+            titleWithoutCodex.isNotBlank() && titleWithoutCodex != normalizedTitle -> titleWithoutCodex
+            else -> normalizedTitle.ifBlank { "Прогресс модели" }
+        }
+    }
     if (title.isNotBlank() && !event.isCommandActionEvent()) return title
-    if (event.type == "model_progress") return title.ifBlank { "Прогресс модели" }
     return when (event.status) {
         "running", "approved" -> "Выполняется"
         "pending" -> if (event.actionable) "Ожидает подтверждения" else "Ожидает"
@@ -2086,7 +2110,7 @@ private fun CodexMessageBubble(
     val isUser = message.role == "user"
     val context = LocalContext.current
     val configuration = LocalConfiguration.current
-    val userBubbleMaxWidth = (configuration.screenWidthDp * 0.82f).coerceAtMost(680f).dp
+    val userBubbleMaxWidth = (configuration.screenWidthDp * 0.76f).coerceAtMost(640f).dp
     val cleanedContent = remember(message.content) { cleanMobileMessageContent(message.content) }
     val changeSummary = remember(message.content, message.changeSummary) {
         message.changeSummary?.takeIf { it.files.isNotEmpty() } ?: parseMobileChangeSummary(message.content)
@@ -2100,7 +2124,7 @@ private fun CodexMessageBubble(
             Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.CenterEnd) {
                 Surface(
                     color = Color(0xFF242424),
-                    shape = RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp, bottomEnd = 4.dp, bottomStart = 16.dp),
+                    shape = RoundedCornerShape(topStart = 14.dp, topEnd = 14.dp, bottomEnd = 4.dp, bottomStart = 14.dp),
                     border = BorderStroke(1.dp, Color(0xFF2F2F2F)),
                     modifier = Modifier.widthIn(max = userBubbleMaxWidth)
                 ) {
@@ -2108,9 +2132,9 @@ private fun CodexMessageBubble(
                         Text(
                             highlightedText(cleanedContent.ifBlank { "..." }),
                             color = TextBright,
-                            fontSize = 14.sp,
-                            lineHeight = 20.sp,
-                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
+                            fontSize = 13.5.sp,
+                            lineHeight = 19.sp,
+                            modifier = Modifier.padding(horizontal = 11.dp, vertical = 7.dp)
                         )
                         if (message.attachments.isNotEmpty()) {
                             MobileMessageAttachments(

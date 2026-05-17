@@ -4110,6 +4110,23 @@ export class RemoteServer {
         this.openPcChatPanel();
     }
 
+    private closePcChatTabs(inactiveOnly = false): void {
+        try {
+            const tabs = vscode.window.tabGroups.all
+                .flatMap(group => group.tabs)
+                .filter(tab => {
+                    const input = tab.input as any;
+                    const isPcChat = input?.viewType === 'remoteCodePcChat' || tab.label === 'Codex';
+                    return isPcChat && (!inactiveOnly || !tab.isActive);
+                });
+            if (tabs.length > 0) {
+                void vscode.window.tabGroups.close(tabs, true).then(undefined, () => undefined);
+            }
+        } catch {
+            // Tab Groups may be unavailable in older VS Code hosts; the panel can still be opened normally.
+        }
+    }
+
     public async showConnectionSettings(): Promise<void> {
         const localUrl = `http://${this._localIp || '127.0.0.1'}:${this._port}`;
         const publicUrl = this.getPublicUrl() || '';
@@ -4563,12 +4580,15 @@ ol{padding-left:20px}li{margin:6px 0}.note{margin-top:12px;font-size:13px;color:
             this.startPcCodexMirrorPolling();
             return;
         }
+        this.closePcChatTabs();
         this.pcChatPanel = vscode.window.createWebviewPanel(
             'remoteCodePcChat',
             'Codex',
             vscode.ViewColumn.One,
             { enableScripts: true, retainContextWhenHidden: true }
         );
+        setTimeout(() => this.closePcChatTabs(true), 250);
+        setTimeout(() => this.closePcChatTabs(true), 1200);
         this.pcChatPanel.webview.onDidReceiveMessage(async msg => {
             if (msg?.type === 'send') {
                 const localAttachments = this.normalizeLocalAttachments(Array.isArray(msg.attachments) ? msg.attachments : []);
@@ -5967,7 +5987,7 @@ ol{padding-left:20px}li{margin:6px 0}.note{margin-top:12px;font-size:13px;color:
                         events.set(id, {
                             id,
                             type: 'model_progress',
-                            title: 'Статус Codex',
+                            title: 'Статус',
                             detail: commentary,
                             status: 'completed',
                             timestamp: itemTime,
@@ -6739,7 +6759,7 @@ svg{width:15px;height:15px;display:block;fill:none;stroke:currentColor;stroke-wi
 .progress-artifact span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .progress-empty{font-size:12.5px;color:#888}
 .work-summary-line{max-width:var(--chat-max);margin:0 auto 9px 0;display:flex;align-items:center;gap:8px;color:#8f9094;font-size:12.5px;line-height:1.35}
-.work-summary-line strong{font-weight:600;color:#a9aaad}
+.work-summary-line strong{font-weight:600;color:#a9aaad;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .work-summary-line .work-dot{width:15px;height:15px;border:1.7px solid #8f9094;border-radius:999px;display:inline-flex;align-items:center;justify-content:center;flex:0 0 auto}
 .work-summary-line.done .work-dot::after{content:'✓';font-size:11px;line-height:1}
 .work-summary-line.running .work-dot{border-left-color:transparent;animation:spin .9s linear infinite}
@@ -6820,9 +6840,12 @@ pre{margin:0;white-space:pre-wrap;word-wrap:break-word;font:inherit}
 .hover-btn:hover{background:var(--codex-surface);color:#e6e6e6}
 .hover-btn.danger:hover{background:#463033;color:#f3b4b4}
 .action-timeline{max-width:var(--chat-max);margin:0 auto 16px 0;color:#8f9094;font-size:12.75px;line-height:1.38}
-.action-line,.action-log-summary{display:flex;align-items:center;gap:8px;min-height:26px;color:#8f9094}
-.action-line strong,.action-log-summary strong{color:#aeb0b3;font-weight:500}
+.action-line,.action-log-summary{display:flex;align-items:center;gap:8px;min-height:26px;color:#8f9094;min-width:0;max-width:100%;overflow:hidden}
+.action-line strong,.action-log-summary strong{color:#aeb0b3;font-weight:500;flex:0 0 auto;white-space:nowrap}
+.action-log-summary strong{min-width:0;overflow:hidden;text-overflow:ellipsis}
+.action-line span{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .action-line small,.action-meta{color:#777a80;font:11.5px/1.35 var(--codex-mono)}
+.action-line small{flex:0 1 auto;min-width:0;max-width:36ch;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .action-line svg,.action-log-summary svg{width:14px;height:14px;color:#8f9094;flex:0 0 auto}
 .action-line.running svg{animation:spin .9s linear infinite}
 .action-line.pending strong{color:#d2d2d2}
@@ -7582,9 +7605,10 @@ prompt.addEventListener('keydown', event => {
             : completedCommands.length;
         const isRunning = summaryEvent?.status === 'running'
             || recent.some(event => event.status === 'running' || event.status === 'approved');
-        const visibleEvents = recent
-            .filter(event => !(this.isCommandTimelineEvent(event) && event.status === 'completed'))
-            .slice(-8);
+        const visibleEvents = this.compactTimelineEventsForDisplay(
+            recent.filter(event => !(this.isCommandTimelineEvent(event) && event.status === 'completed')),
+            8
+        );
         const summary = summaryEvent?.detail || this.actionTimelineSummary(recent, summaryCommandCount, isRunning);
         const parts: string[] = [];
         parts.push(`<div class="work-summary-line ${isRunning ? 'running' : 'done'}"><span class="work-dot"></span><strong>${this.escapeHtml(summary)}</strong></div>`);
@@ -7609,13 +7633,31 @@ prompt.addEventListener('keydown', event => {
             const lineClass = `action-line ${this.escapeHtml(event.status)}`;
             const lineBody = `${this.webIcon(this.actionTimelineIcon(event))}<strong>${this.escapeHtml(label)}</strong>${detail ? `<span>${this.escapeHtml(detail)}</span>` : ''}${meta ? `<small>${this.escapeHtml(meta)}</small>` : ''}`;
             if (output) {
-                const openAttr = event.status === 'running' ? ' open' : '';
-                parts.push(`<details class="action-detail ${this.escapeHtml(event.status)}"${openAttr}><summary class="${lineClass}">${lineBody}</summary><pre>${this.escapeHtml(output.slice(0, 1200))}</pre></details>`);
+                parts.push(`<details class="action-detail ${this.escapeHtml(event.status)}"><summary class="${lineClass}">${lineBody}</summary><pre>${this.escapeHtml(output.slice(0, 1200))}</pre></details>`);
             } else {
                 parts.push(`<div class="${lineClass}">${lineBody}</div>`);
             }
         }
         return parts.length ? `<div class="action-timeline">${parts.join('')}</div>` : '';
+    }
+
+    private compactTimelineEventsForDisplay(events: RemoteCodeActionEvent[], limit: number): RemoteCodeActionEvent[] {
+        const result: RemoteCodeActionEvent[] = [];
+        const seenModelProgress = new Set<string>();
+        for (let index = events.length - 1; index >= 0; index--) {
+            const event = events[index];
+            if (event.type === 'model_progress') {
+                const key = [
+                    (event.title || '').replace(/\s+/g, ' ').trim(),
+                    (event.detail || '').replace(/\s+/g, ' ').trim()
+                ].join('\0');
+                if (seenModelProgress.has(key)) continue;
+                seenModelProgress.add(key);
+            }
+            result.push(event);
+            if (result.length >= limit) break;
+        }
+        return result.reverse();
     }
 
     private latestWorkSummaryEvent(events: RemoteCodeActionEvent[]): RemoteCodeActionEvent | undefined {
@@ -7689,7 +7731,14 @@ prompt.addEventListener('keydown', event => {
     }
 
     private actionTimelineLabel(event: RemoteCodeActionEvent): string {
-        if (event.type === 'model_progress') return event.title || 'Прогресс модели';
+        if (event.type === 'model_progress') {
+            const title = (event.title || '').replace(/\s+/g, ' ').trim();
+            if (/\s+Codex$/i.test(title)) {
+                const compactTitle = title.replace(/\s+Codex$/i, '').trim();
+                if (compactTitle) return compactTitle;
+            }
+            return title || 'Прогресс модели';
+        }
         switch (event.status) {
             case 'running': return 'Выполняется';
             case 'pending': return event.actionable ? 'Ожидает подтверждения' : 'Ожидает';
