@@ -944,34 +944,98 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private fun List<CodexChatMessage>.dedupeCodexMessages(): List<CodexChatMessage> {
         val result = mutableListOf<CodexChatMessage>()
+        val metas = mutableListOf<CodexMessageDedupeMeta>()
+        val idToIndex = mutableMapOf<String, Int>()
+        val contentLatestIndex = mutableMapOf<String, Int>()
+        val contentBucketIndices = mutableMapOf<String, MutableList<Int>>()
+
+        fun remember(index: Int, meta: CodexMessageDedupeMeta) {
+            if (meta.id.isNotBlank()) idToIndex[meta.id] = index
+            if (meta.content.isBlank()) return
+            contentLatestIndex[meta.contentKey] = index
+            contentBucketIndices.getOrPut(meta.bucketKey) { mutableListOf() }.add(index)
+        }
+
+        fun replace(index: Int, message: CodexChatMessage, meta: CodexMessageDedupeMeta) {
+            val oldMeta = metas[index]
+            if (oldMeta.id.isNotBlank() && oldMeta.id != meta.id && idToIndex[oldMeta.id] == index) {
+                idToIndex.remove(oldMeta.id)
+            }
+            result[index] = message
+            metas[index] = meta
+            remember(index, meta)
+        }
+
         for (message in sortedBy { it.timestamp }) {
-            val duplicateIndex = result.indexOfLast { existing -> existing.isDuplicateCodexMessage(message) }
-            if (duplicateIndex >= 0) {
-                result[duplicateIndex] = preferCodexMessage(result[duplicateIndex], message)
+            val meta = message.dedupeMeta()
+            val duplicateIndex = meta.id
+                .takeIf { it.isNotBlank() }
+                ?.let { idToIndex[it] }
+                ?.takeIf { metas.getOrNull(it)?.isDuplicateOf(meta) == true }
+                ?: if (meta.isOptimistic || meta.isStreaming) {
+                    contentLatestIndex[meta.contentKey]
+                        ?.takeIf { metas.getOrNull(it)?.isDuplicateOf(meta) == true }
+                } else {
+                    sequenceOf(meta.timeBucket - 1, meta.timeBucket, meta.timeBucket + 1)
+                        .flatMap { bucket -> contentBucketIndices["${meta.contentKey}|$bucket"].orEmpty().asSequence() }
+                        .toList()
+                        .asReversed()
+                        .firstOrNull { metas.getOrNull(it)?.isDuplicateOf(meta) == true }
+                }
+            if (duplicateIndex != null && duplicateIndex >= 0) {
+                val preferred = preferCodexMessage(result[duplicateIndex], message)
+                replace(duplicateIndex, preferred, preferred.dedupeMeta())
             } else {
                 result.add(message)
+                metas.add(meta)
+                remember(result.lastIndex, meta)
             }
         }
         return result.sortedBy { it.timestamp }
     }
 
-    private fun CodexChatMessage.isDuplicateCodexMessage(other: CodexChatMessage): Boolean {
-        if (id.isNotBlank() && other.id.isNotBlank() && id == other.id) return true
-        if (role != other.role) return false
-        if (normalizedCodexContent() != other.normalizedCodexContent()) return false
-        if (normalizedCodexContent().isBlank()) return false
-        if (attachmentKey() != other.attachmentKey()) return false
-        if (changeSummaryKey() != other.changeSummaryKey()) return false
+    private data class CodexMessageDedupeMeta(
+        val id: String,
+        val role: String,
+        val content: String,
+        val attachmentKey: String,
+        val changeSummaryKey: String,
+        val timestamp: Long,
+        val isOptimistic: Boolean,
+        val isStreaming: Boolean
+    ) {
+        val contentKey: String = listOf(role, content, attachmentKey, changeSummaryKey).joinToString("\u0000")
+        val timeBucket: Long = if (timestamp > 0L) timestamp / 30_000L else 0L
+        val bucketKey: String = "$contentKey|$timeBucket"
 
-        val oneIsOptimistic = id.startsWith("mobile_user_") || other.id.startsWith("mobile_user_")
-        val oneIsStreaming = isStreaming || other.isStreaming ||
-            id.contains("stream", ignoreCase = true) ||
-            other.id.contains("stream", ignoreCase = true)
-        if (oneIsOptimistic || oneIsStreaming) return true
-
-        val distance = if (timestamp > 0L && other.timestamp > 0L) abs(timestamp - other.timestamp) else 0L
-        return distance <= 30_000L
+        fun isDuplicateOf(other: CodexMessageDedupeMeta): Boolean {
+            if (id.isNotBlank() && other.id.isNotBlank() && id == other.id) return true
+            if (role != other.role) return false
+            if (content != other.content || content.isBlank()) return false
+            if (attachmentKey != other.attachmentKey) return false
+            if (changeSummaryKey != other.changeSummaryKey) return false
+            if (isOptimistic || other.isOptimistic || isStreaming || other.isStreaming) return true
+            val distance = if (timestamp > 0L && other.timestamp > 0L) abs(timestamp - other.timestamp) else 0L
+            return distance <= 30_000L
+        }
     }
+
+    private fun CodexChatMessage.dedupeMeta(): CodexMessageDedupeMeta {
+        val messageId = id.trim()
+        return CodexMessageDedupeMeta(
+            id = messageId,
+            role = role,
+            content = normalizedCodexContent(),
+            attachmentKey = attachmentKey(),
+            changeSummaryKey = changeSummaryKey(),
+            timestamp = timestamp,
+            isOptimistic = messageId.startsWith("mobile_user_"),
+            isStreaming = isStreaming || messageId.contains("stream", ignoreCase = true)
+        )
+    }
+
+    private fun CodexChatMessage.isDuplicateCodexMessage(other: CodexChatMessage): Boolean =
+        dedupeMeta().isDuplicateOf(other.dedupeMeta())
 
     private fun CodexChatMessage.normalizedCodexContent(): String =
         content.trim().replace(Regex("\\s+"), " ")

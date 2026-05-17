@@ -230,6 +230,27 @@ export class RemoteServer {
     private workspaceStorageCache?: { timestamp: number; dirs: string[] };
     private workspaceFileHintsCache?: { timestamp: number; limit: number; hints: string };
     private codexSessionFilesCache?: { timestamp: number; maxFiles: number; files: string[] };
+    private codexSessionIndexCache?: {
+        path: string;
+        size: number;
+        mtimeMs: number;
+        index: Map<string, { title: string; timestamp: number }>;
+    };
+    private codexSessionFileByIdCache?: {
+        maxFiles: number;
+        signature: string;
+        byId: Map<string, string>;
+    };
+    private remoteSearchCache?: {
+        key: string;
+        timestamp: number;
+        result: { query: string; total: number; truncated: boolean; results: RemoteSearchResult[] };
+    };
+    private externalCodexActionEventsCache: Map<string, {
+        size: number;
+        mtimeMs: number;
+        events: RemoteCodeActionEvent[];
+    }> = new Map();
     private appApkMetadataCache?: {
         apkPath: string;
         sizeBytes: number;
@@ -1403,6 +1424,21 @@ export class RemoteServer {
         if (!normalizedQuery) {
             return { query, total: 0, truncated: false, results: [] };
         }
+        const cacheKey = [
+            normalizedQuery,
+            limit,
+            include,
+            this.codexHistory.length,
+            this.remoteCodeThreads.length,
+            this.codexActionSequence,
+            this.getWorkspaceRoots().join('\u0000')
+        ].join('\u0001');
+        if (this.remoteSearchCache?.key === cacheKey && Date.now() - this.remoteSearchCache.timestamp < 1500) {
+            return {
+                ...this.remoteSearchCache.result,
+                results: this.remoteSearchCache.result.results.slice()
+            };
+        }
 
         const includeMessages = include.split(',').map(item => item.trim()).includes('messages');
         const includeFiles = include.split(',').map(item => item.trim()).includes('files');
@@ -1422,12 +1458,18 @@ export class RemoteServer {
             truncated = true;
         }
 
-        return {
+        const result = {
             query,
             total: results.length,
             truncated,
             results: results.slice(0, limit)
         };
+        this.remoteSearchCache = {
+            key: cacheKey,
+            timestamp: Date.now(),
+            result
+        };
+        return result;
     }
 
     private normalizeSearchNeedle(value: string): string {
@@ -1837,6 +1879,7 @@ export class RemoteServer {
      */
     private getAllVSCodeChats(): Array<{ id: string, title: string, lastMessage: string, lastTimestamp: number }> {
         const result: Array<{ id: string, title: string, lastMessage: string, lastTimestamp: number }> = [];
+        const seenIds = new Set<string>();
         const wsDirs = this.getAllWorkspaceStorageDirs();
         for (const wsDir of wsDirs) {
             const chatDir = path.join(wsDir, 'chatSessions');
@@ -1848,7 +1891,8 @@ export class RemoteServer {
                     const parsed = this.parseVSCodeSession(fullPath);
                     if (!parsed) continue;
                     // Пропускаем дубликаты sessionId (берём из первой папки)
-                    if (result.some(r => r.id === parsed.id)) continue;
+                    if (seenIds.has(parsed.id)) continue;
+                    seenIds.add(parsed.id);
                     const msgs = parsed.messages;
                     let lastMessage = '';
                     let lastTimestamp = 0;
@@ -2003,10 +2047,11 @@ export class RemoteServer {
             lastTimestamp: c.lastTimestamp,
             isCurrent: c.id === this.currentChatId
         }));
+        const conversationIds = new Set(conversations.map(c => c.id));
 
         // Добавляем in-memory чаты (созданные с телефона)
         for (const [chatId, messages] of this.chatHistory.entries()) {
-            if (!conversations.some(c => c.id === chatId) && messages.length > 0) {
+            if (!conversationIds.has(chatId) && messages.length > 0) {
                 const lastMsg = messages[messages.length - 1];
                 conversations.push({
                     id: chatId,
@@ -2016,6 +2061,7 @@ export class RemoteServer {
                     lastTimestamp: lastMsg.timestamp,
                     isCurrent: chatId === this.currentChatId
                 });
+                conversationIds.add(chatId);
             }
         }
 
@@ -2032,12 +2078,16 @@ export class RemoteServer {
     private async handleDiagnostics(_req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
         const items: DiagnosticItem[] = [];
         const allDiagnostics = vscode.languages.getDiagnostics();
+        let errors = 0;
+        let warnings = 0;
 
         for (const [uri, diagnostics] of allDiagnostics) {
             for (const d of diagnostics) {
                 const severity: 'error' | 'warning' | 'info' =
                     d.severity === vscode.DiagnosticSeverity.Error ? 'error' :
                     d.severity === vscode.DiagnosticSeverity.Warning ? 'warning' : 'info';
+                if (severity === 'error') errors++;
+                if (severity === 'warning') warnings++;
 
                 items.push({
                     file: uri.fsPath,
@@ -2051,13 +2101,10 @@ export class RemoteServer {
         }
 
         // Группируем
-        const errors = items.filter(i => i.severity === 'error');
-        const warnings = items.filter(i => i.severity === 'warning');
-
         this.jsonResponse(res, 200, {
             total: items.length,
-            errors: errors.length,
-            warnings: warnings.length,
+            errors,
+            warnings,
             items: items.slice(0, 200), // максимум 200
         });
     }
@@ -2259,8 +2306,9 @@ export class RemoteServer {
                 isCurrent: c.id === this.currentChatId
             }));
             // Добавляем in-memory чаты
+            const conversationIds = new Set(conversations.map(c => c.id));
             for (const [chatId, messages] of this.chatHistory.entries()) {
-                if (!conversations.some(c => c.id === chatId) && messages.length > 0) {
+                if (!conversationIds.has(chatId) && messages.length > 0) {
                     const lastMsg = messages[messages.length - 1];
                     conversations.push({
                         id: chatId,
@@ -2270,6 +2318,7 @@ export class RemoteServer {
                         lastTimestamp: lastMsg.timestamp,
                         isCurrent: chatId === this.currentChatId
                     });
+                    conversationIds.add(chatId);
                 }
             }
             conversations.sort((a, b) => b.lastTimestamp - a.lastTimestamp);
@@ -3025,10 +3074,16 @@ export class RemoteServer {
                 timestamp: 0,
                 threads: []
             };
-            project.threads = [...project.threads, threadWithProject].sort((a, b) => b.timestamp - a.timestamp);
+            project.threads.push(threadWithProject);
             project.threadCount = project.threads.length;
             project.timestamp = Math.max(project.timestamp, thread.timestamp || 0);
             byProject.set(id, project);
+        }
+
+        for (const project of byProject.values()) {
+            if (project.threads.length > 1) {
+                project.threads.sort((a, b) => b.timestamp - a.timestamp);
+            }
         }
 
         return Array.from(byProject.values())
@@ -5850,6 +5905,18 @@ ol{padding-left:20px}li{margin:6px 0}.note{margin-top:12px;font-size:13px;color:
         const filePath = this.findCodexSessionFile(fileId);
         if (!filePath) return [];
 
+        let stat: fs.Stats;
+        try {
+            stat = fs.statSync(filePath);
+        } catch {
+            return [];
+        }
+        const cacheKey = `${target}\u0000${filePath}`;
+        const cached = this.externalCodexActionEventsCache.get(cacheKey);
+        if (cached && cached.size === stat.size && cached.mtimeMs === stat.mtimeMs) {
+            return cached.events;
+        }
+
         try {
             const lines = this.readUtf8FileTailLines(filePath, 16 * 1024 * 1024).slice(-6000);
             const events = new Map<string, RemoteCodeActionEvent>();
@@ -6038,8 +6105,19 @@ ol{padding-left:20px}li{margin:6px 0}.note{margin-top:12px;font-size:13px;color:
                 events.set(summaryEvent.id, summaryEvent);
             }
 
-            return Array.from(events.values()).slice(-160);
+            const parsedEvents = Array.from(events.values()).slice(-160);
+            this.externalCodexActionEventsCache.set(cacheKey, {
+                size: stat.size,
+                mtimeMs: stat.mtimeMs,
+                events: parsedEvents
+            });
+            if (this.externalCodexActionEventsCache.size > 12) {
+                const firstKey = this.externalCodexActionEventsCache.keys().next().value;
+                if (firstKey) this.externalCodexActionEventsCache.delete(firstKey);
+            }
+            return parsedEvents;
         } catch {
+            this.externalCodexActionEventsCache.delete(cacheKey);
             return [];
         }
     }
@@ -9568,9 +9646,30 @@ prompt.addEventListener('keydown', event => {
     }
 
     private getCodexSessionIndex(): Map<string, { title: string; timestamp: number }> {
-        const result = new Map<string, { title: string; timestamp: number }>();
         const indexFile = path.join(os.homedir(), '.codex', 'session_index.jsonl');
-        if (!fs.existsSync(indexFile)) return result;
+        if (!fs.existsSync(indexFile)) {
+            this.codexSessionIndexCache = undefined;
+            return new Map();
+        }
+
+        let stat: fs.Stats;
+        try {
+            stat = fs.statSync(indexFile);
+        } catch {
+            this.codexSessionIndexCache = undefined;
+            return new Map();
+        }
+
+        if (
+            this.codexSessionIndexCache &&
+            this.codexSessionIndexCache.path === indexFile &&
+            this.codexSessionIndexCache.size === stat.size &&
+            this.codexSessionIndexCache.mtimeMs === stat.mtimeMs
+        ) {
+            return this.codexSessionIndexCache.index;
+        }
+
+        const result = new Map<string, { title: string; timestamp: number }>();
         for (const line of fs.readFileSync(indexFile, 'utf-8').split(/\r?\n/).filter(Boolean)) {
             try {
                 const item = JSON.parse(line);
@@ -9583,6 +9682,12 @@ prompt.addEventListener('keydown', event => {
                 // skip malformed index rows
             }
         }
+        this.codexSessionIndexCache = {
+            path: indexFile,
+            size: stat.size,
+            mtimeMs: stat.mtimeMs,
+            index: result
+        };
         return result;
     }
 
@@ -9627,9 +9732,10 @@ prompt.addEventListener('keydown', event => {
     }
 
     private mergeLocalCodexMessages(threadId: string, serverMessages: CodexChatMessage[]): CodexChatMessage[] {
+        const serverKeys = new Set(serverMessages.map(server => `${server.role}\u0000${server.content}`));
         const localMessages = this.codexHistory.filter(local =>
             local.threadId === threadId &&
-            !serverMessages.some(server => server.role === local.role && server.content === local.content)
+            !serverKeys.has(`${local.role}\u0000${local.content}`)
         );
         return [...serverMessages, ...localMessages].sort((a, b) => a.timestamp - b.timestamp);
     }
@@ -9696,7 +9802,22 @@ prompt.addEventListener('keydown', event => {
     }
 
     private findCodexSessionFile(threadId: string): string | undefined {
-        return this.getCodexSessionFiles(300).find(filePath => this.codexIdFromFilePath(filePath) === threadId);
+        const maxFiles = 300;
+        const files = this.getCodexSessionFiles(maxFiles);
+        const signature = files.join('\u0000');
+        if (
+            !this.codexSessionFileByIdCache ||
+            this.codexSessionFileByIdCache.maxFiles < maxFiles ||
+            this.codexSessionFileByIdCache.signature !== signature
+        ) {
+            const byId = new Map<string, string>();
+            for (const filePath of files) {
+                const id = this.codexIdFromFilePath(filePath);
+                if (!byId.has(id)) byId.set(id, filePath);
+            }
+            this.codexSessionFileByIdCache = { maxFiles, signature, byId };
+        }
+        return this.codexSessionFileByIdCache.byId.get(threadId);
     }
 
     private parseCodexSessionFileTail(
