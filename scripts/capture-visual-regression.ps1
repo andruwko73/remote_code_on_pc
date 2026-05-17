@@ -3,11 +3,13 @@ param(
     [string]$BaselineDir = "test-fixtures\visual-baseline",
     [string]$AndroidPackage = "com.remotecodeonpc.app",
     [string]$VsCodeTitlePattern = "remote_code_on_pc",
+    [switch]$VsCodeFullscreen,
     [switch]$UpdateBaseline,
     [switch]$NoCompare,
     [double]$MaxPixelDeltaRatio = 0.08,
     [double]$VsCodeMaxPixelDeltaRatio = 0.18,
-    [int]$PixelThreshold = 30
+    [int]$PixelThreshold = 30,
+    [string]$VsCodeFullscreenBaselineName = "vscode-fullscreen.png"
 )
 
 $ErrorActionPreference = "Stop"
@@ -38,14 +40,18 @@ function Resolve-AdbPath {
     return "adb"
 }
 
-function Save-WindowScreenshot([string]$TitlePattern, [string]$Path) {
+function Save-WindowScreenshot([string]$TitlePattern, [string]$Path, [switch]$Fullscreen) {
     Add-Type -AssemblyName System.Drawing
     Add-Type @"
 using System;
 using System.Runtime.InteropServices;
-public static class Win32Rect {
+public static class Win32VisualRegression {
     [DllImport("user32.dll")]
     public static extern bool GetWindowRect(IntPtr hWnd, out RECT rect);
+    [DllImport("user32.dll")]
+    public static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
+    [DllImport("user32.dll")]
+    public static extern bool SetForegroundWindow(IntPtr hWnd);
     public struct RECT {
         public int Left;
         public int Top;
@@ -55,17 +61,31 @@ public static class Win32Rect {
 }
 "@
     $window = Get-Process Code -ErrorAction SilentlyContinue |
-        Where-Object { $_.MainWindowTitle -match $TitlePattern } |
+        Where-Object { $_.MainWindowHandle -ne 0 -and $_.MainWindowTitle -match $TitlePattern } |
         Select-Object -First 1
     if (-not $window) {
         Write-Host "VS Code window matching '$TitlePattern' was not found."
         return $false
     }
 
-    $rect = New-Object Win32Rect+RECT
-    [Win32Rect]::GetWindowRect($window.MainWindowHandle, [ref]$rect) | Out-Null
+    if ($Fullscreen) {
+        [Win32VisualRegression]::ShowWindow($window.MainWindowHandle, 3) | Out-Null
+        [Win32VisualRegression]::SetForegroundWindow($window.MainWindowHandle) | Out-Null
+        Start-Sleep -Seconds 1
+    } else {
+        [Win32VisualRegression]::ShowWindow($window.MainWindowHandle, 9) | Out-Null
+        [Win32VisualRegression]::SetForegroundWindow($window.MainWindowHandle) | Out-Null
+        Start-Sleep -Milliseconds 400
+    }
+
+    $rect = New-Object Win32VisualRegression+RECT
+    [Win32VisualRegression]::GetWindowRect($window.MainWindowHandle, [ref]$rect) | Out-Null
     $width = [Math]::Max(1, $rect.Right - $rect.Left)
     $height = [Math]::Max(1, $rect.Bottom - $rect.Top)
+    if ($width -lt 320 -or $height -lt 240) {
+        Write-Host "VS Code screenshot skipped: window is too small ($($width)x$($height))."
+        return $false
+    }
     $bitmap = New-Object System.Drawing.Bitmap $width, $height
     $graphics = [System.Drawing.Graphics]::FromImage($bitmap)
     try {
@@ -155,21 +175,25 @@ New-Item -ItemType Directory -Force -Path $resolvedBaseline | Out-Null
 $timestamp = Get-Date -Format "yyyyMMdd-HHmmss"
 $adb = Resolve-AdbPath
 $androidPath = Join-Path $resolvedOutput "android-$timestamp.png"
-$vscodePath = Join-Path $resolvedOutput "vscode-$timestamp.png"
+$vscodeName = if ($VsCodeFullscreen) { "vscode-fullscreen-$timestamp.png" } else { "vscode-$timestamp.png" }
+$vscodePath = Join-Path $resolvedOutput $vscodeName
 $androidBaseline = Join-Path $resolvedBaseline "android.png"
-$vscodeBaseline = Join-Path $resolvedBaseline "vscode.png"
+$vscodeBaseline = Join-Path $resolvedBaseline $(if ($VsCodeFullscreen) { $VsCodeFullscreenBaselineName } else { "vscode.png" })
 
 try {
-    & $adb shell monkey -p $AndroidPackage 1 | Out-Null
+    & $adb shell monkey -p $AndroidPackage 1 2>$null | Out-Null
+    if ($LASTEXITCODE -ne 0) { throw "adb monkey failed with exit code $LASTEXITCODE" }
     Start-Sleep -Seconds 5
-    & $adb shell screencap -p /sdcard/remote-code-visual-regression.png | Out-Null
-    & $adb pull /sdcard/remote-code-visual-regression.png $androidPath | Out-Null
+    & $adb shell screencap -p /sdcard/remote-code-visual-regression.png 2>$null | Out-Null
+    if ($LASTEXITCODE -ne 0) { throw "adb screencap failed with exit code $LASTEXITCODE" }
+    & $adb pull /sdcard/remote-code-visual-regression.png $androidPath 2>$null | Out-Null
+    if ($LASTEXITCODE -ne 0 -or -not (Test-Path $androidPath)) { throw "adb pull failed with exit code $LASTEXITCODE" }
     Write-Host "Android screenshot: $androidPath"
 } catch {
     Write-Host "Android screenshot skipped: $($_.Exception.Message)"
 }
 
-if (Save-WindowScreenshot $VsCodeTitlePattern $vscodePath) {
+if (Save-WindowScreenshot $VsCodeTitlePattern $vscodePath -Fullscreen:$VsCodeFullscreen) {
     Write-Host "VS Code screenshot: $vscodePath"
 }
 

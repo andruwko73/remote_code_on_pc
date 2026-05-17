@@ -408,7 +408,18 @@ assert(pkg.scripts?.bundle === 'node build.js' && pkg.scripts?.['vscode:prepubli
 assert(pkg.repository?.url?.includes('github.com/andruwko73/remote_code_on_pc') && fs.existsSync(path.join(__dirname, 'LICENSE')), 'VSIX metadata is complete', 'package should include repository metadata and LICENSE');
 assert(vscodeIgnore.includes('node_modules/**') && vscodeIgnore.includes('out/server.js') && vscodeIgnore.includes('build.js'), 'VSIX excludes unbundled payload', 'node_modules, build script, and unbundled server output should not ship in the VSIX');
 assert(installScript.includes('Restart-RemoteCodeExtensionHost') && installScript.includes('Restart-VsCodeWindow') && installScript.includes('vscode://command/workbench.action.reloadWindow') && installScript.includes('Get-NetTCPConnection') && installScript.includes('CloseMainWindow'), 'Local installer can activate the new extension', 'install script should request a VS Code reload and recover from a stale extension host/window');
-assert(visualRegressionScript.includes('screencap') && visualRegressionScript.includes('Save-WindowScreenshot') && visualRegressionScript.includes('Compare-VisualBaseline') && visualRegressionScript.includes('test-fixtures\\visual-baseline') && visualRegressionScript.includes('UpdateBaseline'), 'Visual regression capture script is available', 'visual regression script should capture Android and VS Code screenshots and compare them with a baseline');
+assert(
+    visualRegressionScript.includes('screencap') &&
+    visualRegressionScript.includes('Save-WindowScreenshot') &&
+    visualRegressionScript.includes('Compare-VisualBaseline') &&
+    visualRegressionScript.includes('test-fixtures\\visual-baseline') &&
+    visualRegressionScript.includes('UpdateBaseline') &&
+    visualRegressionScript.includes('VsCodeFullscreen') &&
+    visualRegressionScript.includes('vscode-fullscreen.png') &&
+    visualRegressionScript.includes('ShowWindow($window.MainWindowHandle, 3)'),
+    'Visual regression capture script is available',
+    'visual regression script should capture Android, normal VS Code, and fullscreen VS Code chat screenshots and compare them with baselines'
+);
 assert(e2eSmokeScript.includes('/api/search') && e2eSmokeScript.includes('/api/tunnel/status') && e2eSmokeScript.includes('ClientWebSocket') && e2eSmokeScript.includes('configured public URL'), 'E2E smoke script covers live API surfaces', 'smoke script should cover status, search, tunnel status, public URL and WebSocket greeting');
 assert(pkg.dependencies?.qrcode, 'QR code dependency is declared', 'extension package should include qrcode for Android pairing QR panels');
 assert(!/[\u0080-\u009f\ufffd]/.test(pkgRaw), 'package.json has no mojibake control characters', 'package metadata should be valid UTF-8 without C1 controls');
